@@ -1,0 +1,2570 @@
+{
+	"info": {
+		"_postman_id": "f55bef3d-d349-4d23-bde5-7f51e7de72a1",
+		"name": "CustomerPortal",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "2059349",
+		"_collection_link": "https://dark-escape-241571.postman.co/workspace/CustomerPortal~419edd84-a821-4a64-baff-0cbac9f5a4e1/collection/2059349-f55bef3d-d349-4d23-bde5-7f51e7de72a1?action=share&source=collection_link&creator=2059349"
+	},
+	"item": [
+		{
+			"name": "01_Login",
+			"item": [
+				{
+					"name": "01_Signup",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"name\":\"rohith\",\r\n  \"email\": \"rohit@itcatalystindia.com\",\r\n  \"mobilno\":9844101210\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/signup",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"signup"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_forget password",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"email\": \"rohit@itcatalystindia.com\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/forget-password",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"forget-password"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_login",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"email\": \"coowner@itc.com\",\r\n  \"password\":\"Tally123$\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/login",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_Resetpass",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "  {\r\n    \"email\": \"rohit@itcatalystindia.com\",\r\n    \"oldPassword\": \"H#@uAE!&%&G^\",\r\n    \"newPassword\": \"Tally123$\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/change-password",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"change-password"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "02_AdminDashboard",
+			"item": [
+				{
+					"name": "01_TallyConnCheck",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"ip\":\"localhost\",\"port\":\"9009\",\"connectionName\":\"Myoffice\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/check-connection",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"check-connection"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_GetConnections",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/connections",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"connections"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_GetConnections All",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/connections/all",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"connections",
+								"all"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_DeleteConn",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/connections/4",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"connections",
+								"4"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_ListofUserConn",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/user-connections",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"user-connections"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "03_Masters",
+			"item": [
+				{
+					"name": "01_TallyLedgerList with Address",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":57,\"company\":\"Delhi - Lucid\",\"guid\":\"4a4c5220-8ea5-4597-8e1d-30ac9a2911c8\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledgerlist-w-addrs",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledgerlist-w-addrs"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_Stockitem",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/stockitem",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"stockitem"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_Stockitem_Slicing",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/stockitem-loop",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"stockitem-loop"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_LedgerGroup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":76,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledgergroups",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledgergroups"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_StockGroup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":76,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/stockgroups",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"stockgroups"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "06_StockCategory",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/stockcategories",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"stockcategories"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "07_GodownStock",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\",\"item\":\"Item A\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/godownStock",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"godownStock"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "08_CompanyStock",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\",\"item\":\"Item C\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/companystock",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"companystock"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "09_VoucherType",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/tally/vouchertype",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"tally",
+								"vouchertype"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "10_CreditDaysLimit",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":89,\"company\":\"TallyCatalyst Demo Data\",\"guid\":\"7f246234-6370-4c1d-86f1-7318b483c30c\",\"ledgername\":\"Agarwal Super Market\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/creditdayslimit",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"creditdayslimit"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "11_ItembatchgodownCls",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Data Lynk\",\"guid\":\"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\"stockitemname\": \"059 -100\",\"date\":20250401}",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/itemwise-batchwise-bal",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"itemwise-batchwise-bal"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "04_Reports",
+			"item": [
+				{
+					"name": "01_Report(Ledger Voucher/Billwise)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":57,\"company\":\"Delhi - Lucid\",\"guid\":\"52aca006-6c0c-4cbc-b347-907f6222e2f8\",\"reporttype\":\"Ledger Vouchers\", \"ledgername\":\"3D Engineering Automation LLP\", \"fromdate\":20240401,\"todate\":20250430}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/led_statbillrep",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"led_statbillrep"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_ALLData",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Data Lynk\",\"guid\":\"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\"fromdate\":\"20251025\",\"todate\":\"20251102\",\r\n\"lastaltid\":4485, \"serverslice\":\"Yes\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url1}}api/reports/salesextract",
+							"host": [
+								"{{base_url1}}api"
+							],
+							"path": [
+								"reports",
+								"salesextract"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_SalesDashboard",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Data Lynk\",\"guid\":\"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\"fromdate\":\"20251001\",\"todate\":\"20251017\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/reports/salesvoucherextract",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"reports",
+								"salesvoucherextract"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "05_GenerateTransactions",
+			"item": [
+				{
+					"name": "01_PlaceOrder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"tallyloc_id\": 88,\r\n  \"company\": \"Data Lynk\",\r\n  \"guid\": \"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\r\n  \"customer\": \"AADHI YAZH ENTERPRISES\",\r\n  \"address\": \"64,KUPPATHEVAR STREET,| SULUR -641401\",\r\n  \"pincode\": \"641401\",\r\n  \"state\": \"Tamil Nadu\",\r\n  \"country\": \"India\",\r\n  \"gstno\": \"\",\r\n  \"pricelevel\": \"\",\r\n  \"buyerorderno\": \"\",\r\n  \"paymentterms\": \"\",\r\n  \"deliveryterms\": \"\",\r\n  \"narration\": \"\",\r\n  \"isoptional\": \"No\",\r\n  \"basicduedateofpymt\": \"\",\r\n  \"basicorderterms\": \"\",\r\n  \"vouchertype\": \"Sales Order\",\r\n  \"vouchernumber\": \"20251127093344\",\r\n  \"items\": [\r\n    {\r\n      \"item\": \"Biscuits\",\r\n      \"qty\": \"10 Pack =  1 Box\",\r\n      \"rate\": \"20/pack\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 200,\r\n      \"description\": \"\"\r\n    },\r\n    {\r\n      \"item\": \"Chocolate\",\r\n      \"qty\": \"5\",\r\n      \"rate\": \"50\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 250,\r\n      \"description\": \"\"\r\n    },\r\n    {\r\n      \"item\": \"Nandini Milk\",\r\n      \"qty\": \"20 Ltrs 500 ML\",\r\n      \"rate\": \"24.00/Ltrs\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 492,\r\n      \"description\": \"\"\r\n    },\r\n    {\r\n      \"item\": \"Curd\",\r\n      \"qty\": \"10 Ltrs 0 ML =  1 Box\",\r\n      \"rate\": \"50.00/Ltrs\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 500,\r\n      \"description\": \"\"\r\n    },\r\n    {\r\n      \"item\": \"Rice\",\r\n      \"aqty\": \"3 KG\",\r\n      \"qty\": \"2.50 KG\",\r\n      \"rate\": \"120.00/KG\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 300,\r\n      \"description\": \"\"\r\n    },\r\n    {\r\n      \"item\": \"Oil\",\r\n      \"qty\": \"12 Ltrs 500 ML =  1 Box 3 Pack\",\r\n      \"rate\": \"250.00/Ltrs\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 3125,\r\n      \"description\": \"\"\r\n    },\r\n    {\r\n      \"item\": \"Oil\",\r\n      \"aqty\": \"15 Ltrs 0.000 ML =  2 Box 5 Pack\",\r\n      \"qty\": \"12 Ltrs 0.000 ML =  1 Box 2 Pack\",\r\n      \"rate\": \"200.00/Ltrs\",\r\n      \"discount\": 0,\r\n      \"gst\": 5,\r\n      \"amount\": 240,\r\n      \"description\": \"\"\r\n    }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/place_order",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"place_order"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "06_ShareAccess",
+			"item": [
+				{
+					"name": "01_TallyLedgerList-ShareAccess",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":57,\"company\":\"Delhi - Lucid\",\"guid\":\"4a4c5220-8ea5-4597-8e1d-30ac9a2911c8\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledger-shareaccess",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledger-shareaccess"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_TallyLedgerList-ShareAccess Account Create",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":8,\"company\":\"Delhi - Lucid\",\"guid\":\"4a4c5220-8ea5-4597-8e1d-30ac9a2911c8\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledger-shareaccess-acc",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledger-shareaccess-acc"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_InternalUser_Creation",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"email\": \"user@example.com\",\r\n  \"name\": \"John Doe\",\r\n  \"mobileno\": \"9876543210\",\r\n  \"companies\": [\r\n    {\r\n      \"tallyloc_id\": 1,\r\n      \"company\": \"ABC Company Ltd\",\r\n      \"guid\": \"company-guid-123\"\r\n    },\r\n    {\r\n      \"tallyloc_id\": 2,\r\n      \"company\": \"XYZ Corporation\",\r\n      \"guid\": \"company-guid-456\"\r\n    }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/internal-user-access",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"internal-user-access"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_InternalUser_List",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/internal-users",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"internal-users"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_InternalUser_List Edit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"email\": \"user@example.com\",\r\n  \"name\": \"Optional Name\",\r\n  \"mobileno\": \"Optional\",\r\n  \"companies\": [\r\n    { \"tallyloc_id\": 1, \"company\": \"A Co\", \"guid\": \"GUID_A\" },\r\n    { \"tallyloc_id\": 2, \"company\": \"B Co\", \"guid\": \"GUID_B\" }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/internal-user-access/update",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"internal-user-access",
+								"update"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "06_InternalUser_List Delete",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"email\": \"user@example.com\" }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/internal-user-access/remove-all",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"internal-user-access",
+								"remove-all"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "07_Utility",
+			"item": [
+				{
+					"name": "01_TallyXMLData",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/xml",
+								"type": "text"
+							},
+							{
+								"key": "x-tallyloc-id",
+								"value": "13",
+								"type": "text"
+							},
+							{
+								"key": "x-company",
+								"value": "Delhi - Lucid",
+								"type": "text"
+							},
+							{
+								"key": "x-guid",
+								"value": "4a4c5220-8ea5-4597-8e1d-30ac9a2911c8",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n      <TALLYREQUEST>Import Data</TALLYREQUEST>\r\n    </HEADER>\r\n    <BODY>\r\n      <IMPORTDATA>\r\n        <REQUESTDESC>\r\n          <REPORTNAME>Vouchers</REPORTNAME>\r\n        <STATICVARIABLES>\r\n          <SVCURRENTCOMPANY>Delhi-Lucid</SVCURRENTCOMPANY>\r\n        </STATICVARIABLES>\r\n        </REQUESTDESC>\r\n        <REQUESTDATA>\r\n          <TALLYMESSAGE xmlns:UDF=\"TallyUDF\">\r\n            <VOUCHER>\r\n              <DATE>18-Aug-2025</DATE>\r\n              <VOUCHERTYPENAME>Sales Order</VOUCHERTYPENAME>\r\n              <PARTYNAME>1 New Customer</PARTYNAME>\r\n              <PARTYLEDGERNAME>1 New Customer</PARTYLEDGERNAME>\r\n              <REFERENCE>ORD-1755500205247-299</REFERENCE>\r\n              <BASICORDERREF></BASICORDERREF>\r\n              <ADDRESS.LIST TYPE=\"String\">\r\n                <ADDRESS></ADDRESS>\r\n                <ADDRESS></ADDRESS>\r\n                <ADDRESS></ADDRESS>\r\n              </ADDRESS.LIST>\r\n              <BASICBUYERADDRESS.LIST TYPE=\"String\">\r\n                <BASICBUYERADDRESS></BASICBUYERADDRESS>\r\n                <BASICBUYERADDRESS></BASICBUYERADDRESS>\r\n                <BASICBUYERADDRESS></BASICBUYERADDRESS>\r\n              </BASICBUYERADDRESS.LIST>\r\n              <CONSIGNEEGSTIN></CONSIGNEEGSTIN>\r\n              \r\n    <ALLINVENTORYENTRIES.LIST>\r\n      <STOCKITEMNAME>Badam Drink Mix 100g</STOCKITEMNAME>\r\n      <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>\r\n      <RATE>120</RATE>\r\n      <AMOUNT>-120.00</AMOUNT>\r\n      <ACTUALQTY>1</ACTUALQTY>\r\n      <BILLEDQTY>1</BILLEDQTY>\r\n      <BATCHALLOCATIONS.LIST>\r\n                    <GODOWNNAME>&#4; Any</GODOWNNAME>\r\n                    <BATCHNAME>&#4; Any</BATCHNAME>\r\n                    <ORDERNO>ORD-1755500205247-299</ORDERNO>\r\n                    <TRACKINGNUMBER>&#4; Not Applicable</TRACKINGNUMBER>\r\n                    <ACTUALQTY>1</ACTUALQTY>\r\n                    <BILLEDQTY>1</BILLEDQTY>\r\n                    <AMOUNT>-120</AMOUNT>\r\n                    <ORDERDUEDATE>01-08-2025</ORDERDUEDATE>\r\n                    <MFGDT></MFGDT>\r\n                    <EXPDT></EXPDT>\r\n                </BATCHALLOCATIONS.LIST>\r\n    </ALLINVENTORYENTRIES.LIST>\r\n  \r\n              <LEDGERENTRIES.LIST>\r\n                <LEDGERNAME>1 New Customer</LEDGERNAME>\r\n                <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>\r\n                <AMOUNT>-120.00</AMOUNT>\r\n              </LEDGERENTRIES.LIST>\r\n            </VOUCHER>\r\n          </TALLYMESSAGE>\r\n        </REQUESTDATA>\r\n      </IMPORTDATA>\r\n    </BODY>\r\n  </ENVELOPE>",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/tallydata",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"tallydata"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "08_AccessManagement",
+			"item": [
+				{
+					"name": "01_ModuleList",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/modules/all",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"modules",
+								"all"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_Selected_Module",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/modules/owner-selected",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"modules",
+								"owner-selected"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_Update Owner Moduels",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"moduleIds\": [1, 2],\r\n  \"permissions\": [\r\n    {\r\n      \"id\": 10,\r\n      \"permission_value\": null\r\n    },\r\n    {\r\n      \"id\": 11,\r\n      \"permission_value\": \"Sales Order\"\r\n    },\r\n    {\r\n      \"id\": 12,\r\n      \"permission_value\": \"100\"\r\n    }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/modules/update-selections",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"modules",
+								"update-selections"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_Owner Moudles",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/modules/owner-selected",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"modules",
+								"owner-selected"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_RoleList",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/roles/all",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"roles",
+								"all"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_Modules & Permissions",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/permissions/all",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"permissions",
+								"all"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "06_Modules & Permissions - Hierarchy",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/permissions/all?includeHierarchy=true",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"permissions",
+								"all"
+							],
+							"query": [
+								{
+									"key": "includeHierarchy",
+									"value": "true"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "06_Create/Update Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"name\": \"voucher_manager\",\r\n  \"display_name\": \"Voucher Manager\",\r\n  \"description\": \"Manages voucher operations\",\r\n  \"modules\": [\r\n    {\r\n      \"module_id\": 1,\r\n      \"permissions\": [\r\n        {\r\n          \"id\": 10,\r\n          \"permission_value\": null\r\n        },\r\n        {\r\n          \"id\": 11,\r\n          \"permission_value\": \"Purchase Order\"\r\n        },\r\n        {\r\n          \"id\": 12,\r\n          \"permission_value\": \"150\"\r\n        }\r\n      ]\r\n    }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/roles/create-or-update",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"roles",
+								"create-or-update"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "07_GetRole",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/roles/30",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"roles",
+								"30"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "08_UserWiseCoWise Roles",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/access-control/user-access?tallylocId=89&co_guid=7f246234-6370-4c1d-86f1-7318b483c30c",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"access-control",
+								"user-access"
+							],
+							"query": [
+								{
+									"key": "tallylocId",
+									"value": "89"
+								},
+								{
+									"key": "co_guid",
+									"value": "7f246234-6370-4c1d-86f1-7318b483c30c"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "09_UserWiseGroupCategory",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"userid\": \"customer1@itc.com\",\r\n  \"tallyloc_id\": 87,\r\n  \"company_name\": \"Delhi - Lucid\",\r\n  \"guid\": \"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\",\r\n  \"ledger_groups\": [\r\n    {\r\n      \"name\": \"Branch / Divisions\",\r\n      \"masterid\": \"7\"\r\n    },\r\n    {\r\n      \"name\": \"Sundry Debtors\",\r\n      \"masterid\": \"20\"\r\n    }\r\n  ],\r\n  \"stock_groups\": [\r\n    {\r\n      \"name\": \"Group A\",\r\n      \"masterid\": \"219\"\r\n    }\r\n  ],\r\n  \"stock_categories\": [\r\n    {\r\n      \"name\": \"Categroy1\",\r\n      \"masterid\": \"234\"\r\n    }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/user-groups",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"user-groups"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "10_Get UserWiseGroupCategory",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"userid\": \"customer1@itc.com\",\"tallyloc_id\":87,\"company_name\":\"Delhi - Lucid\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/user-groups/get",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"user-groups",
+								"get"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "09_TallyXML",
+			"item": [
+				{
+					"name": "01_Voucher",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n        <VERSION>1</VERSION>\r\n        <TALLYREQUEST>IMPORT</TALLYREQUEST>\r\n        <TYPE>DATA</TYPE>\r\n        <ID>Vouchers</ID>\r\n    </HEADER>\r\n    <BODY>\r\n        <DESC>\r\n            <STATICVARIABLES>\r\n                <SVCURRENTCOMPANY>Delhi - Lucid</SVCURRENTCOMPANY>\r\n            </STATICVARIABLES>\r\n        </DESC>\r\n    </BODY>\r\n    <TALLYMESSAGE>\r\n        <VOUCHERTYPE NAME=\"CP_SalesOrder\" RESERVEDNAME=\"CP_SalesOrder\">\r\n            <PARENT>Sales Order</PARENT>\r\n            <USEZEROENTRIES>Yes</USEZEROENTRIES>\r\n            <ISACTIVE>Yes</ISACTIVE>\r\n            <LANGUAGENAME.LIST>\r\n                <NAME.LIST TYPE=\"String\">\r\n                    <NAME>CP_SalesOrder</NAME>\r\n                </NAME.LIST>\r\n            <LANGUAGEID> 1033</LANGUAGEID>\r\n            </LANGUAGENAME.LIST>\r\n        </VOUCHERTYPE>\r\n    </TALLYMESSAGE>\r\n    <TALLYMESSAGE>\r\n        <VOUCHER>\r\n            <DATE>01-06-2025</DATE>\r\n            <EFFECTIVEDATE>01-06-2025</EFFECTIVEDATE>\r\n            <VOUCHERTYPENAME>CP_SalesOrder</VOUCHERTYPENAME>\r\n            <VOUCHERNUMBER>565526</VOUCHERNUMBER>\r\n            <REFERENCE>565526</REFERENCE>\r\n            <NARRATION>testing</NARRATION>\r\n            <ISOPTIONAL>Yes</ISOPTIONAL>\r\n            <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>\r\n            <PARTYLEDGERNAME>MakeMytrip</PARTYLEDGERNAME>\r\n            <PARTYNAME>MakeMytrip</PARTYNAME>\r\n            <PARTYMAILINGNAME>MakeMytrip</PARTYMAILINGNAME>\r\n            <BASICBASEPARTYNAME>MakeMytrip</BASICBASEPARTYNAME>\r\n            <PARTYPINCODE>560060</PARTYPINCODE>\r\n            <STATENAME>Karnataka</STATENAME>\r\n            <BILLTOPLACE>Karnataka</BILLTOPLACE>\r\n            <COUNTRYOFRESIDENCE>INDIA</COUNTRYOFRESIDENCE>\r\n            <PARTYGSTIN>29ABCDE1234F1ZR</PARTYGSTIN>\r\n            <PLACEOFSUPPLY>Karnataka</PLACEOFSUPPLY>\r\n            <BASICBUYERNAME>MakeMytrip</BASICBUYERNAME>\r\n            <CONSIGNEEMAILINGNAME>MakeMytrip</CONSIGNEEMAILINGNAME>\r\n            <CONSIGNEEPINCODE>560060</CONSIGNEEPINCODE>\r\n            <CONSIGNEESTATENAME>Karnataka</CONSIGNEESTATENAME>\r\n            <SHIPTOPLACE>Karnataka</SHIPTOPLACE>\r\n            <CONSIGNEECOUNTRYNAME>INDIA</CONSIGNEECOUNTRYNAME>\r\n            <CONSIGNEEGSTIN>29ABCDE1234F1ZR</CONSIGNEEGSTIN>\r\n            <PRICELEVEL>PL A</PRICELEVEL>\r\n            <ADDRESS.LIST>\r\n                <ADDRESS>No. 279, 3rd Floor Mkp Road</ADDRESS>\r\n                <ADDRESS>Padmanabhanagar</ADDRESS>\r\n                <ADDRESS>Bangalore</ADDRESS>\r\n            </ADDRESS.LIST>\r\n            <BASICBUYERADDRESS.LIST>\r\n                <BASICBUYERADDRESS>No. 279, 3rd Floor Mkp Road2</BASICBUYERADDRESS>\r\n                <BASICBUYERADDRESS>Padmanabhanagar</BASICBUYERADDRESS>\r\n                <BASICBUYERADDRESS>Bangalore</BASICBUYERADDRESS>\r\n            </BASICBUYERADDRESS.LIST>\r\n            <BASICORDERREF>Rohithp2406@gmail.Com</BASICORDERREF>\r\n            <ALLINVENTORYENTRIES.LIST>\r\n                <STOCKITEMNAME>Item A</STOCKITEMNAME>\r\n                <RATE>100</RATE>\r\n                <AMOUNT>-100</AMOUNT>\r\n                <ACTUALQTY>1</ACTUALQTY>\r\n                <BILLEDQTY>1</BILLEDQTY>\r\n                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>\r\n                <BATCHALLOCATIONS.LIST>\r\n                    <GODOWNNAME>&#4; Any</GODOWNNAME>\r\n                    <BATCHNAME>&#4; Any</BATCHNAME>\r\n                    <ORDERNO>565526</ORDERNO>\r\n                    <TRACKINGNUMBER>&#4; Not Applicable</TRACKINGNUMBER>\r\n                    <ACTUALQTY>1</ACTUALQTY>\r\n                    <BILLEDQTY>1</BILLEDQTY>\r\n                    <AMOUNT>-100</AMOUNT>\r\n                    <ORDERDUEDATE>01-08-2025</ORDERDUEDATE>\r\n                    <MFGDT></MFGDT>\r\n                    <EXPDT></EXPDT>\r\n                </BATCHALLOCATIONS.LIST>\r\n                <BASICUSERDESCRIPTION.LIST>\r\n                    <BASICUSERDESCRIPTION>testing</BASICUSERDESCRIPTION>\r\n                </BASICUSERDESCRIPTION.LIST>\r\n            </ALLINVENTORYENTRIES.LIST>\r\n            <LEDGERENTRIES.LIST>\r\n                <LEDGERNAME>MakeMytrip</LEDGERNAME>\r\n                <ISPARTYLEDGER>Yes</ISPARTYLEDGER>\r\n                <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>\r\n                <AMOUNT>-100</AMOUNT>\r\n            </LEDGERENTRIES.LIST>\r\n        </VOUCHER>\r\n    </TALLYMESSAGE>\r\n</ENVELOPE>",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_ExportVch",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>VOUCHER</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t\t<SVCURRENTCOMPANY>Delhi-Lucid</SVCURRENTCOMPANY>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"CP_Voucher\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n                        <USE>VOUCHER</USE>\r\n                        <USE>Printed Invoice</USE>\r\n                        <FORMS>VOUCHER</FORMS>\r\n                        <OBJECTS>Voucher : $$Sprintf:@@VchMasterid:303</OBJECTS>\r\n                        <SET>VARVchDate : &quot;20250801&quot;</SET>\r\n                        <SET>vResetOverriddenFlags : Yes</SET>\r\n                        <SET>vResetIgnoreGSTIN  : Yes</SET>\r\n                        <SET>SVVoucherType  : Sales Order</SET>\r\n                    </REPORT>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_CollExport",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n \t<HEADER>\r\n    \t\t<VERSION>1</VERSION>\r\n    \t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n    \t\t<TYPE>Collection</TYPE>\r\n    \t\t<ID>ITCVoucherCollTest</ID>\r\n \t</HEADER>\r\n<BODY>\r\n<DESC>\r\n<TDL>\r\n<TDLMESSAGE>\r\n<COLLECTION NAME=\"ITCVoucherCollTest\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n  <TYPE>VOUCHER</TYPE> \r\n  <NATIVEMETHOD>MASTERID, VOUCHERTYPENAME, VOUCHERNUMBER, PARTYLEDGERNAME, ISOPTIONAL, AMOUNT</NATIVEMETHOD>\r\n  </COLLECTION>\r\n  </TDLMESSAGE>\r\n  </TDL>\r\n</DESC>\r\n</BODY>\r\n</ENVELOPE>\r\n",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_VchAlter",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n        <VERSION>1</VERSION>\r\n        <TALLYREQUEST>IMPORT</TALLYREQUEST>\r\n        <TYPE>DATA</TYPE>\r\n        <ID>Vouchers</ID>\r\n    </HEADER>\r\n    <BODY>\r\n        <DESC>\r\n            <STATICVARIABLES>\r\n                <SVCurrentCompany>Seiren India Private Limited -From 1.4.2025</SVCurrentCompany>\r\n            </STATICVARIABLES>\r\n        </DESC>\r\n        <DATA>\r\n            <TALLYMESSAGE>\r\n                <VOUCHER REMOTEID=\"Transaction UniqueID\">\r\n \t\t\t\t    <ADDRESS.LIST TYPE=\"String\">\r\n\t\t\t\t     <ADDRESS>Survey No.92, Sub Plot No.16,</ADDRESS>\r\n\t\t\t\t     <ADDRESS>C/O Nx Logistics India Pvt Ltd</ADDRESS>\r\n\t\t\t\t     <ADDRESS>Romanovia Industrial Park Pvt, Ltd</ADDRESS>\r\n\t\t\t\t     <ADDRESS>Naviani, Hansalpur, Gujarat - 382750</ADDRESS>\r\n\t\t\t\t    </ADDRESS.LIST>\r\n                    <DATE>20250831</DATE>\r\n\t\t\t\t\t<EFFECTIVEDATE>20250831</EFFECTIVEDATE>\r\n                    <REFERENCEDATE></REFERENCEDATE>\r\n\t\t\t\t\t<GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>\r\n\t\t\t\t\t<STATENAME>Gujarat</STATENAME>\r\n\t\t\t\t\t<NARRATION>BEING STCOK TRANSFER TO GUJARAT WH INV NO SI/2025/8/884 DT 16.08.2025</NARRATION>\r\n\t\t\t\t\t<COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>\r\n\t\t\t\t\t<PARTYGSTIN>24AARCS4060L1ZY</PARTYGSTIN>\r\n\t\t\t\t\t<PLACEOFSUPPLY>Gujarat</PLACEOFSUPPLY>\r\n\t\t\t\t\t<VOUCHERTYPENAME>Journal</VOUCHERTYPENAME>\r\n\t\t\t\t\t<PARTYNAME>Seiren India Private Limited Gujarat</PARTYNAME>\r\n\t\t\t\t\t<CMPGSTIN>29AARCS4060L1ZO</CMPGSTIN>\r\n                    <PARTYLEDGERNAME>Seiren India Private Limited Gujarat</PARTYLEDGERNAME>\r\n                    <VOUCHERNUMBER>SI/JV/25/8/712</VOUCHERNUMBER>\r\n                    <BASICBUYERNAME>Seiren India Private Limited Gujarat</BASICBUYERNAME>\r\n                    <CMPGSTREGISTRATIONTYPE>Regular</CMPGSTREGISTRATIONTYPE>\r\n                    <REFERENCE></REFERENCE>\r\n\t\t\t\t\t<PARTYMAILINGNAME>Seiren India Private Limited Gujarat</PARTYMAILINGNAME>\r\n\t\t\t\t\t<PARTYPINCODE>382750</PARTYPINCODE>\r\n\t\t\t\t\t<BILLTOPLACE></BILLTOPLACE>\r\n                    <CMPGSTSTATE>Karnataka</CMPGSTSTATE>\r\n\t\t\t\t\t<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>\r\n\t\t\t\t\t<VCHENTRYMODE>As Voucher</VCHENTRYMODE>\r\n                    <BASICORDERREF></BASICORDERREF>\r\n                    <ISINVOICE>No</ISINVOICE>\r\n                    <UPDATEDDATETIME>20250818101012000</UPDATEDDATETIME>\r\n                        <ALLLEDGERENTRIES.LIST>\r\n                            <LEDGERNAME>Sales- Gujarat Stock Transfer</LEDGERNAME>\r\n                            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>\r\n                            <ISPARTYLEDGER>Yes</ISPARTYLEDGER>\r\n                            <ISLASTDEEMEDPOSITIVE>Yes</ISLASTDEEMEDPOSITIVE>\r\n                            <AMOUNT>-2662666.39</AMOUNT>\r\n                            <BILLALLOCATIONS.LIST>\r\n                                <NAME>SI/JV/25/8/712</NAME>\r\n                                <AMOUNT>-2662666.39</AMOUNT>\r\n                            </BILLALLOCATIONS.LIST>\r\n                        </ALLLEDGERENTRIES.LIST>\r\n                        <ALLLEDGERENTRIES.LIST>\r\n                            <LEDGERNAME>Seiren India Private Limited Gujarat</LEDGERNAME>\r\n                            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>\r\n                            <ISPARTYLEDGER>No</ISPARTYLEDGER>\r\n                            <ISLASTDEEMEDPOSITIVE>No</ISLASTDEEMEDPOSITIVE>\r\n                            <AMOUNT>2982186.36</AMOUNT>\r\n                            <BILLALLOCATIONS.LIST>\r\n                                <NAME>SI/2025/8/884</NAME>\r\n\t\t\t\t\t\t\t\t<BILLCREDITPERIOD>16-Aug-25</BILLCREDITPERIOD>\r\n                                <AMOUNT>2982186.36</AMOUNT>\r\n                            </BILLALLOCATIONS.LIST>\r\n                        </ALLLEDGERENTRIES.LIST>\r\n\t\t\t\t\t\t<ALLLEDGERENTRIES.LIST>\r\n                            <LEDGERNAME>IGST Receivable Gujarat W/H</LEDGERNAME>\r\n                            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>\r\n                            <ISPARTYLEDGER>Yes</ISPARTYLEDGER>\r\n                            <ISLASTDEEMEDPOSITIVE>Yes</ISLASTDEEMEDPOSITIVE>\r\n                            <AMOUNT>-319519.97</AMOUNT>\r\n                        </ALLLEDGERENTRIES.LIST>\r\n                    </VOUCHER>\r\n                </TALLYMESSAGE>\r\n            </DATA>\r\n        </BODY>\r\n    </ENVELOPE>",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:9009",
+							"host": [
+								"localhost"
+							],
+							"port": "9009"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_ODBC_COll",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n<HEADER>\r\n<VERSION>1</VERSION>\r\n<TALLYREQUEST>Export</TALLYREQUEST>\r\n<TYPE>Data</TYPE>\r\n<ID>ODBC Report</ID>\r\n</HEADER>\r\n<BODY>\r\n<DESC>\r\n<TDL>  \r\n<TDLMESSAGE>\r\n<COLLECTION NAME=\"CP_Stockitem Coll\">\r\n                        <TYPE>STOCKITEM</TYPE>\r\n                        <FILTERS>CP_RemvEmptyUOM</FILTERS>\r\n                    </COLLECTION>\r\n                    <SYSTEM TYPE=\"Formulae\" NAME=\"CP_RemvEmptyUOM\">NOT $$IsSysName:$BASEUNITS</SYSTEM>\r\n                    </TDLMESSAGE>\r\n</TDL>\r\n<SQLREQUEST TYPE=\"Prepare\" METHOD=\"SQLPrepare\">SELECT $MASTERID AS MASTERID, $NAME AS NAME, $PARTNO AS PARTNO, $BASEUNITS AS BASEUNITS, $GSTHSNCode AS HSNCODE, $GSTIGSTRate AS IGST, $StandardPrice AS STDPRICE, $LastSalePrice AS LASTPRICE, $$FromValue:\"\":$$ToValue:##VARVchDate:$$Number:$CLOSINGBALANCE AS CLOSINGSTOCK,  $IsBatchWiseOn AS ISBATCHWISEON, $HasMfgDate AS HASMFGDATE, $IsPerishableOn AS HASEXPDATE from CP_StockitemColl</SQLREQUEST>\r\n<STATICVARIABLES>\r\n<EXPLODEFLAG>Yes</EXPLODEFLAG>\r\n<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n<SVCURRENTCOMPANY>${escapedCompany}</SVCURRENTCOMPANY>\r\n</STATICVARIABLES>\r\n</DESC>\r\n</BODY>\r\n</ENVELOPE>\r\n",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "06_Group",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>CP_LedGroup</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n                <SVCURRENTCOMPANY>${escapedCompany}</SVCURRENTCOMPANY>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"CP_LedGroup\">\r\n\t\t\t\t\t\t<FORMS>CP_LedGroup</FORMS>\r\n\t\t\t\t\t</REPORT>\r\n\t\t\t\t\t<FORM NAME=\"CP_LedGroup\">\r\n\t\t\t\t\t\t<TOPPARTS>CP_LedGroup</TOPPARTS>\r\n\t\t\t\t\t</FORM>\r\n\t\t\t\t\t<PART NAME=\"CP_LedGroup\">\r\n\t\t\t\t\t\t<TOPLINES>CP_LedGroup</TOPLINES>\r\n\t\t\t\t\t\t<REPEAT>CP_LedGroup : CP_LedGroup Coll</REPEAT>\r\n\t\t\t\t\t\t<SCROLLED>Vertical</SCROLLED>\r\n\t\t\t\t\t</PART>\r\n\t\t\t\t\t<LINE NAME=\"CP_LedGroup\">\r\n\t\t\t\t\t\t<LEFTFIELDS>CP_Temp1, CP_Temp2</LEFTFIELDS>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Set as : $NAME</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Set as : $MASTERID</LOCAL>\r\n\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Xml Tag : \"NAME\"</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Xml Tag : \"MASTERID\"</LOCAL>\r\n\r\n                        <XMLTAG>\"groups\"</XMLTAG>\r\n\t\t\t\t\t</LINE>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp1\">   </FIELD>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp2\">   </FIELD>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_LedGroup Coll\">\r\n\t\t\t\t\t\t<COLLECTIONS>CP_LedGroup DrsColl, CP_LedGroup CrsColl, CP_LedGroup BrnchColl</COLLECTIONS>\r\n\t\t\t\t\t\t<SORT>Default : $NAME</SORT>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_LedGroup DrsColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>GROUP</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupSundryDebtors</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_LedGroup CrsColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>GROUP</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupSundryCreditors</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_LedGroup BrnchColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>GROUP</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupBranches</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "07_GoodwnStock",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>CP_GodownClsStck</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n                <SVCURRENTCOMPANY>${escapedCompany}</SVCURRENTCOMPANY>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"CP_GodownClsStck\">\r\n\t\t\t\t\t\t<FORMS>CP_GodownClsStck</FORMS>\r\n\t\t\t\t\t</REPORT>\r\n\t\t\t\t\t<FORM NAME=\"CP_GodownClsStck\">\r\n\t\t\t\t\t\t<TOPPARTS>CP_GodownClsStck</TOPPARTS>\r\n\t\t\t\t\t</FORM>\r\n\t\t\t\t\t<PART NAME=\"CP_GodownClsStck\">\r\n\t\t\t\t\t\t<TOPLINES>CP_GodownClsStck</TOPLINES>\r\n\t\t\t\t\t\t<REPEAT>CP_GodownClsStck : CP_GodownClsStck Coll</REPEAT>\r\n\t\t\t\t\t\t<SCROLLED>Vertical</SCROLLED>\r\n\t\t\t\t\t</PART>\r\n\t\t\t\t\t<LINE NAME=\"CP_GodownClsStck\">\r\n\t\t\t\t\t\t<LEFTFIELDS>CP_Temp1, CP_Temp2</LEFTFIELDS>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Set as : $NAME</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Set as : $$ToValue:\"01-Sep-25\":$$Number:$$GodownItemValue:$NAME:\"Item C\":$ClosingBalance</LOCAL>\r\n\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Xml Tag : \"NAME\"</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Xml Tag : \"CLOSINGSTOCK\"</LOCAL>\r\n\r\n                        <XMLTAG>\"godown\"</XMLTAG>\r\n\t\t\t\t\t</LINE>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp1\">   </FIELD>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp2\">   </FIELD>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_GodownClsStck Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>GODOWN</TYPE>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "08_CompanyStock",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>CP_CompanyClsStck</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<FORMS>CP_CompanyClsStck</FORMS>\r\n\t\t\t\t\t</REPORT>\r\n\t\t\t\t\t<FORM NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<TOPPARTS>CP_CompanyClsStck</TOPPARTS>\r\n\t\t\t\t\t</FORM>\r\n\t\t\t\t\t<PART NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<TOPLINES>CP_CompanyClsStck</TOPLINES>\r\n\t\t\t\t\t\t<REPEAT>CP_CompanyClsStck : CP_CompanyClsStck Coll</REPEAT>\r\n\t\t\t\t\t\t<SCROLLED>Vertical</SCROLLED>\r\n\t\t\t\t\t</PART>\r\n\t\t\t\t\t<LINE NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<LEFTFIELDS>CP_Temp1, CP_Temp2</LEFTFIELDS>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Set as : $NAME</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Set as : $$CompanyValue:$NAME:$$ToValue:\"01-Sep-25\":$$Number:$ClosingBalance:STOCKITEM:\"Item C\"</LOCAL>\r\n\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Xml Tag : \"NAME\"</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Xml Tag : \"CLOSINGSTOCK\"</LOCAL>\r\n\r\n                        <XMLTAG>\"companystck\"</XMLTAG>\r\n\t\t\t\t\t</LINE>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp1\">   </FIELD>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp2\">   </FIELD>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_CompanyClsStck Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>COMPANY</TYPE>\r\n                        <FILTERS>CP_RequCompany</FILTERS>\r\n\t\t\t\t\t</COLLECTION>\r\n                    <SYSTEM TYPE=\"Formulae\" NAME=\"CP_RequCompany\">$NAME = \"Delhi - Lucid\"</SYSTEM>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "08_CompanyLastID",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>CP_CompanyID</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<FORMS>CP_CompanyClsStck</FORMS>\r\n\t\t\t\t\t</REPORT>\r\n\t\t\t\t\t<FORM NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<TOPPARTS>CP_CompanyClsStck</TOPPARTS>\r\n\t\t\t\t\t</FORM>\r\n\t\t\t\t\t<PART NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<TOPLINES>CP_CompanyClsStck</TOPLINES>\r\n\t\t\t\t\t\t<REPEAT>CP_CompanyClsStck : CP_CompanyClsStck Coll</REPEAT>\r\n\t\t\t\t\t\t<SCROLLED>Vertical</SCROLLED>\r\n\t\t\t\t\t</PART>\r\n\t\t\t\t\t<LINE NAME=\"CP_CompanyClsStck\">\r\n\t\t\t\t\t\t<LEFTFIELDS>CP_Temp1, CP_Temp2</LEFTFIELDS>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Set as : $NAME</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Set as : $$CompanyValue:$NAME:$$ToValue:\"01-Sep-25\":$$Number:$ClosingBalance:STOCKITEM:\"Item C\"</LOCAL>\r\n\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp1  : Xml Tag : \"NAME\"</LOCAL>\r\n\t\t\t\t\t\t<LOCAL>Field : CP_Temp2  : Xml Tag : \"CLOSINGSTOCK\"</LOCAL>\r\n\r\n                        <XMLTAG>\"companystck\"</XMLTAG>\r\n\t\t\t\t\t</LINE>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp1\">   </FIELD>\r\n\t\t\t\t\t<FIELD NAME=\"CP_Temp2\">   </FIELD>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_CompanyClsStck Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>COMPANY</TYPE>\r\n                        <FILTERS>CP_RequCompany</FILTERS>\r\n\t\t\t\t\t</COLLECTION>\r\n                    <SYSTEM TYPE=\"Formulae\" NAME=\"CP_RequCompany\">$NAME = \"Delhi - Lucid\"</SYSTEM>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "09_VoucherData",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>ODBC Report</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t\t<SVCURRENTCOMPANY>${escapedCompany}</SVCURRENTCOMPANY>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"ODBC Report\" ISMODIFY=\"Yes\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<Add>Variable : SVFromDate, SVToDate</Add>\r\n\t\t\t\t\t\t<Set>SVFromdate : \"01-Sep-25\"</Set>\r\n\t\t\t\t\t\t<Set>SVTodate : \"01-Sep-25\"</Set>\r\n\t\t\t\t\t</REPORT>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_VoucherData Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<SourceCollection>CP_VoucherData SColl, CP_VoucherData SRColl</SourceCollection>\r\n\t\t\t\t\t\t<Walk>ALLINVENTORYENTRIES</Walk>\r\n\t\t\t\t\t\t<NativeMethod>STOCKITEMNAME</NativeMethod>\r\n\t\t\t\t\t\t<Method>CP_MasterID : $..MASTERID</Method>\r\n\t\t\t\t\t\t<Method>CP_VchType : $..VOUCHERTYPENAME</Method>\r\n\t\t\t\t\t\t<Method>CP_isSales : $$IsSales:$..VOUCHERTYPENAME</Method>\r\n\t\t\t\t\t\t<Method>CP_Date  : $..DATE</Method>\r\n\t\t\t\t\t\t<Method>CP_VchNo  : $..VoucherNumber</Method>\r\n\t\t\t\t\t\t<Method>CP_Customer : $..PARTYLEDGERNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_CGroup  : $..CP_LedGroup</Method>\r\n\t\t\t\t\t\t<Method>CP_CGrpofGrp : $PARENT:GROUP:$..CP_LedGroup</Method>\r\n\t\t\t\t\t\t<Method>CP_State  : $..STATENAME</Method>\r\n\t\t\t\t\t\t<Method>CP_Country : $..COUNTRYOFRESIDENCE</Method>\r\n\t\t\t\t\t\t<Method>CP_GstNo  : $..PARTYGSTIN</Method>\r\n\t\t\t\t\t\t<Method>CP_Pincode : $..PARTYPINCODE</Method>\r\n\t\t\t\t\t\t<Method>CP_InvVale : $..CP_InvValue</Method>\r\n\t\t\t\t\t\t<Method>CP_CostCenter : $..COSTCENTRENAME</Method>\r\n\t\t\t\t\t\t<Method>CP_Stockitem : $STOCKITEMNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_SGroup  : $PARENT:STOCKITEM:$STOCKITEMNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_SGrpofGrp : $PARENT:STOCKGROUP:$PARENT:STOCKITEM:$STOCKITEMNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_SCategory : $CATEGORY:STOCKITEM:$STOCKITEMNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_SCatgofCat : $PARENT:STOCKCATEGORY:$CATEGORY:STOCKITEM:$STOCKITEMNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_UOM  : $BASEUNITS:STOCKITEM:$STOCKITEMNAME</Method>\r\n\t\t\t\t\t\t<Method>CP_BILLEDQTY : IF $$IsSales:$..VOUCHERTYPENAME THEN $$Number:$BILLEDQTY ELSE $$Number:$BILLEDQTY * -1</Method>\r\n\t\t\t\t\t\t<Method>CP_Rate  : $$Number:$RATE</Method>\r\n\t\t\t\t\t\t<Method>CP_AMOUNT  : IF $$IsSales:$..VOUCHERTYPENAME THEN $$Number:$AMOUNT ELSE $$Number:$AMOUNT * -1</Method>\r\n\t\t\t\t\t\t<Filters>CP_isReqStckGroup, CP_isReqStckCatg</Filters>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_VoucherData SColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<Type>VOUCHERS : VOUCHERTYPE</Type>\r\n\t\t\t\t\t\t<ChildOf>$$VchTypeSales</ChildOf>\r\n\t\t\t\t\t\t<BelongsTo>Yes</BelongsTo>\r\n\t\t\t\t\t\t<Filters>NotIsOptionalOrCancel</Filters>\r\n\t\t\t\t\t\t<NativeMethod>*, AMOUNT</NativeMethod>\r\n\t\t\t\t\t\t<Method>CP_InvValue : $$Number:$AMOUNT</Method>\r\n\t\t\t\t\t\t<Method>CP_LedGroup : $PARENT:LEDGER:$PARTYLEDGERNAME</Method>\r\n\t\t\t\t\t\t<Filters>CP_isReqGroup, CP_isSameMailid</Filters>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_VoucherData SRColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<Type>VOUCHERS : VOUCHERTYPE</Type>\r\n\t\t\t\t\t\t<ChildOf>$$VchTypeCreditNote</ChildOf>\r\n\t\t\t\t\t\t<BelongsTo>Yes</BelongsTo>\r\n\t\t\t\t\t\t<Filters>NotIsOptionalOrCancel</Filters>\r\n\t\t\t\t\t\t<NativeMethod>*, AMOUNT</NativeMethod>\r\n\t\t\t\t\t\t<Method>CP_InvValue : $$Number:$AMOUNT * -1</Method>\r\n\t\t\t\t\t\t<Method>CP_LedGroup : $PARENT:LEDGER:$PARTYLEDGERNAME</Method>\r\n\t\t\t\t\t\t<Filters>CP_isReqGroup, CP_isSameMailid</Filters>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isReqGroup\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$$IsLedOfGrp:$PARTYLEDGERNAME:&quot;Sundry Debtors&quot;   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isSameMailid\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$EMAIL:LEDGER:$PARTYLEDGERNAME Contains &quot;rohit@itcatalystindia.com&quot; OR $EMAILCC:LEDGER:$PARTYLEDGERNAME Contains &quot;rohit@itcatalystindia.com&quot;   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isReqStckGroup\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$$IsObjectBelongsTo:STOCKGROUP:($PARENT:STOCKITEM:$STOCKITEMNAME):&quot;Group A&quot;   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isReqStckCatg\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$$IsObjectBelongsTo:STOCKCATEGORY:($CATEGORY:STOCKITEM:$STOCKITEMNAME):&quot;Categroy 1&quot;   </SYSTEM>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t\t<SQLREQUEST TYPE=\"Prepare\" METHOD=\"SQLPrepare\">Select $CP_MasterID, $CP_VchType, $CP_isSales, $CP_Date, $CP_VchNo, $CP_Customer, $CP_CGroup, $CP_CGrpofGrp, $CP_State, $CP_Country, $CP_GstNo, $CP_Pincode, $CP_InvVale, $CP_CostCenter, $CP_Stockitem, $CP_SGroup, $CP_SGrpofGrp, $CP_SCategory, $CP_SCatgofCat, $CP_UOM, $CP_BILLEDQTY, $CP_Rate, $CP_AMOUNT from CP_VoucherDataColl</SQLREQUEST>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "10_VoucherAlter",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>IMPORT</TALLYREQUEST>\r\n\t\t<TYPE>DATA</TYPE>\r\n\t\t<ID>Vouchers</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<SVCurrentCompany>Demo</SVCurrentCompany>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t</DESC>\r\n\t\t<DATA>\r\n\t\t\t<TALLYMESSAGE>\r\n\t\t\t\t<VOUCHER DATE=\"31-Mar-2025\" TAGNAME = \"MASTERID\" TAGVALUE=\"63\" ACTION=\"Alter\">\r\n\t\t\t\t\t<NARRATION>New Narration</NARRATION>\r\n\t\t\t\t</VOUCHER>\r\n\t\t\t</TALLYMESSAGE>\r\n\t\t</DATA>\r\n\t</BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "11_CheckLedger",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>ODBC Report</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_Ledgers DrsColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>LEDGER</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupSundryDebtors</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t\t<NATIVEMETHOD>NAME, INCOMETAXNUMBER, PARTYGSTIN, LEDGSTREGDETAILS.*</NATIVEMETHOD>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_Ledgers CrsColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>LEDGER</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupSundryCreditors</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t\t<NATIVEMETHOD>NAME, INCOMETAXNUMBER, PARTYGSTIN, LEDGSTREGDETAILS.*</NATIVEMETHOD>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_Ledgers SusColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>LEDGER</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupSuspense</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t\t<NATIVEMETHOD>NAME, INCOMETAXNUMBER, PARTYGSTIN, LEDGSTREGDETAILS.*</NATIVEMETHOD>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_Ledgers BranchColl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<TYPE>LEDGER</TYPE>\r\n\t\t\t\t\t\t<CHILDOF>$$GroupBranches</CHILDOF>\r\n\t\t\t\t\t\t<BELONGSTO>Yes</BELONGSTO>\r\n\t\t\t\t\t\t<NATIVEMETHOD>NAME, INCOMETAXNUMBER, PARTYGSTIN, LEDGSTREGDETAILS.*</NATIVEMETHOD>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP_Ledgers\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<COLLECTIONS>CP_Ledgers DrsColl, CP_Ledgers CrsColl</COLLECTIONS>\r\n\t\t\t\t\t\t<COLLECTIONS>CP_Ledgers SusColl, CP_Ledgers BranchColl</COLLECTIONS>\r\n\t\t\t\t\t</COLLECTION>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_tallyRel3_0\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">(@@LatestRelasStr Starting With &quot;TallyPrime&quot; OR @@LatestRelasStr Starting With &quot;Tally Prime&quot;) AND $$Number:$$ProdInfo:ProdReleaseAsStr &gt;= $$Number:3   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_GSTINNO\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">IF @@CP_tallyRel3_0 THEN $LEDGSTREGDETAILS[-1].GSTIN ELSE $PARTYGSTIN   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isNameChck\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$NAME = &quot;&quot;   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isPanChck\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$INCOMETAXNUMBER = &quot;&quot;   </SYSTEM>\r\n\t\t\t\t\t<SYSTEM TYPE=\"Formulae\" NAME=\"CP_isGstinChck\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">@@CP_GSTINNO = &quot;&quot;   </SYSTEM>\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t\t<SQLREQUEST TYPE=\"Prepare\" METHOD=\"SQLPrepare\">SELECT $$Numitems:CP_Ledgers AS COUNT from Company</SQLREQUEST>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPLODEFLAG>Yes</EXPLODEFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t\t<SVCURRENTCOMPANY>${escapedCompany}</SVCURRENTCOMPANY>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>\r\n"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "12_LedgerCreate",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n        <VERSION>1</VERSION>\r\n        <TALLYREQUEST>IMPORT</TALLYREQUEST>\r\n        <TYPE>DATA</TYPE>\r\n        <ID>Vouchers</ID>\r\n    </HEADER>\r\n    <BODY>\r\n        <DESC>\r\n            <STATICVARIABLES>\r\n                <SVCURRENTCOMPANY>Delhi - Lucid</SVCURRENTCOMPANY>\r\n            </STATICVARIABLES>\r\n        </DESC>\r\n    </BODY>\r\n    <TALLYMESSAGE>     \r\n<LEDGER>\r\n\t<LANGUAGENAME.LIST>\r\n\t\t<NAME.LIST TYPE=\"String\">\r\n\t\t\t<NAME>Customer X1</NAME>\r\n\t\t</NAME.LIST>\r\n\t\t<LANGUAGEID> 1033</LANGUAGEID>\r\n\t</LANGUAGENAME.LIST>\r\n\t<PARENT>Suspense A/c</PARENT>\r\n\t<ISBILLWISEON>Yes</ISBILLWISEON>\r\n    <DESCRIPTION>coowner@itc.com</DESCRIPTION>\r\n\t<MAILINGNAME>Customer X</MAILINGNAME>\r\n\t<ADDRESS.LIST TYPE=\"String\">\r\n\t\t<ADDRESS>Address A</ADDRESS>\r\n\t\t<ADDRESS>Address B</ADDRESS>\r\n\t\t<ADDRESS>Address C</ADDRESS>\r\n\t</ADDRESS.LIST>\r\n\t<PINCODE>560070</PINCODE>\r\n\t<PRIORSTATENAME>Delhi</PRIORSTATENAME>\r\n\t<STATENAME>Delhi</STATENAME>\r\n\t<COUNTRYOFRESIDENCE>India</COUNTRYOFRESIDENCE>\r\n\t<LEDGERCONTACT>Contact Name</LEDGERCONTACT>\r\n\t<LEDGERPHONE>Phone No</LEDGERPHONE>\r\n\t<LEDGERMOBILE>Mobileno</LEDGERMOBILE>\r\n\t<EMAIL>email@itc.com</EMAIL>\r\n\t<EMAILCC>ccemail@itc.com</EMAILCC>\r\n\t<INCOMETAXNUMBER>PANNO</INCOMETAXNUMBER>\r\n\t<PARTYGSTIN>GSTNO</PARTYGSTIN>\r\n\t<PAYMENTDETAILS.LIST>\r\n\t\t<IFSCODE>HDFC001</IFSCODE>\r\n\t\t<BANKNAME>State Bank of India (India)</BANKNAME>\r\n\t\t<ACCOUNTNUMBER>1234567890-</ACCOUNTNUMBER>\r\n\t\t<PAYMENTFAVOURING>Customer X</PAYMENTFAVOURING>\r\n\t\t<TRANSACTIONNAME>Primary</TRANSACTIONNAME>\r\n\t\t<BANKID>1</BANKID>\r\n\t\t<SETASDEFAULT>No</SETASDEFAULT>\r\n\t\t<DEFAULTTRANSACTIONTYPE>Inter Bank Transfer</DEFAULTTRANSACTIONTYPE>\r\n\t\t<BENEFICIARYCODEDETAILS.LIST></BENEFICIARYCODEDETAILS.LIST>\r\n\t</PAYMENTDETAILS.LIST>\r\n\t<LEDGSTREGDETAILS.LIST>\r\n\t\t<APPLICABLEFROM>20240401</APPLICABLEFROM>\r\n\t\t<GSTREGISTRATIONTYPE>Regular</GSTREGISTRATIONTYPE>\r\n\t\t<PLACEOFSUPPLY>Delhi</PLACEOFSUPPLY>\r\n\t\t<GSTIN>GSTNO</GSTIN>\r\n\t</LEDGSTREGDETAILS.LIST>\r\n\t<LEDMAILINGDETAILS.LIST>\r\n\t\t<ADDRESS.LIST TYPE=\"String\">\r\n\t\t\t<ADDRESS>Address A</ADDRESS>\r\n\t\t\t<ADDRESS>Address B</ADDRESS>\r\n\t\t\t<ADDRESS>Address C</ADDRESS>\r\n\t\t</ADDRESS.LIST>\r\n\t\t<APPLICABLEFROM>20240401</APPLICABLEFROM>\r\n\t\t<PINCODE>560070</PINCODE>\r\n\t\t<MAILINGNAME>Customer X</MAILINGNAME>\r\n\t\t<STATE>Delhi</STATE>\r\n\t\t<COUNTRY>India</COUNTRY>\r\n\t</LEDMAILINGDETAILS.LIST>\r\n\t<CONTACTDETAILS.LIST>\r\n\t\t<NAME>Contact Name</NAME>\r\n\t\t<PHONENUMBER>Mobileno</PHONENUMBER>\r\n\t\t<COUNTRYISDCODE>+91</COUNTRYISDCODE>\r\n\t\t<ISDEFAULTWHATSAPPNUM>Yes</ISDEFAULTWHATSAPPNUM>\r\n\t</CONTACTDETAILS.LIST>\r\n</LEDGER>\r\n </TALLYMESSAGE>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "13_LedgerGroupChange",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n        <VERSION>1</VERSION>\r\n        <TALLYREQUEST>IMPORT</TALLYREQUEST>\r\n        <TYPE>DATA</TYPE>\r\n        <ID>Vouchers</ID>\r\n    </HEADER>\r\n    <BODY>\r\n        <DESC>\r\n            <STATICVARIABLES>\r\n                <SVCURRENTCOMPANY>Delhi - Lucid</SVCURRENTCOMPANY>\r\n            </STATICVARIABLES>\r\n        </DESC>\r\n    </BODY>\r\n    <TALLYMESSAGE>     \r\n<LEDGER NAME=\"Customer X1\" RESERVEDNAME=\"\">\r\n\t<PARENT>Sundry Creditors</PARENT>\r\n</LEDGER>\r\n </TALLYMESSAGE>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "14_GetLedgers",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n        <VERSION>1</VERSION>\r\n        <TALLYREQUEST>IMPORT</TALLYREQUEST>\r\n        <TYPE>DATA</TYPE>\r\n        <ID>Vouchers</ID>\r\n    </HEADER>\r\n    <BODY>\r\n        <DESC>\r\n            <STATICVARIABLES>\r\n                <SVCURRENTCOMPANY>Delhi - Lucid</SVCURRENTCOMPANY>\r\n            </STATICVARIABLES>\r\n        </DESC>\r\n    </BODY>\r\n    <TALLYMESSAGE>     \r\n<LEDGER NAME=\"Customer X1\" RESERVEDNAME=\"\">\r\n\t<PARENT>Sundry Creditors</PARENT>\r\n</LEDGER>\r\n </TALLYMESSAGE>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "14_GetMastersAddInfo",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n    <HEADER>\r\n        <VERSION>1</VERSION>\r\n        <TALLYREQUEST>EXPORT</TALLYREQUEST>\r\n        <TYPE>DATA</TYPE>\r\n        <ID>CP_Masters</ID>\r\n    </HEADER>\r\n    <BODY>\r\n        <DESC>\r\n            <STATICVARIABLES>\r\n                <SVCURRENTCOMPANY>Data Lynk</SVCURRENTCOMPANY>\r\n            </STATICVARIABLES>\r\n            <TDL>\r\n                <TDLMESSAGE>\r\n   <REPORT NAME=\"CP_Masters\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <Forms>CP_Masters</Forms>\r\n   </REPORT>\r\n   <FORM NAME=\"CP_Masters\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopParts>CP_PriceLevel, CP_TDSDeductType, CP_TDSNatofPay, CP_MSMEEntrType, CP_MSMEActvType, CP_Bank</TopParts>\r\n    <TopParts>CP_Group</TopParts>\r\n   </FORM>\r\n   <PART NAME=\"CP_PriceLevel\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_PriceLevel</TopLines>\r\n    <Repeat>CP_PriceLevel : Price Levels</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;PRICELEVELLIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_TDSDeductType\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_TDSDeductType</TopLines>\r\n    <Repeat>CP_TDSDeductType : TDS DeducteeType</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;TDSDEDUCTEETYPELIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_TDSNatofPay\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_TDSNatofPay</TopLines>\r\n    <Repeat>CP_TDSNatofPay : TDS RatesForLedMst</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;NATUREOFPAYLIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_MSMEEntrType\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_MSMEEntrType</TopLines>\r\n    <Repeat>CP_MSMEEntrType : MSMERegEnterpriseType</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;MSMEENTRPTYPELIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_MSMEActvType\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_MSMEActvType</TopLines>\r\n    <Repeat>CP_MSMEActvType : MSMERegActivityType</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;MSMEACTVTYPELIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_Bank\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_Bank</TopLines>\r\n    <Repeat>CP_Bank : List of Banks</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;BANKLIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_Group\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_Group</TopLines>\r\n    <Repeat>CP_Group : CP_Group Coll</Repeat>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;GROUPLIST&quot;</XMLTag>\r\n   </PART>\r\n   <PART NAME=\"CP_GroupAddl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <TopLines>CP_GroupAddl</TopLines>\r\n    <Scrolled>Vertical</Scrolled>\r\n    <XMLTag>&quot;actions&quot;</XMLTag>\r\n   </PART>\r\n   <LINE NAME=\"CP_PriceLevel\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $PriceLevel</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;PRICELEVEL&quot;</XMLTag>\r\n   </LINE>\r\n   <LINE NAME=\"CP_TDSDeductType\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $NAME</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;TDSDEDUCTEETYPE&quot;</XMLTag>\r\n   </LINE>\r\n   <LINE NAME=\"CP_TDSNatofPay\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $NAME</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;NATUREOFPAY&quot;</XMLTag>\r\n   </LINE>\r\n   <LINE NAME=\"CP_MSMEEntrType\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $NAME</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;MSMEENTRPTYPE&quot;</XMLTag>\r\n    <Removeon>$$IsSysName:$NAME</Removeon>\r\n   </LINE>\r\n   <LINE NAME=\"CP_MSMEActvType\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $NAME</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;MSMEACTVTYPE&quot;</XMLTag>\r\n    <Removeon>$$IsSysName:$NAME</Removeon>\r\n   </LINE>\r\n   <LINE NAME=\"CP_Bank\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $NAME</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;BANK&quot;</XMLTag>\r\n   </LINE>\r\n   <LINE NAME=\"CP_Group\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1</LeftFields>\r\n    <Local>Field : CP_Field1 : Set as : $NAME</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;NAME&quot;</Local>\r\n    <XMLTag>&quot;GROUP&quot;</XMLTag>\r\n    <Explode>CP_GroupAddl : Yes</Explode>\r\n   </LINE>\r\n   <LINE NAME=\"CP_GroupAddl\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <LeftFields>CP_Field1, CP_Field2, CP_Field3, CP_Field4, CP_Field5</LeftFields>\r\n    <LeftFields>CP_Field6, CP_Field7, CP_Field8, CP_Field9, CP_Field10</LeftFields>\r\n    <LeftFields>CP_Field11, CP_Field12, CP_Field13, CP_Field14</LeftFields>\r\n    <Local>Field : Default : Type  : Logical</Local>\r\n    <Local>Field : CP_Field1 : Set as : $$IsBelongsTo:$$GroupBank OR $$IsBelongsTo:$$GroupBankOD</Local>\r\n    <Local>Field : CP_Field2 : Set as : $$IsBelongsTo:$$GroupBankOD</Local>\r\n    <Local>Field : CP_Field3 : Set as : $$IsBelongsTo:$$GroupBank OR $$IsBelongsTo:$$GroupBankOD OR $$IsBelongsTo:$$GroupBranches OR  $$IsBelongsTo:$$GroupCapital OR $$IsBelongsTo:$$GroupCurrentAssets OR $$IsBelongsTo:$$GroupCurrentLiab OR  $$IsBelongsTo:$$GroupSundryDebtors OR $$IsBelongsTo:$$GroupSundryCreditors</Local>\r\n    <Local>Field : CP_Field4 : Set as : $$IsBelongsTo:$$GroupBranches OR $$IsBelongsTo:$$GroupCapital OR $$IsBelongsTo:$$GroupCurrentAssets OR  $$IsBelongsTo:$$GroupCurrentLiab OR $$IsBelongsTo:$$GroupSundryDebtors OR $$IsBelongsTo:$$GroupSundryCreditors</Local>\r\n    <Local>Field : CP_Field5 : Set as : $$IsBelongsTo:$$GroupBranches OR $$IsBelongsTo:$$GroupCapital OR $$IsBelongsTo:$$GroupCurrentAssets OR  $$IsBelongsTo:$$GroupCurrentLiab OR $$IsBelongsTo:$$GroupSundryCreditors OR $$IsBelongsTo:$$GroupSundryDebtors</Local>\r\n    <Local>Field : CP_Field6 : Set as : $$IsBelongsTo:$$GroupBranches OR $$IsBelongsTo:$$GroupCapital OR $$IsBelongsTo:$$GroupSundryCreditors OR  $$IsBelongsTo:$$GroupSundryDebtors</Local>\r\n    <Local>Field : CP_Field7 : Set as : NOT $$IsBelongsTo:$$GroupCash AND NOT $$IsBelongsTo:$$GroupDirectExpenses AND NOT $$IsBelongsTo:$$GroupIndirectExpenses AND NOT $$IsBelongsTo:$$GroupDirectIncomes AND  NOT $$IsBelongsTo:$$GroupIndirectIncomes AND NOT $$IsBelongsTo:$$GroupStock</Local>\r\n    <Local>Field : CP_Field8 : Set as : $$IsBelongsTo:$$GroupCurrentAssets OR $$IsBelongsTo:$$GroupCurrentLiab OR $$IsBelongsTo:$$GroupDirectExpenses OR $$IsBelongsTo:$$GroupDirectIncomes OR  $$IsBelongsTo:$$GroupFixedAssets OR $$IsBelongsTo:$$GroupInDirectExpenses OR $$IsBelongsTo:$$GroupInDirectIncomes OR $$IsBelongsTo:$$GroupInvestments OR  $$IsBelongsTo:$$GroupLoansLiab OR $$IsBelongsTo:$$GroupMiscExp OR $$IsBelongsTo:$$GroupProvisions OR $$IsBelongsTo:$$GroupPurchase OR $$IsBelongsTo:$$GroupSales OR  $$IsBelongsTo:$$GroupSecuredLoans</Local>\r\n    <Local>Field : CP_Field9 : Set as : $$IsBelongsTo:$$GroupDirectExpenses OR $$IsBelongsTo:$$GroupDirectIncomes OR $$IsBelongsTo:$$GroupFixedAssets OR  $$IsBelongsTo:$$GroupInDirectExpenses OR $$IsBelongsTo:$$GroupInDirectIncomes OR $$IsBelongsTo:$$GroupPurchase OR  $$IsBelongsTo:$$GroupSales</Local>\r\n    <Local>Field : CP_Field10: Set as : $$IsBelongsTo:$$GroupSundryCreditors OR $$IsBelongsTo:$$GroupSundryDebtors</Local>\r\n    <Local>Field : CP_Field11: Set as : $$IsBelongsTo:$$GroupSundryCreditors OR $$IsBelongsTo:$$GroupSundryDebtors</Local>\r\n    <Local>Field : CP_Field12: Set as : $$IsBelongsTo:$$GroupSundryCreditors OR $$IsBelongsTo:$$GroupSundryDebtors</Local>\r\n    <Local>Field : CP_Field13: Set as : $$IsBelongsTo:$$GroupSundryCreditors OR $$IsBelongsTo:$$GroupSundryDebtors</Local>\r\n    <Local>Field : CP_Field14: Set as : $$IsBelongsTo:$$GroupPurchase OR $$IsBelongsTo:$$GroupSales</Local>\r\n    <Local>Field : CP_Field1 : XMLTag : &quot;Has_CostCent&quot;</Local>\r\n    <Local>Field : CP_Field2 : XMLTag : &quot;Has_ODLimit&quot;</Local>\r\n    <Local>Field : CP_Field3 : XMLTag : &quot;Has_Bankdtls&quot;</Local>\r\n    <Local>Field : CP_Field4 : XMLTag : &quot;MultiBank&quot;</Local>\r\n    <Local>Field : CP_Field5 : XMLTag : &quot;Has_Tds&quot;</Local>\r\n    <Local>Field : CP_Field6 : XMLTag : &quot;Has_Gst&quot;</Local>\r\n    <Local>Field : CP_Field7 : XMLTag : &quot;Has_Addrdtls&quot;</Local>\r\n    <Local>Field : CP_Field8 : XMLTag : &quot;Has_GSTAssVal&quot;</Local>\r\n    <Local>Field : CP_Field9 : XMLTag : &quot;Has_GSTHSNDtls&quot;</Local>\r\n    <Local>Field : CP_Field10: XMLTag : &quot;Has_Billbybill&quot;</Local>\r\n    <Local>Field : CP_Field11: XMLTag : &quot;Has_MultAddrs&quot;</Local>\r\n    <Local>Field : CP_Field12: XMLTag : &quot;Has_MsmeDtls&quot;</Local>\r\n    <Local>Field : CP_Field13: XMLTag : &quot;Has_PricLvl&quot;</Local>\r\n    <Local>Field : CP_Field14: XMLTag : &quot;Has_AffInv&quot;</Local>\r\n   </LINE>\r\n   <FIELD NAME=\"CP_Field1\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field2\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field3\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field4\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field5\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field6\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field7\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field8\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field9\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field10\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field11\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field12\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field13\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <FIELD NAME=\"CP_Field14\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">   </FIELD>\r\n   <SYSTEM TYPE=\"Formulae\" NAME=\"CP_isReqGroup\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">FALSE</SYSTEM>\r\n   <COLLECTION NAME=\"CP_Group Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <Type>GROUP</Type>\r\n    <NativeMethod>NAME</NativeMethod>\r\n   </COLLECTION>\r\n                </TDLMESSAGE>\r\n            </TDL>\r\n        </DESC>\r\n    </BODY>\r\n</ENVELOPE>"
+						},
+						"url": {
+							"raw": "v63094.12105.tallyprimecloud.in:3005",
+							"host": [
+								"v63094",
+								"12105",
+								"tallyprimecloud",
+								"in"
+							],
+							"port": "3005"
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "15_ItembatchgodownCls",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "<ENVELOPE>\r\n\t<HEADER>\r\n\t\t<VERSION>1</VERSION>\r\n\t\t<TALLYREQUEST>Export</TALLYREQUEST>\r\n\t\t<TYPE>Data</TYPE>\r\n\t\t<ID>ODBC Report</ID>\r\n\t</HEADER>\r\n\t<BODY>\r\n\t\t<DESC>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<EXPORTFLAG>YES</EXPORTFLAG>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t\t<SVCURRENTCOMPANY>${escapedCompany}</SVCURRENTCOMPANY>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t\t<TDL>\r\n\t\t\t\t<TDLMESSAGE>\r\n\t\t\t\t\t<REPORT NAME=\"ODBC Report\" ISMODIFY=\"Yes\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n\t\t\t\t\t\t<Add>Variable : SVFromDate, SVToDate</Add>\r\n\t\t\t\t\t\t<Set>SVFromdate : \"${tallyFromDate}\"</Set>\r\n\t\t\t\t\t\t<Set>SVTodate : \"${tallyToDate}\"</Set>\r\n\t\t\t\t\t</REPORT>\r\n\t\t\t\t\t<COLLECTION NAME=\"CP BatchStock Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <Type>Batches in Godown</Type>\r\n    <ChildOf>$NAME</ChildOf>\r\n    <NativeMethod>NAME, PARENT, CLOSINGBALANCE, CLOSINGVALUE</NativeMethod>\r\n    <NativeMethod>MfdOn, ExpiryPeriod</NativeMethod>\r\n    <Method>CPGODOWN : $$LoopCollObj:$Name</Method>\r\n    <Filters>CP isSameStck</Filters>\r\n   </COLLECTION>\r\n   <COLLECTION NAME=\"CP GodownList\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <Type>GODOWN</Type>\r\n    <NativeMethod>NAME</NativeMethod>\r\n   </COLLECTION>\r\n   <COLLECTION NAME=\"CP GodownStock Coll\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINITIALIZE=\"No\" ISOPTION=\"No\" ISINTERNAL=\"No\">\r\n    <Collections>CP BatchStock Coll : CP GodownList</Collections>\r\n    <NativeMethod>NAME, PARENT, CLOSINGBALANCE, CLOSINGVALUE, CPGODOWN</NativeMethod>\r\n    <NativeMethod>MfdOn, ExpiryPeriod</NativeMethod>\r\n    <Sort>Default : $PARENT, $ITCGODOWN, $NAME</Sort>\r\n   </COLLECTION>\r\n   <SYSTEM TYPE=\"Formulae\" NAME=\"CP isSameStck\" ISMODIFY=\"No\" ISFIXED=\"No\" ISINTERNAL=\"No\">$PARENT = $NAME:STOCKITEM:&quot;HIHG5069&quot;   </SYSTEM>\r\n\r\n\t\t\t\t</TDLMESSAGE>\r\n\t\t\t</TDL>\r\n\t\t\t<SQLREQUEST TYPE=\"Prepare\" METHOD=\"SQLPrepare\">Select $PARENT AS Stockitem, $CPGODOWN AS godown, $NAME AS Batchname, $MfdOn, $ExpiryPeriod, $$String:$ExpiryPeriod:UniversalDate AS ExpiryDate, $CLOSINGBALANCE, $CLOSINGVALUE * -1 AS CLOSINGVALUE from CPGodownStockColl</SQLREQUEST>\r\n\t\t\t<STATICVARIABLES>\r\n\t\t\t\t<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\r\n\t\t\t</STATICVARIABLES>\r\n\t\t</DESC>\r\n\t</BODY>\r\n</ENVELOPE>",
+							"options": {
+								"raw": {
+									"language": "xml"
+								}
+							}
+						},
+						"url": {
+							"raw": "localhost:9005",
+							"host": [
+								"localhost"
+							],
+							"port": "9005"
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "10_VchAuth",
+			"item": [
+				{
+					"name": "01_VoucherType",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Delhi - Lucid Demo Data\",\"guid\":\"f084ea78-e58f-46f6-ba7e-c0ec0742b89d\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/vchauth/vouchertype",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"vchauth",
+								"vouchertype"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_PendingAuth",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Data Lynk\",\"guid\":\"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\"fromdate\":20251127,\"todate\":20251128}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url1}}api/tally/pend-vch-auth",
+							"host": [
+								"{{base_url1}}api"
+							],
+							"path": [
+								"tally",
+								"pend-vch-auth"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_VchAuth",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Demo\",\"guid\":\"07b2123f-0709-45ee-afef-71edce50c8fc\",\"date\":20251128,\"masterid\":32, \"narration\":\"testing\", \"comments\":\"\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/vchauth/auth",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"vchauth",
+								"auth"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_VchReject",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Demo\",\"guid\":\"07b2123f-0709-45ee-afef-71edce50c8fc\",\"date\":20251127,\"masterid\":62, \"narration\":\"testing\", \"comments\":\"qty issue\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/vchauth/reject",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"vchauth",
+								"reject"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_VchView_Html",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":87,\"company\":\"Demo\",\"guid\":\"07b2123f-0709-45ee-afef-71edce50c8fc\",\"date\":20250201,\"masterid\":55}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/vchauth/auth",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"vchauth",
+								"auth"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "11_VendorManagement",
+			"item": [
+				{
+					"name": "01_Ledger_Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Ashwin & Co\",\"guid\":\"2fcd578e-f933-4614-a1f1-55dc38e66829\", \"type\": \"name\", \"value\": \"Vendor A\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledger-check",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledger-check"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_Ledger_Create",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"tallyloc_id\": 88,\r\n  \"company\": \"Data Lynk\",\r\n  \"guid\": \"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\r\n  \"ledgerData\": {\r\n    \"name\": \"Customer X1\",\r\n    \"languageNames\": [\r\n      \"Customer X1\",\r\n      \"X1\"\r\n    ],\r\n    \"group\": \"sundry debtors\",\r\n    \"isBillWiseOn\": \"Yes\",\r\n    \"billCreditPeriod\": \"20 Days\",\r\n    \"isCreditDaysChkOn\": \"Yes\",\r\n    \"creditLimit\": \"50000.00\",\r\n    \"overrideCreditLimit\": \"Yes\",\r\n    \"affectsStock\": \"No\",\r\n    \"isCostCentresOn\": \"Yes\",\r\n    \"isTdsApplicable\": \"Yes\",\r\n    \"tdsDeducteeType\": \"AOP (Companies as Members) - Non Resident\",\r\n    \"natureOfPayment\": \"Nature of Payment\",\r\n    \"address\": \"Address Line 1|Address Line 2|Address Line 3\",\r\n    \"addresses\": [\r\n      \"Address Line 1\",\r\n      \"Address Line 2\",\r\n      \"Address Line 3\"\r\n    ],\r\n    \"pincode\": \"560061\",\r\n    \"priorStateName\": \"Karnataka\",\r\n    \"stateName\": \"Karnataka\",\r\n    \"countryOfResidence\": \"India\",\r\n    \"mailingName\": \"Customer X1\",\r\n    \"contactPerson\": \"Contact Name\",\r\n    \"phoneNo\": \"Phone No\",\r\n    \"countryISDCode\": \"+91\",\r\n    \"mobileNo\": \"Mobileno\",\r\n    \"email\": \"email@itc.com\",\r\n    \"emailCC\": \"ccemail@itc.com\",\r\n    \"panNo\": \"PANNO\",\r\n    \"nameOnPan\": \"Name\",\r\n    \"gstinNo\": \"GSTNO\",\r\n    \"priceLevel\": \"MRPDPL\",\r\n    \"narration\": \"Notes\",\r\n    \"description\": \"Description\",\r\n    \"contactDetails\": [\r\n      {\r\n        \"name\": \"Contact Name\",\r\n        \"phoneNumber\": \"9844101210\",\r\n        \"countryISDCode\": \"+91\",\r\n        \"isDefaultWhatsappNum\": \"Yes\"\r\n      },\r\n      {\r\n        \"name\": \"Testin\",\r\n        \"phoneNumber\": \"988716612\",\r\n        \"countryISDCode\": \"+91\",\r\n        \"isDefaultWhatsappNum\": \"No\"\r\n      }\r\n    ],\r\n    \"doclist\": {\r\n      \"documents\": [\r\n        \"C:\\\\Users\\\\rohit\\\\Desktop\\\\test\\\\Chennai Sales.xlsx\",\r\n        \"C:\\\\Users\\\\rohit\\\\Desktop\\\\test\\\\DMS Prime with report.zip\"\r\n      ]\r\n    },\r\n    \"paymentDetails\": [\r\n      {\r\n        \"ifscCode\": \"IFCCOCD\",\r\n        \"swiftCode\": \"Swift Code\",\r\n        \"accountNumber\": \"Account No\",\r\n        \"paymentFavouring\": \"Name\",\r\n        \"transactionName\": \"Primary\",\r\n        \"bankId\": \"4\",\r\n        \"setAsDefault\": \"No\",\r\n        \"defaultTransactionType\": \"Inter Bank Transfer\"\r\n      },\r\n      {\r\n        \"ifscCode\": \"IFSC002\",\r\n        \"swiftCode\": \"SWIFT002\",\r\n        \"accountNumber\": \"ACC002\",\r\n        \"paymentFavouring\": \"Customer X1\",\r\n        \"transactionName\": \"Secondary\",\r\n        \"bankId\": \"5\",\r\n        \"setAsDefault\": \"No\",\r\n        \"defaultTransactionType\": \"Inter Bank Transfer\"\r\n      }\r\n    ],\r\n    \"msmeDetails\": [\r\n      {\r\n        \"fromDate\": \"20250401\",\r\n        \"enterpriseType\": \"Micro\",\r\n        \"udyamRegNumber\": \"ADSHKASDKAHSDFK\",\r\n        \"msmeActivityType\": \"Manufacturing\"\r\n      },\r\n      {\r\n        \"fromDate\": \"20250415\",\r\n        \"enterpriseType\": \"Small\",\r\n        \"udyamRegNumber\": \"UDYAM002\",\r\n        \"msmeActivityType\": \"Services\"\r\n      }\r\n    ],\r\n    \"gstRegDetails\": [\r\n      {\r\n        \"applicableFrom\": \"20240401\",\r\n        \"gstRegistrationType\": \"Regular\",\r\n        \"placeOfSupply\": \"Delhi\",\r\n        \"gstin\": \"GSTNO\"\r\n      },\r\n      {\r\n        \"applicableFrom\": \"20240415\",\r\n        \"gstRegistrationType\": \"Composition\",\r\n        \"placeOfSupply\": \"Mumbai\",\r\n        \"gstin\": \"GSTNO002\"\r\n      }\r\n    ],\r\n    \"mailingDetailsList\": [\r\n      {\r\n        \"addresses\": [\r\n          \"Address A\",\r\n          \"Address B\",\r\n          \"Address C\"\r\n        ],\r\n        \"applicableFrom\": \"20250401\",\r\n        \"pincode\": \"560061\",\r\n        \"mailingName\": \"Name\",\r\n        \"state\": \"Karnataka\",\r\n        \"country\": \"India\"\r\n      },\r\n      {\r\n        \"addresses\": [\r\n          \"Correspondence Address 1\",\r\n          \"Correspondence Address 2\"\r\n        ],\r\n        \"applicableFrom\": \"20250415\",\r\n        \"pincode\": \"110001\",\r\n        \"mailingName\": \"Correspondence Name\",\r\n        \"state\": \"Delhi\",\r\n        \"country\": \"India\"\r\n      }\r\n    ],\r\n    \"multiAddressList\": [\r\n      {\r\n        \"addressName\": \"A\",\r\n        \"addresses\": [\r\n          \"Abcd\",\r\n          \"Xyz\"\r\n        ],\r\n        \"priorStateName\": \"Karnataka\",\r\n        \"pincode\": \"560061\",\r\n        \"phoneNumber\": \"Phoneno\",\r\n        \"countryISDCode\": \"+91\",\r\n        \"countryName\": \"India\",\r\n        \"gstRegistrationType\": \"Regular\",\r\n        \"mobileNumber\": \"9\",\r\n        \"contactPerson\": \"Testin\",\r\n        \"state\": \"Karnataka\",\r\n        \"placeOfSupply\": \"Karnataka\"\r\n      },\r\n      {\r\n        \"addressName\": \"B\",\r\n        \"addresses\": [\r\n          \"Address Line 1\",\r\n          \"Address Line 2\"\r\n        ],\r\n        \"priorStateName\": \"Delhi\",\r\n        \"pincode\": \"110001\",\r\n        \"phoneNumber\": \"9876543210\",\r\n        \"countryISDCode\": \"+91\",\r\n        \"countryName\": \"India\",\r\n        \"gstRegistrationType\": \"Regular\",\r\n        \"mobileNumber\": \"9876543210\",\r\n        \"contactPerson\": \"Contact Person 2\",\r\n        \"state\": \"Delhi\",\r\n        \"placeOfSupply\": \"Delhi\"\r\n      }\r\n    ]\r\n  }\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledger-create",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledger-create"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_Ledger_List",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Ashwin & Co\",\"guid\":\"2fcd578e-f933-4614-a1f1-55dc38e66829\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledger-list",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledger-list"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "04_Ledger Auth",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Ashwin & Co\",\"guid\":\"2fcd578e-f933-4614-a1f1-55dc38e66829\",\"name\": \"Vendor A\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/ledger-auth",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"ledger-auth"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "05_MastersList",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\"tallyloc_id\":88,\"company\":\"Data Lynk\",\"guid\":\"f0650bb9-d9ad-4034-93e5-0d27e8286d39\"}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/tally/masters",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"tally",
+								"masters"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "12_CompanyConfig",
+			"item": [
+				{
+					"name": "01_ConfigList",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/cmpconfig/list?tallyloc_id=88&co_guid=f0650bb9-d9ad-4034-93e5-0d27e8286d39",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"cmpconfig",
+								"list"
+							],
+							"query": [
+								{
+									"key": "tallyloc_id",
+									"value": "88"
+								},
+								{
+									"key": "co_guid",
+									"value": "f0650bb9-d9ad-4034-93e5-0d27e8286d39"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "02_UpdateConfig",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"tallyloc_id\": 88,\r\n  \"co_guid\": \"f0650bb9-d9ad-4034-93e5-0d27e8286d39\",\r\n  \"co_name\": \"Data Lynk\",\r\n  \"configurations\": [\r\n    {\r\n      \"config_id\": 6,\r\n      \"is_enabled\": true,\r\n      \"permission_value\": \"$Parent:Ledger:$Parent\"\r\n    },\r\n    {\r\n      \"config_id\": 7,\r\n      \"is_enabled\": false,\r\n      \"permission_value\": \"$Parent:Ledger:$Parent\"\r\n    }\r\n  ]\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/cmpconfig/update",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"cmpconfig",
+								"update"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "03_CoConfig",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}api/cmpconfig/active?tallyloc_id=88&co_guid=f0650bb9-d9ad-4034-93e5-0d27e8286d39",
+							"host": [
+								"{{base_url}}api"
+							],
+							"path": [
+								"cmpconfig",
+								"active"
+							],
+							"query": [
+								{
+									"key": "tallyloc_id",
+									"value": "88"
+								},
+								{
+									"key": "co_guid",
+									"value": "f0650bb9-d9ad-4034-93e5-0d27e8286d39"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:3001/"
+		},
+		{
+			"key": "base_url1",
+			"value": "https://itcatalystindia.com/Development/CustomerPortal_API/"
+		},
+		{
+			"key": "token",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTEsImVtYWlsIjoicm9oaXRAaXRjYXRhbHlzdGluZGlhLmNvbSIsImlhdCI6MTc1MjkyMTI0NywiZXhwIjoxNzUyOTY0NDQ3fQ.3Mst-LJEZSCoXhv2ITL8UjYtmVdmxNyCKyPOGwgTH1U"
+		}
+	]
+}

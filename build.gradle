@@ -1,0 +1,41 @@
+buildscript {
+    ext {
+        buildToolsVersion = "35.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 35
+        targetSdkVersion = 34
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "1.9.24"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+// Remove RNSBottomTabsComponentDescriptor and RNSSafeAreaViewComponentDescriptor from
+// react-native-screens in autolinking.json — they are not implemented on Android in current RN/rnscreens.
+gradle.projectsEvaluated {
+  def patch = rootProject.tasks.register("patchAutolinkingJson") {
+    doLast {
+      def f = rootProject.file("build/generated/autolinking/autolinking.json")
+      if (f.exists()) {
+        def text = f.text
+        text = text.replace(', "RNSBottomTabsComponentDescriptor",', ',')
+        text = text.replace(', "RNSBottomTabsComponentDescriptor"', '')
+        text = text.replace(', "RNSSafeAreaViewComponentDescriptor",', ',')
+        text = text.replace(', "RNSSafeAreaViewComponentDescriptor"', '')
+        text = text.replaceAll(/,(\s*])/, '$1')
+        f.write(text)
+      }
+    }
+  }
+  project(":app").tasks.findByName("generateAutolinkingNewArchitectureFiles")?.dependsOn(patch)
+}

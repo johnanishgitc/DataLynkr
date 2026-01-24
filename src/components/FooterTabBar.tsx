@@ -1,0 +1,195 @@
+import React from 'react';
+import { CommonActions } from '@react-navigation/native';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
+
+import { colors } from '../constants/colors';
+
+/**
+ * Footer implementation matching Figma design exactly:
+ * - flex flex-col items-center gap-2.5 px-5 py-2 bg-white border-t border-[#d3d3d366]
+ * - inline-flex items-start gap-[42px]
+ * - Tab widths: Home 41px, Orders 51px, Ledger 41px, Approvals 64px
+ * - Icons: 24x24 (w-6 h-6)
+ * - Text: 10px, Roboto, active=medium #1e488f, inactive=light #6a7282
+ */
+export default function FooterTabBar({
+  state,
+  navigation,
+  descriptors,
+  insets,
+}: BottomTabBarProps) {
+  const paddingBottom = Math.max(
+    insets.bottom - Platform.select({ ios: 4, default: 0 }),
+    0
+  );
+
+  // Tab width and padding mapping from Figma
+  const getTabStyle = (routeName: string) => {
+    switch (routeName) {
+      case 'HomeTab':
+        return { width: 41, paddingHorizontal: 5 };
+      case 'OrdersTab':
+        return { width: 51, paddingHorizontal: 9 };
+      case 'LedgerTab':
+        return { width: 41, paddingHorizontal: 5 };
+      case 'ApprovalsTab':
+        return { width: 64, paddingHorizontal: 9 };
+      default:
+        return { width: 41, paddingHorizontal: 5 };
+    }
+  };
+
+  // Font weight mapping from Figma: Orders uses font-normal (400) when inactive, others use font-light (300)
+  const getFontWeight = (routeName: string, focused: boolean) => {
+    if (focused) {
+      return '500'; // font-medium for active
+    }
+    // Inactive state: Orders uses font-normal (400), others use font-light (300)
+    return routeName === 'OrdersTab' ? '400' : '300';
+  };
+
+  return (
+    <View
+      style={[
+        styles.container,
+        {
+          paddingBottom,
+        },
+      ]}
+    >
+      <View style={styles.tabsRow} accessibilityRole="tablist">
+        {state.routes.map((route, index) => {
+          const focused = index === state.index;
+          const { options } = descriptors[route.key];
+          const tabStyle = getTabStyle(route.name);
+
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+            if (!focused && !event.defaultPrevented) {
+              navigation.dispatch({
+                ...CommonActions.navigate({ name: route.name, merge: true }),
+                target: state.key,
+              });
+            }
+          };
+
+          const onLongPress = () => {
+            navigation.emit({
+              type: 'tabLongPress',
+              target: route.key,
+            });
+          };
+
+          const label =
+            typeof options.tabBarLabel === 'string'
+              ? options.tabBarLabel
+              : options.title !== undefined
+                ? options.title
+                : route.name;
+
+          const iconElement =
+            options.tabBarIcon?.({
+              focused,
+              color: focused ? colors.footer_active : colors.footer_text,
+              size: 24,
+            }) ?? null;
+
+          return (
+            <Pressable
+              key={route.key}
+              onPress={onPress}
+              onLongPress={onLongPress}
+              style={[styles.tab, { width: tabStyle.width, paddingHorizontal: tabStyle.paddingHorizontal }]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: focused }}
+              accessibilityLabel={
+                options.tabBarAccessibilityLabel ??
+                (typeof label === 'string'
+                  ? `${label}, tab, ${index + 1} of ${state.routes.length}`
+                  : undefined)
+              }
+            >
+              {/* Icon container: w-6 h-6 (24x24) */}
+              <View style={styles.iconWrap}>{iconElement}</View>
+              {/* Label: font-medium/light/normal, text-[10px], leading-[14px], tracking-[0] */}
+              {options.tabBarShowLabel !== false && (
+                <Text
+                  style={[
+                    styles.label,
+                    {
+                      color: focused
+                        ? colors.footer_active
+                        : colors.footer_text,
+                      fontWeight: getFontWeight(route.name, focused),
+                    },
+                  ]}
+                  numberOfLines={1}
+                  allowFontScaling={options.tabBarAllowFontScaling ?? true}
+                >
+                  {typeof label === 'string' ? label : ''}
+                </Text>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    // flex flex-col items-center gap-2.5 px-5 py-2 bg-white border-t border-[#d3d3d366]
+    flexDirection: 'column',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(211, 211, 211, 0.4)', // #d3d3d366
+    paddingVertical: 8, // py-2 = 2 * 4 = 8px
+    paddingHorizontal: 20, // px-5 = 5 * 4 = 20px
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  tabsRow: {
+    // inline-flex items-start gap-[42px]
+    flexDirection: 'row',
+    alignItems: 'flex-start', // items-start
+    gap: 42, // gap-[42px]
+  },
+  tab: {
+    // flex flex-col items-center
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  iconWrap: {
+    // w-6 h-6 (24x24)
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  label: {
+    // [font-family:'Roboto',Helvetica] text-[10px] text-center tracking-[0] leading-[14px]
+    fontSize: 10, // text-[10px]
+    lineHeight: 14, // leading-[14px]
+    textAlign: 'center',
+    fontFamily: Platform.select({ ios: 'Roboto', android: 'Roboto' }),
+    letterSpacing: 0, // tracking-[0]
+    marginTop: 10, // gap-2.5 = 2.5 * 4 = 10px (gap between icon and label)
+  },
+});

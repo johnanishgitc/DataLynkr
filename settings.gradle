@@ -1,0 +1,14 @@
+pluginManagement { includeBuild("node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex ->
+  // Root Gradle is at project root; plugin defaults assume root is android/ and use ../ for package.json.
+  // Override workingDirectory so npx runs where package.json and node_modules are.
+  // On Windows, use cmd /c so npx.cmd can be resolved (same as plugin's windowsAwareCommandLine).
+  def isWin = System.getProperty("os.name", "").toLowerCase().contains("win")
+  def autolinkCmd = isWin ? ["cmd", "/c", "npx", "@react-native-community/cli", "config"] : ["npx", "@react-native-community/cli", "config"]
+  ex.autolinkLibrariesFromCommand(autolinkCmd, settings.settingsDir)
+}
+rootProject.name = 'DataLynkr'
+include ':app'
+project(':app').projectDir = file('android/app')
+includeBuild('node_modules/@react-native/gradle-plugin')
