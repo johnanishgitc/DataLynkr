@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { View } from 'react-native';
 import type { MainTabsParamList } from './types';
 import HomeStack from './HomeStack';
 import LedgerStack from './LedgerStack';

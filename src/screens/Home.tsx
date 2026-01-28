@@ -18,6 +18,7 @@ const MENU = [
   { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' as const, params: undefined },
   { id: 'approvals', label: strings.voucher_approvals, target: 'ComingSoon' as const, params: { tab_name: strings.voucher_approvals } },
   { id: 'cache', label: strings.cache_management, target: 'CacheManagement' as const, params: undefined },
+  { id: 'cache2', label: strings.cache_management_2, target: 'CacheManagement2' as const, params: undefined },
 ];
 
 export default function Home() {

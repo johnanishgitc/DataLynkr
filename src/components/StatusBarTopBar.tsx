@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
@@ -36,8 +36,10 @@ export function StatusBarTopBar({
   const isBack = leftIcon === 'back';
 
   return (
-    <View style={[styles.wrapper, { paddingTop: insets.top }]}>
-      <View style={[styles.bar, compact && styles.barCompact]}>
+    <>
+      <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
+      <View style={[styles.wrapper, { paddingTop: insets.top }]}>
+        <View style={[styles.bar, compact && styles.barCompact]}>
         <View style={styles.left}>
           <TouchableOpacity
             onPress={isBack ? onLeftPress : onMenuPress}
@@ -71,6 +73,7 @@ export function StatusBarTopBar({
         </TouchableOpacity>
       </View>
     </View>
+    </>
   );
 }
 

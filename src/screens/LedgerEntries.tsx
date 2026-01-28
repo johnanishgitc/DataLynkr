@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   FlatList,
   TextInput,
+  Animated,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +27,7 @@ import { ExportMenu, StatusBarTopBar, PeriodSelection } from '../components';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import { toYyyyMmDd, formatDate } from '../utils/dateUtils';
+import { useScroll } from '../store/ScrollContext';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
 import * as XLSX from 'xlsx';
@@ -133,6 +135,70 @@ export default function LedgerEntries() {
   const [reportDropdownOpen, setReportDropdownOpen] = useState(false);
   const [periodSelectionOpen, setPeriodSelectionOpen] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
+
+  // Scroll-based header/footer collapse
+  const lastScrollY = useRef(0);
+  const localScrollDirection = useRef<'up' | 'down'>('up');
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const footerTranslateY = useRef(new Animated.Value(0)).current;
+  const { setScrollDirection } = useScroll();
+  
+  // Calculate approximate header height: StatusBarTopBar (~47px compact + safe area) + topContainer (~80px)
+  const headerHeight = insets.top + 47 + 80; // Approximate total header height
+  const footerHeight = 60; // Approximate footer height
+
+  const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const scrollDiff = currentScrollY - lastScrollY.current;
+
+    // Determine scroll direction
+    if (scrollDiff > 0 && currentScrollY > 50) {
+      // Scrolling down - hide header and footer
+      if (localScrollDirection.current !== 'down') {
+        localScrollDirection.current = 'down';
+        setScrollDirection('down');
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: -headerHeight,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(footerTranslateY, {
+            toValue: footerHeight,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    } else if (scrollDiff < 0 || currentScrollY <= 10) {
+      // Scrolling up or near top - show header and footer
+      if (localScrollDirection.current !== 'up') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        Animated.parallel([
+          Animated.timing(headerTranslateY, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(footerTranslateY, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }
+
+    lastScrollY.current = currentScrollY;
+  };
+
+  // Reset scroll direction when component unmounts
+  useEffect(() => {
+    return () => {
+      setScrollDirection(null);
+    };
+  }, [setScrollDirection]);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return ledgerNames;
@@ -395,18 +461,30 @@ export default function LedgerEntries() {
 
   return (
     <View style={styles.root}>
-      {/* LedgerBook2: blue header with back, title, share, bell */}
-      <StatusBarTopBar
-        title="Ledger Book"
-        leftIcon="back"
-        onLeftPress={() => (nav as { goBack?: () => void }).goBack?.()}
-        rightIcons="share-bell"
-        onRightIconsPress={() => setExportVisible(true)}
-        compact
-      />
+      {/* LedgerBook2: blue header with hamburger menu, title, share, bell */}
+      <Animated.View
+        style={[
+          styles.headerWrapper,
+          {
+            transform: [{ translateY: headerTranslateY }],
+          },
+        ]}
+      >
+        <StatusBarTopBar
+          title="Ledger Book"
+          leftIcon="menu"
+          onMenuPress={() => {
+            const parent = nav.getParent();
+            const tabNavigator = parent?.getParent();
+            (tabNavigator as { navigate?: (name: string) => void })?.navigate?.('HomeTab');
+          }}
+          rightIcons="share-bell"
+          onRightIconsPress={() => setExportVisible(true)}
+          compact
+        />
 
-      {/* TopContainer per LedgerBook2: customer dropdown, report dropdown, date range */}
-      <View style={styles.topContainer}>
+        {/* TopContainer per LedgerBook2: customer dropdown, report dropdown, date range */}
+        <View style={styles.topContainer}>
         <TouchableOpacity style={[styles.topRow, styles.topRowBorder]} onPress={() => setCustomerDropdownOpen(true)} activeOpacity={0.7}>
           <Icon name="account" size={18} color={colors.text_primary} />
           <Text style={styles.topTxt} numberOfLines={1}>{ledger_name || 'Select Company'}</Text>
@@ -422,6 +500,7 @@ export default function LedgerEntries() {
           <Text style={styles.topTxtDate}>{dateRangeStr}</Text>
         </TouchableOpacity>
       </View>
+      </Animated.View>
 
       {loading ? (
         <View style={styles.centered}>
@@ -435,7 +514,12 @@ export default function LedgerEntries() {
       ) : (
         <>
           {/* Container: scrollable card list per LedgerBook2 */}
-          <ScrollView style={styles.container} contentContainerStyle={styles.containerContent}>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={[styles.containerContent, { paddingTop: headerHeight }]}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+          >
             {rows.map((v, i) => (isBillWise ? renderCardBillWise(v, i) : renderCard(v, i)))}
             {rows.length === 0 && !opening && !closing ? (
               <Text style={[styles.empty, styles.emptyInList]}>{strings.table_data_will_appear}</Text>
@@ -443,7 +527,14 @@ export default function LedgerEntries() {
           </ScrollView>
 
           {/* GRAND TOTAL footer per Figma SalesOrderParty: border-t #c4d4ff, px-4 py-2.5, -mt-10; chevron -90deg collapsed */}
-          <View style={styles.footer}>
+          <Animated.View
+            style={[
+              styles.footer,
+              {
+                transform: [{ translateY: footerTranslateY }],
+              },
+            ]}
+          >
             <TouchableOpacity style={styles.footerBar} onPress={() => setFooterExpanded((x) => !x)} activeOpacity={0.8}>
               <Text style={styles.footerBarTxt}>GRAND TOTAL</Text>
               <Icon
@@ -489,7 +580,7 @@ export default function LedgerEntries() {
                 )}
               </View>
             )}
-          </View>
+          </Animated.View>
         </>
       )}
 
@@ -562,9 +653,6 @@ export default function LedgerEntries() {
                 </TouchableOpacity>
               )}
             />
-            <TouchableOpacity style={styles.modalCancel} onPress={() => setReportDropdownOpen(false)}>
-              <Text style={styles.modalCancelTxt}>Cancel</Text>
-            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -597,6 +685,16 @@ export default function LedgerEntries() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
+  headerWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    elevation: 10, // Android elevation to ensure header stays above ScrollView
+    backgroundColor: colors.primary_blue, // Match StatusBarTopBar to prevent content peek-through
+    overflow: 'hidden', // Prevent content from showing through when scrolling
+  },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingTxt: { marginTop: 8, color: colors.text_secondary },
   empty: { color: colors.text_secondary },
@@ -605,6 +703,7 @@ const styles = StyleSheet.create({
   topContainer: {
     backgroundColor: TOP_BG,
     paddingHorizontal: 16,
+    overflow: 'hidden', // Prevent content from showing through
   },
   topRow: {
     flexDirection: 'row',
@@ -629,8 +728,8 @@ const styles = StyleSheet.create({
   topTxt: { flex: 1, fontSize: 13, fontWeight: '500', color: '#131313' },
   topTxtDate: { fontSize: 13, fontWeight: '600', color: '#131313' },
   /* Figma Container: px-4 py-0, gap-2 (8) between cards; card px-0 py-2, gap-2.5 then gap-2 */
-  container: { flex: 1, backgroundColor: colors.white },
-  containerContent: { paddingHorizontal: 16, paddingVertical: 0, paddingBottom: 48 },
+  container: { flex: 1, backgroundColor: colors.white, zIndex: 0 }, // Ensure ScrollView is below header
+  containerContent: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 110 },
   card: {
     backgroundColor: colors.white,
     borderBottomWidth: 1,
@@ -699,10 +798,14 @@ const styles = StyleSheet.create({
   cardMetaValue: { fontSize: 13, color: '#0e172b', fontWeight: '600' },
   /* Figma SalesOrderParty: border-t #c4d4ff, px-4 py-2.5, bg #1e488f; -mt-10; expand px-[26px] py-2, gap-3, rounded-sm */
   footer: {
+    position: 'absolute',
+    bottom: 56, // Position above the tab bar
+    left: 0,
+    right: 0,
     borderTopWidth: 1,
     borderTopColor: TOP_BORDER,
     backgroundColor: '#1e488f',
-    marginTop: -40,
+    zIndex: 999,
   },
   footerBar: {
     flexDirection: 'row',
@@ -767,12 +870,4 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(211,211,211,0.6)',
   },
   modalOptTxt: { fontSize: 15, color: '#0e172b', lineHeight: 20 },
-  modalCancel: {
-    padding: 16,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: '#d3d3d3',
-    backgroundColor: TOP_BG,
-  },
-  modalCancelTxt: { color: colors.primary_blue, fontSize: 16, fontWeight: '500' },
 });

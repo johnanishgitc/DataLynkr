@@ -14,6 +14,8 @@ import {
     RefreshControl,
     TouchableOpacity,
 } from 'react-native';
+import RNFS from 'react-native-fs';
+import SQLite from 'react-native-sqlite-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -44,6 +46,65 @@ interface SalesDashboardProps {
     };
 }
 
+// Enable SQLite promises (safe to call multiple times)
+SQLite.enablePromise(true);
+
+// Cache2 (Cache Management 2) helpers
+interface Cache2Entry {
+    id: number;
+    key: string;
+    from_date: string;
+    to_date: string;
+    created_at: string;
+    json_path: string;
+}
+
+const CACHE2_DB_NAME = 'cache2.db';
+const CACHE2_TABLE_NAME = 'cache2_entries';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let cache2Db: any | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getCache2Database(): Promise<any> {
+    if (cache2Db) return cache2Db;
+
+    cache2Db = await SQLite.openDatabase({
+        name: CACHE2_DB_NAME,
+        location: 'default',
+    });
+
+    // Ensure table exists (matches CacheManagement2)
+    await cache2Db.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${CACHE2_TABLE_NAME} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      from_date TEXT NOT NULL,
+      to_date TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      json_path TEXT NOT NULL
+    )
+  `);
+
+    return cache2Db;
+}
+
+async function getCache2EntryByKey(key: string): Promise<Cache2Entry | null> {
+    const db = await getCache2Database();
+    const [results] = await db.executeSql(
+        `SELECT * FROM ${CACHE2_TABLE_NAME} WHERE key = ? ORDER BY created_at DESC LIMIT 1`,
+        [key],
+    );
+    if (results.rows.length === 0) return null;
+    return results.rows.item(0) as Cache2Entry;
+}
+
+// Helper: generate cache2 key (same logic as CacheManagement2)
+function generateCache2Key(email: string, guid: string, tallylocId: number): string {
+    const userIdPart = email.replace(/@/g, '_').replace(/\./g, '_').replace(/\s/g, '_');
+    return `${userIdPart}_${guid}_${tallylocId}_complete_sales`;
+}
+
 const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
     // State
     const [sales, setSales] = useState<SalesVoucher[]>([]);
@@ -61,6 +122,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
     const loadSalesData = useCallback(async () => {
         try {
             setError(null);
+            const email = await getUserEmail();
             const guid = await getGuid();
             const tallylocId = await getTallylocId();
             const company = await getCompany();
@@ -79,13 +141,84 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
                 return;
             }
 
-            // Try to get sales data - this will search for matching keys
-            let data = await cacheManager.getSalesData(
-                guid,
-                tallylocId, // Already a number from getTallylocId()
-                filters.startDate,
-                filters.endDate,
-            );
+            let data: SalesVoucher[] | null = null;
+
+            // First, try to load data from Cache Management 2 (cache2) using the new key format
+            try {
+                if (email && guid && tallylocId && company) {
+                    const cacheKey2 = generateCache2Key(email, guid, tallylocId);
+                    console.log('[SalesDashboard] Trying cache2 with key:', cacheKey2);
+
+                    const entry = await getCache2EntryByKey(cacheKey2);
+                    if (entry && entry.json_path) {
+                        console.log('[SalesDashboard] Found cache2 entry at path:', entry.json_path);
+
+                        const exists = await RNFS.exists(entry.json_path);
+                        if (exists) {
+                            const contentStr = await RNFS.readFile(entry.json_path, 'utf8');
+                            let parsed: unknown;
+                            try {
+                                parsed = JSON.parse(contentStr);
+                            } catch (parseError) {
+                                console.warn('[SalesDashboard] Failed to parse cache2 JSON:', parseError);
+                                parsed = null;
+                            }
+
+                            if (parsed) {
+                                // Extract vouchers array from the data
+                                // This mirrors the logic used in CacheManagement2 update handler
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                let vouchers: any[] = [];
+
+                                if (Array.isArray(parsed)) {
+                                    for (const item of parsed) {
+                                        if (item && typeof item === 'object') {
+                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            if (Array.isArray((item as any).vouchers)) {
+                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                vouchers.push(...(item as any).vouchers);
+                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            } else if ((item as any).masterid !== undefined) {
+                                                vouchers.push(item);
+                                            }
+                                        }
+                                    }
+                                } else if (parsed && typeof parsed === 'object') {
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    if (Array.isArray((parsed as any).vouchers)) {
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        vouchers = (parsed as any).vouchers;
+                                    }
+                                }
+
+                                if (vouchers.length > 0) {
+                                    console.log('[SalesDashboard] Loaded', vouchers.length, 'vouchers from cache2');
+                                    data = vouchers as SalesVoucher[];
+                                } else {
+                                    console.log('[SalesDashboard] No vouchers found in cache2 JSON');
+                                }
+                            }
+                        } else {
+                            console.warn('[SalesDashboard] cache2 file does not exist:', entry.json_path);
+                        }
+                    } else {
+                        console.log('[SalesDashboard] No cache2 entry found for key:', cacheKey2);
+                    }
+                }
+            } catch (cache2Error) {
+                console.warn('[SalesDashboard] Failed to load from cache2, falling back to legacy cache:', cache2Error);
+            }
+
+            // If cache2 didn't provide data, fall back to existing cache manager
+            if (!data || data.length === 0) {
+                // Try to get sales data - this will search for matching keys
+                data = await cacheManager.getSalesData(
+                    guid,
+                    tallylocId, // Already a number from getTallylocId()
+                    filters.startDate,
+                    filters.endDate,
+                );
+            }
 
             console.log('[SalesDashboard] Data returned:', data ? `Array with ${data.length} vouchers` : 'null');
 

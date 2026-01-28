@@ -107,6 +107,8 @@ export default function CacheManagement() {
     totalChunks: number;
   } | null>(null);
   const [corruptedKeys, setCorruptedKeys] = useState<string[]>([]);
+  const [showDownloadWarning, setShowDownloadWarning] = useState(false);
+  const [pendingDownloadAction, setPendingDownloadAction] = useState<{ isUpdate: boolean; startFresh: boolean } | null>(null);
 
   const fyOptions = getFinancialYearOptions(booksfrom);
 
@@ -461,20 +463,93 @@ export default function CacheManagement() {
         <View style={styles.row}>
           <TouchableOpacity
             style={[styles.btn, styles.btnGreen, salesLoading && styles.btnDisabled]}
-            onPress={() => onDownloadSales(false)}
+            onPress={() => {
+              setPendingDownloadAction({ isUpdate: false, startFresh: false });
+              setShowDownloadWarning(true);
+            }}
             disabled={salesLoading}
           >
             <Text style={styles.btnTxt}>Download Complete Data</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btn, styles.btnPurple, salesLoading && styles.btnDisabled]}
-            onPress={() => onDownloadSales(true)}
+            onPress={() => {
+              setPendingDownloadAction({ isUpdate: true, startFresh: false });
+              setShowDownloadWarning(true);
+            }}
             disabled={salesLoading}
           >
             <Text style={styles.btnTxt}>Update Data</Text>
           </TouchableOpacity>
         </View>
         
+        {/* Download Warning Modal */}
+        <Modal visible={showDownloadWarning} transparent animationType="fade">
+          <TouchableOpacity 
+            style={styles.modalOverlay} 
+            activeOpacity={1} 
+            onPress={() => {
+              setShowDownloadWarning(false);
+              setPendingDownloadAction(null);
+            }}
+          >
+            <View style={styles.downloadWarningModal} onStartShouldSetResponder={() => true}>
+              <Text style={styles.downloadWarningTitle}>Important: Keep App Active</Text>
+              
+              {/* Warning Section */}
+              <View style={styles.downloadWarningSection}>
+                <Text style={styles.downloadWarningSectionTitle}>Please do NOT during download:</Text>
+                <View style={styles.downloadWarningList}>
+                  <Text style={styles.downloadWarningListItem}>• Close this app or browser tab</Text>
+                  <Text style={styles.downloadWarningListItem}>• Switch to other apps or tabs</Text>
+                  <Text style={styles.downloadWarningListItem}>• Lock your phone or turn off screen</Text>
+                  <Text style={styles.downloadWarningListItem}>• Turn off your device</Text>
+                  <Text style={styles.downloadWarningListItem}>• Put the app in background</Text>
+                </View>
+                <View style={styles.downloadWarningCritical}>
+                  <Text style={styles.downloadWarningCriticalIcon}>⚠️</Text>
+                  <Text style={styles.downloadWarningCriticalText}>
+                    Interrupting the download may cause data corruption or incomplete downloads.
+                  </Text>
+                </View>
+              </View>
+
+              {/* Info Section */}
+              <View style={styles.downloadInfoSection}>
+                <Text style={styles.downloadInfoIcon}>ℹ️</Text>
+                <Text style={styles.downloadInfoText}>
+                  Keep this screen open and your device active throughout the download process. You can monitor the progress bar below.
+                </Text>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.downloadWarningActions}>
+                <TouchableOpacity
+                  style={styles.downloadWarningCancelBtn}
+                  onPress={() => {
+                    setShowDownloadWarning(false);
+                    setPendingDownloadAction(null);
+                  }}
+                >
+                  <Text style={styles.downloadWarningCancelBtnText}>✕ Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.downloadWarningContinueBtn}
+                  onPress={() => {
+                    setShowDownloadWarning(false);
+                    if (pendingDownloadAction) {
+                      onDownloadSales(pendingDownloadAction.isUpdate, pendingDownloadAction.startFresh);
+                    }
+                    setPendingDownloadAction(null);
+                  }}
+                >
+                  <Text style={styles.downloadWarningContinueBtnText}>✓ I Understand, Continue</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
         {/* Resume Modal */}
         <Modal visible={!!resumeModal} transparent animationType="fade">
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setResumeModal(null)}>
@@ -492,7 +567,8 @@ export default function CacheManagement() {
                   style={[styles.btn, styles.btnSecondary]}
                   onPress={() => {
                     setResumeModal(null);
-                    onDownloadSales(false, true); // Start fresh
+                    setPendingDownloadAction({ isUpdate: false, startFresh: true });
+                    setShowDownloadWarning(true);
                   }}
                 >
                   <Text style={styles.btnSecondaryTxt}>Start Fresh</Text>
@@ -501,7 +577,8 @@ export default function CacheManagement() {
                   style={[styles.btn, styles.btnPrimary]}
                   onPress={() => {
                     setResumeModal(null);
-                    onDownloadSales(false, false); // Resume
+                    setPendingDownloadAction({ isUpdate: false, startFresh: false });
+                    setShowDownloadWarning(true);
                   }}
                 >
                   <Text style={styles.btnTxt}>Resume</Text>
@@ -895,5 +972,124 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#dc2626',
     marginBottom: 4,
+  },
+  downloadWarningModal: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    margin: 24,
+    maxWidth: 500,
+    alignSelf: 'center',
+    width: '90%',
+  },
+  downloadWarningTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text_primary,
+    padding: 20,
+    paddingBottom: 16,
+    textAlign: 'center',
+  },
+  downloadWarningSection: {
+    backgroundColor: '#fff9e6',
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  downloadWarningSectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text_primary,
+    marginBottom: 12,
+  },
+  downloadWarningList: {
+    marginBottom: 12,
+  },
+  downloadWarningListItem: {
+    fontSize: 14,
+    color: colors.text_primary,
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  downloadWarningCritical: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#fff9e6',
+    padding: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fbbf24',
+  },
+  downloadWarningCriticalIcon: {
+    fontSize: 16,
+    marginRight: 8,
+    marginTop: 2,
+  },
+  downloadWarningCriticalText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#92400e',
+    flex: 1,
+    lineHeight: 18,
+  },
+  downloadInfoSection: {
+    backgroundColor: '#e0f2fe',
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  downloadInfoIcon: {
+    fontSize: 16,
+    marginRight: 10,
+    marginTop: 2,
+  },
+  downloadInfoText: {
+    fontSize: 14,
+    color: colors.text_primary,
+    flex: 1,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  downloadWarningActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    gap: 12,
+  },
+  downloadWarningCancelBtn: {
+    flex: 1,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border_gray,
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadWarningCancelBtnText: {
+    color: colors.text_primary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  downloadWarningContinueBtn: {
+    flex: 1,
+    backgroundColor: '#10b981',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadWarningContinueBtnText: {
+    color: colors.white,
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

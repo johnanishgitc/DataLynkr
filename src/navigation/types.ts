@@ -9,6 +9,7 @@ export type AuthStackParamList = {
 export type HomeStackParamList = {
   Home: undefined;
   CacheManagement: undefined;
+  CacheManagement2: undefined;
   SalesDashboard: undefined;
   ComingSoon: { tab_name: string };
 };

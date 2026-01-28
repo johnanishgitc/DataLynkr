@@ -87,7 +87,7 @@ function getPresetRange(id: string): { from: number; to: number } {
 }
 
 const PRESETS: { id: string; label: string }[] = [
-  { id: 'today', label: 'Today Date' },
+  { id: 'today', label: 'Today' },
   { id: 'yesterday', label: 'Yesterday' },
   { id: 'current-month', label: 'Current Month (Start to today)' },
   { id: 'last-month', label: 'Last Month' },
@@ -101,7 +101,6 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
   const [from, setFrom] = useState(fromDate);
   const [to, setTo] = useState(toDate);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerWhich, setPickerWhich] = useState<'from' | 'to' | null>(null);
 
   useEffect(() => {
@@ -109,26 +108,24 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
       setFrom(fromDate);
       setTo(toDate);
       setSelectedPreset(null);
+      setPickerWhich(null);
     }
   }, [visible, fromDate, toDate]);
 
-  const openPicker = (which: 'from' | 'to') => {
-    setPickerWhich(which);
-    setPickerVisible(true);
-  };
-
   const handlePickerSelect = (d: Date) => {
     const ms = startOfDay(d);
-    if (pickerWhich === 'from') setFrom(ms);
-    else if (pickerWhich === 'to') setTo(ms);
-    setPickerWhich(null);
-    setPickerVisible(false);
+    if (pickerWhich === 'from') {
+      setFrom(ms);
+      if (ms > to) {
+        setTo(ms);
+      }
+    } else if (pickerWhich === 'to') {
+      setTo(ms);
+      if (ms < from) {
+        setFrom(ms);
+      }
+    }
     setSelectedPreset(null);
-  };
-
-  const handlePickerDone = () => {
-    setPickerVisible(false);
-    setPickerWhich(null);
   };
 
   const handlePreset = (id: string) => {
@@ -136,6 +133,7 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
     setFrom(f);
     setTo(t);
     setSelectedPreset(id);
+    setPickerWhich(null);
   };
 
   const handleApply = () => {
@@ -143,13 +141,15 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
     onClose();
   };
 
+  const handleCancel = () => {
+    onClose();
+  };
+
   const handleClearAll = () => {
-    const first = new Date();
-    first.setDate(1);
-    first.setHours(0, 0, 0, 0);
-    setFrom(first.getTime());
-    setTo(new Date().getTime());
+    setFrom(0);
+    setTo(0);
     setSelectedPreset(null);
+    setPickerWhich(null);
   };
 
   const fromStr = from ? formatDate(from) : 'dd/mm/yyyy';
@@ -174,58 +174,78 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
             <View style={styles.fromToRow}>
               <View style={styles.fieldWrap}>
                 <Text style={styles.fieldLabel}>From Date</Text>
-                <TouchableOpacity style={styles.field} onPress={() => openPicker('from')} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={[styles.field, pickerWhich === 'from' && styles.fieldActive]}
+                  onPress={() => setPickerWhich(pickerWhich === 'from' ? null : 'from')}
+                  activeOpacity={0.7}
+                >
                   <Text style={[styles.fieldTxt, !from && styles.placeholder]}>{fromStr}</Text>
                   <Icon name="calendar" size={16} color={colors.text_gray} />
                 </TouchableOpacity>
               </View>
               <View style={styles.fieldWrap}>
                 <Text style={styles.fieldLabel}>To Date</Text>
-                <TouchableOpacity style={styles.field} onPress={() => openPicker('to')} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={[styles.field, pickerWhich === 'to' && styles.fieldActive]}
+                  onPress={() => setPickerWhich(pickerWhich === 'to' ? null : 'to')}
+                  activeOpacity={0.7}
+                >
                   <Text style={[styles.fieldTxt, !to && styles.placeholder]}>{toStr}</Text>
                   <Icon name="calendar" size={16} color={colors.text_gray} />
                 </TouchableOpacity>
               </View>
             </View>
 
+            {pickerWhich && (
+              <View style={styles.calendarContainer}>
+                <CalendarPicker
+                  value={
+                    pickerWhich === 'from' && from
+                      ? new Date(from)
+                      : pickerWhich === 'to' && to
+                      ? new Date(to)
+                      : new Date()
+                  }
+                  onSelect={handlePickerSelect}
+                  hideDone={true}
+                />
+              </View>
+            )}
+
             <Text style={styles.sectionLabel}>Select Period</Text>
             <View style={styles.presetBox}>
               {PRESETS.map((p) => (
                 <TouchableOpacity
                   key={p.id}
-                  style={[styles.presetRow, selectedPreset === p.id && styles.presetRowSelected]}
+                  style={styles.presetRow}
                   onPress={() => handlePreset(p.id)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.presetTxt} numberOfLines={1}>{p.label}</Text>
+                  <View style={styles.radioContainer}>
+                    <View style={[styles.radio, selectedPreset === p.id && styles.radioSelected]}>
+                      {selectedPreset === p.id && <View style={styles.radioInner} />}
+                    </View>
+                    <Text style={styles.presetTxt} numberOfLines={1}>
+                      {p.label}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               ))}
             </View>
 
+          </ScrollView>
+
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.cancel} onPress={handleCancel} activeOpacity={0.8}>
+              <Text style={styles.cancelTxt}>Cancel</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.apply} onPress={handleApply} activeOpacity={0.8}>
               <Text style={styles.applyTxt}>Apply</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.clear} onPress={handleClearAll} activeOpacity={0.8}>
-              <Text style={styles.clearTxt}>Clear All</Text>
-            </TouchableOpacity>
-          </ScrollView>
+          </View>
         </View>
       </View>
 
-      {pickerVisible && pickerWhich && (
-        <Modal visible transparent animationType="fade">
-          <View style={styles.calOverlay}>
-            <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => { setPickerVisible(false); setPickerWhich(null); }} activeOpacity={1} />
-            <View style={styles.calSheet}>
-              <CalendarPicker
-                value={pickerWhich === 'from' && from ? new Date(from) : pickerWhich === 'to' && to ? new Date(to) : new Date()}
-                onSelect={handlePickerSelect}
-                onDone={handlePickerDone}
-              />
-            </View>
-          </View>
-        </Modal>
-      )}
     </Modal>
   );
 }
@@ -235,12 +255,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingBottom: 0,
   },
   sheet: {
     backgroundColor: colors.white,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
-    maxHeight: '90%',
+    maxHeight: '95%',
     paddingBottom: 24,
   },
   handleWrap: { alignItems: 'center', paddingTop: 12, paddingBottom: 8 },
@@ -275,12 +296,17 @@ const styles = StyleSheet.create({
   },
   fieldTxt: { fontSize: 13, color: '#1b1b1b' },
   placeholder: { color: colors.text_secondary },
+  fieldActive: { borderColor: colors.primary_blue, borderWidth: 2 },
+  calendarContainer: {
+    marginBottom: 16,
+    alignItems: 'center',
+  },
   sectionLabel: { fontSize: 14, color: '#121212', marginBottom: 8 },
   presetBox: {
-    backgroundColor: PRESET_BG,
+    backgroundColor: 'transparent',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BORDER,
+    borderWidth: 0,
+    borderColor: 'transparent',
     padding: 6,
     marginBottom: 24,
   },
@@ -288,36 +314,61 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 4,
-    backgroundColor: PRESET_BG,
+    backgroundColor: 'transparent',
     marginBottom: 2,
   },
-  presetRowSelected: { backgroundColor: PRESET_SELECTED_BG },
-  presetTxt: { fontSize: 15, color: '#0e172b' },
-  apply: {
-    height: 48,
+  radioContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  radio: {
+    width: 22.5,
+    height: 22.5,
+    borderRadius: 11.25,
+    borderWidth: 1.5,
+    borderColor: BORDER,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.primary_blue,
-    borderRadius: 8,
-    marginBottom: 12,
   },
-  applyTxt: { fontSize: 17, fontWeight: '500', color: colors.white },
-  clear: {
+  radioSelected: {
+    borderColor: '#6A7282',
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#6A7282',
+  },
+  presetTxt: { fontSize: 13, color: '#0e172b', flex: 1 },
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    backgroundColor: colors.white,
+  },
+  cancel: {
+    flex: 1,
     height: 48,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: BORDER,
     borderRadius: 8,
   },
-  clearTxt: { fontSize: 17, fontWeight: '500', color: '#0e172b' },
-  calOverlay: {
+  cancelTxt: { fontSize: 17, fontWeight: '500', color: '#0e172b' },
+  apply: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    backgroundColor: colors.primary_blue,
+    borderRadius: 8,
   },
-  calSheet: { width: '100%', maxWidth: 400, alignItems: 'center' },
+  applyTxt: { fontSize: 17, fontWeight: '500', color: colors.white },
 });
 
 export default PeriodSelection;

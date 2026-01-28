@@ -102,6 +102,7 @@ export const strings = {
   b_commerce_place_orders: 'B-Commerce Place orders',
   voucher_approvals: 'Voucher Approvals',
   cache_management: 'Cache management',
+  cache_management_2: 'Cache management 2',
   available_soon: 'Available Soon',
   // Bill Wise
   bill_wise_outstanding: 'Bill Wise Outstanding',

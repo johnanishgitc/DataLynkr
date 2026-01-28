@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
+  PanResponder,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
@@ -20,6 +23,8 @@ import type {
 } from '../api/models/ledger';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetails'>;
 
@@ -109,16 +114,22 @@ function LedgerDetailsExpandable({
       {expanded && (
         <View style={styles.ledgerDetailsExpand}>
           {entries.length > 0 ? (
-            entries.map((e, i) => (
-              <View key={i} style={styles.ledgerDetailsRow}>
-                <Text style={styles.ledgerDetailsRowLabel} numberOfLines={1}>
-                  {e.LEDGERNAME ?? '—'}
-                </Text>
-                <Text style={styles.ledgerDetailsRowVal}>
-                  {amt(e.DEBITAMT)} Dr / {amt(e.CREDITAMT)} Cr
-                </Text>
-              </View>
-            ))
+            entries.map((e, i) => {
+              const debit = toNum(e.DEBITAMT);
+              const credit = toNum(e.CREDITAMT);
+              const hasAmount = debit !== 0 || credit !== 0;
+              const amountVal = debit !== 0 ? debit : credit;
+              return (
+                <View key={i} style={styles.ledgerDetailsRow}>
+                  <Text style={styles.ledgerDetailsRowLabel} numberOfLines={1}>
+                    {e.LEDGERNAME ?? '—'}
+                  </Text>
+                  <Text style={styles.ledgerDetailsRowVal}>
+                    {hasAmount ? `₹${fmtNum(amountVal)}` : '—'}
+                  </Text>
+                </View>
+              );
+            })
           ) : (
             <>
               <View style={styles.ledgerDetailsRow}>
@@ -286,6 +297,9 @@ export default function VoucherDetails() {
   const [billAllocModalVisible, setBillAllocModalVisible] = useState(false);
   const [moreDetailsModalVisible, setMoreDetailsModalVisible] = useState(false);
   const [moreDetailsTab, setMoreDetailsTab] = useState<'order' | 'buyer' | 'consignee'>('order');
+  const swipePosition = useRef(new Animated.Value(0)).current;
+  const lastSwipePosition = useRef(0);
+  const currentTabIndexRef = useRef(0);
 
   function get(...keys: string[]): string {
     for (const k of keys) {
@@ -304,7 +318,66 @@ export default function VoucherDetails() {
     setMenuVisible(false);
     setMoreDetailsTab('order');
     setMoreDetailsModalVisible(true);
+    lastSwipePosition.current = 0;
+    currentTabIndexRef.current = 0;
+    swipePosition.setValue(0);
   };
+
+  const tabs: Array<'order' | 'buyer' | 'consignee'> = ['order', 'buyer', 'consignee'];
+  const currentTabIndex = tabs.indexOf(moreDetailsTab);
+  currentTabIndexRef.current = currentTabIndex;
+
+  const switchTab = (newTab: 'order' | 'buyer' | 'consignee') => {
+    setMoreDetailsTab(newTab);
+    const newIndex = tabs.indexOf(newTab);
+    lastSwipePosition.current = newIndex;
+    currentTabIndexRef.current = newIndex;
+    Animated.spring(swipePosition, {
+      toValue: newIndex,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 10,
+    }).start();
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const maxIndex = tabs.length - 1;
+        const newPosition = lastSwipePosition.current - gestureState.dx / SCREEN_WIDTH;
+        const clampedPosition = Math.max(0, Math.min(maxIndex, newPosition));
+        swipePosition.setValue(clampedPosition);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const velocity = gestureState.vx;
+        const maxIndex = tabs.length - 1;
+        const idx = currentTabIndexRef.current;
+        let targetIndex = idx;
+
+        if (Math.abs(gestureState.dx) > SCREEN_WIDTH * 0.25 || Math.abs(velocity) > 0.5) {
+          if (gestureState.dx < 0 && idx < maxIndex) {
+            targetIndex = idx + 1;
+          } else if (gestureState.dx > 0 && idx > 0) {
+            targetIndex = idx - 1;
+          }
+        }
+
+        lastSwipePosition.current = targetIndex;
+        currentTabIndexRef.current = targetIndex;
+        setMoreDetailsTab(tabs[targetIndex]);
+        Animated.spring(swipePosition, {
+          toValue: targetIndex,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 10,
+        }).start();
+      },
+    })
+  ).current;
 
   const headerContentTop = insets.top + 10 + 10 + 47 + 10;
 
@@ -499,7 +572,7 @@ export default function VoucherDetails() {
               <TouchableOpacity
                 key={tab}
                 style={[styles.moreDetailsTab, moreDetailsTab === tab && styles.moreDetailsTabActive]}
-                onPress={() => setMoreDetailsTab(tab)}
+                onPress={() => switchTab(tab)}
                 activeOpacity={0.7}
               >
                 <Text
@@ -518,11 +591,16 @@ export default function VoucherDetails() {
             ))}
           </View>
 
-          <ScrollView
-            style={styles.moreDetailsScroll}
-            contentContainerStyle={styles.moreDetailsScrollContent}
-            showsVerticalScrollIndicator={true}
+          <Animated.View
+            style={styles.moreDetailsSwipeContainer}
+            {...panResponder.panHandlers}
           >
+            <ScrollView
+              style={styles.moreDetailsScroll}
+              contentContainerStyle={styles.moreDetailsScrollContent}
+              showsVerticalScrollIndicator={true}
+              scrollEnabled={true}
+            >
             {moreDetailsTab === 'order' && (
               <>
                 <View style={styles.detailCard}>
@@ -699,7 +777,8 @@ export default function VoucherDetails() {
                 </View>
               </View>
             )}
-          </ScrollView>
+            </ScrollView>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -1083,6 +1162,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.primary_blue,
   },
+  moreDetailsSwipeContainer: {
+    flex: 1,
+  },
   moreDetailsScroll: { flex: 1 },
   moreDetailsScrollContent: {
     paddingHorizontal: 16,
@@ -1107,7 +1189,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingVertical: 4,
+    paddingVertical: 2,
     gap: 8,
   },
   detailLabel: {

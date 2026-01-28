@@ -28,12 +28,16 @@ export interface VoucherSyncRequest {
   guid: string;
   fromdate?: string | null;
   todate?: string | null;
+  lastaltid?: number | null;
   lastalterid?: number | null;
+  vouchertype?: string | null;
   [key: string]: unknown;
 }
 
 export interface VoucherSyncResponse {
   data?: Voucher[] | null;
+  vouchers?: Voucher[] | null;
+  lastaltid?: number | null;
   lastalterid?: number | null;
   error?: string | null;
   message?: string | null;
@@ -52,6 +56,7 @@ export interface DeletedVouchersRequest {
 
 export interface DeletedVouchersResponse {
   data?: string[] | unknown[] | null;
+  deletedVoucherIds?: string[] | null;
   error?: string | null;
   message?: string | null;
   success?: boolean;

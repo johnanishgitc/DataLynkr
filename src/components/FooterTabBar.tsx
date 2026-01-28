@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { View, Pressable, Text, StyleSheet, Platform } from 'react-native';
+import { View, Pressable, Text, StyleSheet, Platform, Animated } from 'react-native';
 
 import { colors } from '../constants/colors';
+import { useScroll } from '../store/ScrollContext';
 
 /**
  * Footer implementation matching Figma design exactly:
@@ -23,6 +24,29 @@ export default function FooterTabBar({
     insets.bottom - Platform.select({ ios: 4, default: 0 }),
     0
   );
+
+  // Scroll-based collapse animation
+  const { scrollDirection } = useScroll();
+  const translateY = useRef(new Animated.Value(0)).current;
+  const footerHeight = 100; // Height to hide footer completely (including safe area)
+
+  useEffect(() => {
+    if (scrollDirection === 'down') {
+      // Scrolling down - hide footer
+      Animated.timing(translateY, {
+        toValue: footerHeight,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    } else if (scrollDirection === 'up' || scrollDirection === null) {
+      // Scrolling up or no scroll - show footer
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [scrollDirection, translateY, footerHeight]);
 
   // Tab width and padding mapping from Figma
   const getTabStyle = (routeName: string) => {
@@ -50,11 +74,12 @@ export default function FooterTabBar({
   };
 
   return (
-    <View
+    <Animated.View
       style={[
         styles.container,
         {
           paddingBottom,
+          transform: [{ translateY }],
         },
       ]}
     >
@@ -138,13 +163,17 @@ export default function FooterTabBar({
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     // flex flex-col items-center gap-2.5 px-5 py-2 bg-white border-t border-[#d3d3d366]
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'column',
     alignItems: 'center',
     backgroundColor: colors.white,

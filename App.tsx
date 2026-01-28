@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AuthProvider } from './src/store';
+import { AuthProvider, ScrollProvider } from './src/store';
 import RootNavigator from './src/navigation/RootNavigator';
 import { requestBackgroundPermissions } from './src/utils/permissions';
 
@@ -13,7 +13,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <RootNavigator />
+        <ScrollProvider>
+          <RootNavigator />
+        </ScrollProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );
