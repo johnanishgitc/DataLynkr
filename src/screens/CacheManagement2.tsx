@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,12 @@ import {
   Modal,
   ScrollView,
   TextInput,
+  InteractionManager,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import JSONTree from 'react-native-json-tree';
 import SQLite from 'react-native-sqlite-storage';
+import KeepAwake from 'react-native-keep-awake';
 import { colors } from '../constants/colors';
 import { apiService } from '../api/client';
 import {
@@ -22,9 +24,128 @@ import {
   getCompany,
   getGuid,
 } from '../store/storage';
+import {
+  transformVouchersToSaleRecords,
+  computeAllDashboardAggregations,
+} from '../utils/salesTransformer';
 
 // Enable SQLite promises
 SQLite.enablePromise(true);
+
+// Dashboard aggregations cache - same as in SalesDashboard
+const DASHBOARD_CACHE_TABLE = 'dashboard_aggregations_cache';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dashboardCacheDb: any | null = null;
+
+async function getDashboardCacheDatabase(): Promise<any> {
+    if (dashboardCacheDb) return dashboardCacheDb;
+    
+    dashboardCacheDb = await SQLite.openDatabase({
+        name: 'dashboard_cache.db',
+        location: 'default',
+    });
+    
+    await dashboardCacheDb.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${DASHBOARD_CACHE_TABLE} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cache_key TEXT NOT NULL UNIQUE,
+            aggregations_json TEXT NOT NULL,
+            voucher_count INTEGER NOT NULL,
+            record_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            file_timestamp TEXT
+        )
+    `);
+    
+    return dashboardCacheDb;
+}
+
+// Helper: Yield control to allow UI updates during long operations
+const yieldToUI = (): Promise<void> => {
+    return new Promise(resolve => {
+        // Use requestAnimationFrame or setTimeout to yield
+        if (typeof requestAnimationFrame !== 'undefined') {
+            requestAnimationFrame(() => resolve());
+        } else {
+            setTimeout(() => resolve(), 0);
+        }
+    });
+};
+
+// Process vouchers in batches to keep UI responsive for large datasets
+const BATCH_SIZE = 1000; // Process 1000 vouchers at a time
+
+async function saveDashboardAggregationsCache(
+    cacheKey: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vouchers: any[]
+): Promise<void> {
+    try {
+        console.log('[CacheManagement2] Pre-computing dashboard aggregations...');
+        console.log('[CacheManagement2] Cache key:', cacheKey);
+        console.log('[CacheManagement2] Input vouchers count:', vouchers.length);
+        const startTime = Date.now();
+        
+        // For very large datasets (>10k vouchers), process in batches
+        const isLargeDataset = vouchers.length > 10000;
+        
+        let records: ReturnType<typeof transformVouchersToSaleRecords> = [];
+        
+        if (isLargeDataset) {
+            console.log('[CacheManagement2] Large dataset detected, processing in batches of', BATCH_SIZE);
+            const transformStart = Date.now();
+            
+            // Process vouchers in batches with yield points
+            for (let i = 0; i < vouchers.length; i += BATCH_SIZE) {
+                const batch = vouchers.slice(i, i + BATCH_SIZE);
+                const batchRecords = transformVouchersToSaleRecords(batch);
+                records.push(...batchRecords);
+                
+                // Yield to UI every batch to keep it responsive
+                if (i + BATCH_SIZE < vouchers.length) {
+                    await yieldToUI();
+                }
+                
+                if ((i / BATCH_SIZE) % 10 === 0) {
+                    console.log('[CacheManagement2] Processed', i + batch.length, '/', vouchers.length, 'vouchers...');
+                }
+            }
+            
+            console.log('[CacheManagement2] Transformed to', records.length, 'records in', Date.now() - transformStart, 'ms');
+        } else {
+            // For smaller datasets, process all at once (faster)
+            const transformStart = Date.now();
+            records = transformVouchersToSaleRecords(vouchers);
+            console.log('[CacheManagement2] Transformed to', records.length, 'records in', Date.now() - transformStart, 'ms');
+        }
+        
+        // Compute all aggregations (this is already optimized single-pass)
+        const aggStart = Date.now();
+        const aggregations = computeAllDashboardAggregations(records);
+        console.log('[CacheManagement2] Computed aggregations in', Date.now() - aggStart, 'ms');
+        
+        // Save to SQLite
+        const db = await getDashboardCacheDatabase();
+        const aggregationsJson = JSON.stringify(aggregations);
+        const createdAt = new Date().toISOString();
+        
+        console.log('[CacheManagement2] Aggregations JSON size:', aggregationsJson.length, 'chars');
+        
+        await db.executeSql(
+            `INSERT OR REPLACE INTO ${DASHBOARD_CACHE_TABLE} 
+             (cache_key, aggregations_json, voucher_count, record_count, created_at, file_timestamp) 
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [cacheKey, aggregationsJson, vouchers.length, records.length, createdAt, null],
+        );
+        
+        console.log('[CacheManagement2] Dashboard cache saved! Total time:', Date.now() - startTime, 'ms');
+        console.log('[CacheManagement2] Metrics - Vouchers:', vouchers.length, 'Records:', records.length, 'Revenue:', aggregations.metrics?.totalRevenue);
+    } catch (error) {
+        console.error('[CacheManagement2] Failed to save dashboard aggregations:', error);
+        throw error; // Re-throw so caller knows it failed
+    }
+}
 
 // Types
 interface CacheEntry {
@@ -46,7 +167,9 @@ interface DateChunk {
 const DB_NAME = 'cache2.db';
 const TABLE_NAME = 'cache2_entries';
 const PAGE_SIZE_CHARS = 50000; // characters per page for paginated viewing
-const sessionCache = new Map<string, string>(); // in-memory cache of full JSON content for current session
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB - files larger than this use chunked reading
+const sessionCache = new Map<string, string>(); // in-memory cache of full JSON content for current session (only for small files)
+const fileSizeCache = new Map<string, number>(); // Cache file sizes to avoid repeated stat calls
 
 // Helper: format Date to YYYYMMDD string for API payload
 function formatDateToYYYYMMDD(date: Date): string {
@@ -178,6 +301,20 @@ async function deleteCacheEntry(id: number): Promise<void> {
   await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE id = ?`, [id]);
 }
 
+// Delete dashboard aggregations cache for a specific key
+async function deleteDashboardCacheEntry(cacheKey: string): Promise<void> {
+  try {
+    const db = await getDashboardCacheDatabase();
+    await db.executeSql(
+      `DELETE FROM ${DASHBOARD_CACHE_TABLE} WHERE cache_key = ?`,
+      [cacheKey]
+    );
+    console.log('[CacheManagement2] Deleted dashboard cache for key:', cacheKey);
+  } catch (error) {
+    console.warn('[CacheManagement2] Failed to delete dashboard cache:', error);
+  }
+}
+
 // Type for interrupted download state
 interface InterruptedDownloadState {
   cacheKey: string;
@@ -223,6 +360,8 @@ export default function CacheManagement2() {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [currentFilePath, setCurrentFilePath] = useState<string>('');
   const [pageInputText, setPageInputText] = useState<string>('1');
+  const [isLargeFile, setIsLargeFile] = useState(false);
+  const [currentFileSizeMB, setCurrentFileSizeMB] = useState<number>(0);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [calendarMode, setCalendarMode] = useState<'from' | 'to' | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
@@ -231,10 +370,23 @@ export default function CacheManagement2() {
 
   // State for interrupted download resume
   const [interruptedDownload, setInterruptedDownload] = useState<InterruptedDownloadState | null>(null);
+  
+  // State for preview loading (for View Raw progressive loading)
+  const [previewLoading, setPreviewLoading] = useState(false);
+  
+  // Track InteractionManager tasks for cleanup
+  const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
 
   // Load entries on mount
   useEffect(() => {
     refreshEntries();
+    
+    // Cleanup InteractionManager task on unmount
+    return () => {
+      if (interactionTaskRef.current) {
+        interactionTaskRef.current.cancel();
+      }
+    };
   }, []);
 
   const refreshEntries = useCallback(async () => {
@@ -256,6 +408,57 @@ export default function CacheManagement2() {
       );
 
       setEntries(entriesWithSize);
+
+      // Pre-cache the most recently downloaded file in the background for instant "View Raw"
+      // This helps when user downloads a file and immediately wants to view it
+      if (entriesWithSize.length > 0) {
+        // Sort by created_at descending to get the most recent
+        const sortedEntries = [...entriesWithSize].sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        
+        const mostRecentEntry = sortedEntries[0];
+        if (mostRecentEntry.json_path && !sessionCache.has(mostRecentEntry.json_path)) {
+          const fileSize = mostRecentEntry.sizeBytes || 0;
+          const isSmallFile = fileSize < 1024 * 1024; // Less than 1MB
+          
+          if (isSmallFile) {
+            // For small files, cache immediately (fast enough not to block)
+            (async () => {
+              try {
+                const fileExists = await RNFS.exists(mostRecentEntry.json_path);
+                if (fileExists) {
+                  console.log('[CacheManagement2] Pre-caching small file immediately...');
+                  const startTime = Date.now();
+                  const content = await RNFS.readFile(mostRecentEntry.json_path, 'utf8');
+                  sessionCache.set(mostRecentEntry.json_path, content);
+                  console.log('[CacheManagement2] Pre-cached file in', Date.now() - startTime, 'ms, size:', content.length, 'chars');
+                }
+              } catch (precacheError) {
+                console.warn('[CacheManagement2] Failed to pre-cache file:', precacheError);
+              }
+            })();
+          } else {
+            // For large files, cache in background - don't block UI
+            InteractionManager.runAfterInteractions(async () => {
+              try {
+                const fileExists = await RNFS.exists(mostRecentEntry.json_path);
+                if (fileExists) {
+                  console.log('[CacheManagement2] Pre-caching large file in background for instant View Raw...');
+                  const startTime = Date.now();
+                  const content = await RNFS.readFile(mostRecentEntry.json_path, 'utf8');
+                  sessionCache.set(mostRecentEntry.json_path, content);
+                  console.log('[CacheManagement2] Pre-cached file in', Date.now() - startTime, 'ms, size:', content.length, 'chars');
+                }
+              } catch (precacheError) {
+                console.warn('[CacheManagement2] Failed to pre-cache file:', precacheError);
+              }
+            });
+          }
+        } else if (mostRecentEntry.json_path && sessionCache.has(mostRecentEntry.json_path)) {
+          console.log('[CacheManagement2] Most recent file already cached');
+        }
+      }
     } catch (error) {
       console.error('Failed to load cache entries:', error);
       setErrorMessage('Failed to load cache entries');
@@ -458,7 +661,21 @@ export default function CacheManagement2() {
 
     // Write combined JSON to file
     const jsonContent = JSON.stringify(allResponses, null, 2);
+    const fileSizeBytes = new Blob([jsonContent]).size || jsonContent.length * 2; // Approximate size
+    const fileSizeMB = fileSizeBytes / 1024 / 1024;
+    
     await RNFS.writeFile(filePath, jsonContent, 'utf8');
+    
+    // Only cache small files in memory (<10MB) for instant "View Raw" access
+    // Large files will use chunked reading instead
+    if (fileSizeMB < 10) {
+      sessionCache.set(filePath, jsonContent);
+      console.log('[CacheManagement2] File content cached for instant View Raw access');
+    } else {
+      console.log('[CacheManagement2] Large file (', fileSizeMB.toFixed(2), 'MB) - not caching in memory, will use chunked reading');
+      // Cache file size for quick lookups
+      fileSizeCache.set(filePath, fileSizeBytes);
+    }
 
     // Save to database
     await insertOrUpdateCacheEntry(
@@ -471,6 +688,68 @@ export default function CacheManagement2() {
 
     // Refresh entries list
     await refreshEntries();
+
+    // Pre-compute dashboard aggregations for instant loading
+    // Use the jsonContent we already have in memory (no need to read file again)
+    try {
+      const fileSizeMB = fileSizeBytes / 1024 / 1024;
+      
+      if (fileSizeMB > 50) {
+        setStatusMessage(`Large file detected (${fileSizeMB.toFixed(1)}MB). Pre-computing dashboard cache (this may take a minute)...`);
+      } else {
+        setStatusMessage('Pre-computing dashboard aggregations...');
+      }
+      
+      console.log('[CacheManagement2] Pre-computing dashboard aggregations...');
+      console.log('[CacheManagement2] File size:', fileSizeMB.toFixed(2), 'MB');
+      
+      const parsed = JSON.parse(jsonContent);
+      
+      // Extract vouchers using the same logic as SalesDashboard
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let allVouchers: any[] = [];
+      
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && typeof item === 'object') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if (Array.isArray((item as any).vouchers)) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              allVouchers.push(...(item as any).vouchers);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } else if ((item as any).masterid !== undefined) {
+              allVouchers.push(item);
+            }
+          }
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (Array.isArray((parsed as any).vouchers)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          allVouchers = (parsed as any).vouchers;
+        }
+      }
+      
+      console.log('[CacheManagement2] Extracted', allVouchers.length, 'vouchers for dashboard cache');
+      
+      if (allVouchers.length > 0) {
+        // For large datasets, show progress updates
+        if (allVouchers.length > 10000) {
+          setStatusMessage(`Processing ${allVouchers.length.toLocaleString()} vouchers in batches...`);
+        }
+        
+        // Run async, don't block - but await to ensure it completes before user navigates
+        await saveDashboardAggregationsCache(cacheKey, allVouchers);
+        console.log('[CacheManagement2] Dashboard cache saved successfully for key:', cacheKey);
+        
+        if (fileSizeMB > 50) {
+          setStatusMessage(`Dashboard cache saved! Large file (${fileSizeMB.toFixed(1)}MB) - future loads will be instant.`);
+        }
+      }
+    } catch (precomputeError) {
+      console.warn('[CacheManagement2] Failed to pre-compute dashboard:', precomputeError);
+      setStatusMessage('Warning: Dashboard cache pre-computation failed. Dashboard may load slowly.');
+    }
 
     // Clear interrupted state on success
     setInterruptedDownload(null);
@@ -1016,11 +1295,18 @@ export default function CacheManagement2() {
       // Write back to the same file
       setStatusMessage('Saving updated cache...');
       const updatedContent = JSON.stringify(updatedData, null, 2);
+      const fileSizeBytes = new Blob([updatedContent]).size || updatedContent.length * 2;
+      const fileSizeMB = fileSizeBytes / 1024 / 1024;
+      
       await RNFS.writeFile(existingEntry.json_path, updatedContent, 'utf8');
 
-      // Update the session cache if it was loaded
-      if (sessionCache.has(existingEntry.json_path)) {
+      // Only cache small files in memory (<10MB) for instant "View Raw" access
+      if (fileSizeMB < 10) {
         sessionCache.set(existingEntry.json_path, updatedContent);
+        console.log('[CacheManagement2] Updated file content cached for instant View Raw access');
+      } else {
+        console.log('[CacheManagement2] Large file (', fileSizeMB.toFixed(2), 'MB) - not caching in memory, will use chunked reading');
+        fileSizeCache.set(existingEntry.json_path, fileSizeBytes);
       }
 
       // Update the database entry timestamp
@@ -1035,6 +1321,25 @@ export default function CacheManagement2() {
       // Refresh entries list
       await refreshEntries();
 
+      // Pre-compute dashboard aggregations for instant loading after update
+      if (updatedVouchers.length > 0) {
+        try {
+          if (fileSizeMB > 50 || updatedVouchers.length > 10000) {
+            setStatusMessage(`Pre-computing dashboard cache for ${updatedVouchers.length.toLocaleString()} vouchers (this may take a minute)...`);
+          } else {
+            setStatusMessage('Pre-computing dashboard aggregations...');
+          }
+          
+          console.log('[CacheManagement2] Pre-computing dashboard aggregations after update...');
+          console.log('[CacheManagement2] Vouchers:', updatedVouchers.length, 'File size:', fileSizeMB.toFixed(2), 'MB');
+          await saveDashboardAggregationsCache(cacheKey, updatedVouchers);
+          console.log('[CacheManagement2] Dashboard cache updated successfully for key:', cacheKey);
+        } catch (err) {
+          console.warn('[CacheManagement2] Failed to pre-compute dashboard after update:', err);
+          setStatusMessage('Warning: Dashboard cache update failed. Dashboard may load slowly.');
+        }
+      }
+
       setStatusMessage(
         `Update complete! Updated: ${totalUpdated}, New: ${totalNew}, Deleted: ${totalDeleted}. Total vouchers: ${updatedVouchers.length}. Lastaltid: ${currentLastAltId}`
       );
@@ -1046,16 +1351,110 @@ export default function CacheManagement2() {
     }
   };
 
-  // Load full content into session cache if not already loaded
+  // Get file size (cached to avoid repeated stat calls)
+  const getFileSize = async (filePath: string): Promise<number> => {
+    if (fileSizeCache.has(filePath)) {
+      return fileSizeCache.get(filePath)!;
+    }
+    try {
+      const stat = await RNFS.stat(filePath);
+      const size = stat.size || 0;
+      fileSizeCache.set(filePath, size);
+      return size;
+    } catch (error) {
+      console.warn('[CacheManagement2] Failed to get file size:', error);
+      return 0;
+    }
+  };
+
+  // Read a specific page/chunk from file (for large files)
+  // Note: RNFS doesn't support true byte-range reading, so we must read the full file
+  // but we only return the needed chunk and don't cache it in memory
+  const readFileChunk = async (filePath: string, page: number): Promise<string> => {
+    try {
+      // Read full file (unavoidable with RNFS limitation)
+      // For 100MB files, this will take time, but we show loading state
+      const fullContent = await RNFS.readFile(filePath, 'utf8');
+      
+      // Return only the page we need
+      const startIdx = (page - 1) * PAGE_SIZE_CHARS;
+      const endIdx = Math.min(startIdx + PAGE_SIZE_CHARS, fullContent.length);
+      return fullContent.slice(startIdx, endIdx);
+    } catch (error) {
+      console.error('[CacheManagement2] Failed to read file chunk:', error);
+      throw error;
+    }
+  };
+
+  // Load content - uses chunked reading for large files, full read for small files
+  const loadContentForPage = async (filePath: string, page: number): Promise<{ content: string; totalPages: number; fileSize: number }> => {
+    const fileSize = await getFileSize(filePath);
+    const fileSizeMB = fileSize / 1024 / 1024;
+    const isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
+    
+    if (isLargeFile) {
+      // For large files: read full file (RNFS limitation) but only return the page needed
+      // Don't cache in memory to save RAM
+      console.log('[CacheManagement2] Large file detected (', fileSizeMB.toFixed(2), 'MB), reading for page', page);
+      console.log('[CacheManagement2] Note: RNFS requires full file read, but only page', page, 'will be returned');
+      
+      const startTime = Date.now();
+      const content = await readFileChunk(filePath, page);
+      const readTime = Date.now() - startTime;
+      console.log('[CacheManagement2] File read took', readTime, 'ms for', fileSizeMB.toFixed(2), 'MB file');
+      
+      // Estimate total pages based on file size (approximate: 2 bytes per UTF-8 char)
+      const estimatedChars = Math.floor(fileSize / 2);
+      const totalPages = Math.ceil(estimatedChars / PAGE_SIZE_CHARS);
+      
+      return { content, totalPages, fileSize };
+    } else {
+      // For small files: use session cache (existing behavior)
+      if (sessionCache.has(filePath)) {
+        const cached = sessionCache.get(filePath)!;
+        const totalPages = Math.ceil(cached.length / PAGE_SIZE_CHARS);
+        const pageContent = getPaginatedContent(cached, page);
+        return { content: pageContent, totalPages, fileSize };
+      }
+
+      console.log('[CacheManagement2] Reading small file into cache:', filePath.split('/').pop());
+      const startTime = Date.now();
+      const fullContent = await RNFS.readFile(filePath, 'utf8');
+      console.log('[CacheManagement2] File read took', Date.now() - startTime, 'ms, size:', fullContent.length, 'chars');
+      
+      // Only cache small files in memory
+      sessionCache.set(filePath, fullContent);
+      
+      const totalPages = Math.ceil(fullContent.length / PAGE_SIZE_CHARS);
+      const pageContent = getPaginatedContent(fullContent, page);
+      return { content: pageContent, totalPages, fileSize };
+    }
+  };
+
+  // Load full content into session cache if not already loaded (for small files only)
   const loadFullContentToSessionCache = async (filePath: string): Promise<string> => {
+    const fileSize = await getFileSize(filePath);
+    const isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
+    
+    // For large files, don't cache in memory - return empty and use chunked reading
+    if (isLargeFile) {
+      console.log('[CacheManagement2] Large file (', (fileSize / 1024 / 1024).toFixed(2), 'MB) - not caching in memory');
+      return ''; // Return empty, caller should use loadContentForPage instead
+    }
+    
+    // For small files, use existing cache logic
     if (sessionCache.has(filePath)) {
-      console.log('Using cached content for', filePath);
-      return sessionCache.get(filePath)!;
+      const cached = sessionCache.get(filePath)!;
+      console.log('[CacheManagement2] ✅ Using session cache! Instant load for', filePath.split('/').pop());
+      return cached;
     }
 
-    console.log('Reading file into session cache:', filePath);
+    console.log('[CacheManagement2] ❌ Cache miss - reading file from disk:', filePath.split('/').pop());
+    const startTime = Date.now();
     const content = await RNFS.readFile(filePath, 'utf8');
+    console.log('[CacheManagement2] File read took', Date.now() - startTime, 'ms, size:', content.length, 'chars');
     sessionCache.set(filePath, content);
+    console.log('[CacheManagement2] File now cached for future access');
     return content;
   };
 
@@ -1094,33 +1493,56 @@ export default function CacheManagement2() {
         return;
       }
 
-      // Load full content to session cache
-      const contentStr = await loadFullContentToSessionCache(entry.json_path);
-
-      // Calculate total pages
-      const pages = Math.ceil(contentStr.length / PAGE_SIZE_CHARS);
-
-      // For tree mode, parse only the first page to avoid OOM
-      let parsed: any = null;
-      try {
-        const firstPageContent = getPaginatedContent(contentStr, 1);
-        parsed = JSON.parse(firstPageContent);
-      } catch (parseError) {
-        console.error('Failed to parse JSON file:', parseError);
-        Alert.alert('Error', 'File is not valid JSON and cannot be displayed.');
-        return;
-      }
-
+      // Show preview modal immediately with loading state
       setPreviewTitle(entry.key);
-      setPreviewContent(parsed);
-      setPreviewRaw(getPaginatedContent(contentStr, 1));
+      setPreviewContent(null);
+      setPreviewRaw(null);
       setPreviewMode('tree');
       setPreviewTooLarge(false);
       setCurrentPage(1);
-      setTotalPages(pages);
+      setTotalPages(1);
       setCurrentFilePath(entry.json_path);
       setPageInputText('1');
+      setPreviewLoading(true);
       setPreviewVisible(true);
+
+      // Use InteractionManager to defer heavy file reading and parsing after modal is visible
+      interactionTaskRef.current = InteractionManager.runAfterInteractions(async () => {
+        try {
+          console.log('[CacheManagement2] Starting deferred file read for tree view...');
+          const startTime = Date.now();
+          
+          // Load full content to session cache
+          const contentStr = await loadFullContentToSessionCache(entry.json_path);
+          console.log('[CacheManagement2] File read completed in', Date.now() - startTime, 'ms');
+
+          // Calculate total pages
+          const pages = Math.ceil(contentStr.length / PAGE_SIZE_CHARS);
+
+          // For tree mode, parse only the first page to avoid OOM
+          let parsed: any = null;
+          try {
+            const parseStart = Date.now();
+            const firstPageContent = getPaginatedContent(contentStr, 1);
+            parsed = JSON.parse(firstPageContent);
+            console.log('[CacheManagement2] JSON parse completed in', Date.now() - parseStart, 'ms');
+          } catch (parseError) {
+            console.error('Failed to parse JSON file:', parseError);
+            setPreviewLoading(false);
+            Alert.alert('Error', 'File is not valid JSON and cannot be displayed.');
+            return;
+          }
+
+          setPreviewContent(parsed);
+          setPreviewRaw(getPaginatedContent(contentStr, 1));
+          setTotalPages(pages);
+          setPreviewLoading(false);
+        } catch (readError) {
+          console.error('Failed to read file content:', readError);
+          setPreviewLoading(false);
+          Alert.alert('Error', 'Failed to load file content.');
+        }
+      });
     } catch (error) {
       console.error('Failed to open JSON file:', error);
       Alert.alert('Error', 'Failed to open JSON file.');
@@ -1154,22 +1576,47 @@ export default function CacheManagement2() {
         return;
       }
 
-      // Load full content to session cache
-      const contentStr = await loadFullContentToSessionCache(entry.json_path);
-
-      // Calculate total pages
-      const pages = Math.ceil(contentStr.length / PAGE_SIZE_CHARS);
-
+      // Show preview modal immediately with loading state
       setPreviewTitle(entry.key);
-      setPreviewRaw(getPaginatedContent(contentStr, 1));
+      setPreviewRaw(null);
       setPreviewContent(null);
       setPreviewMode('raw');
       setPreviewTooLarge(false);
       setCurrentPage(1);
-      setTotalPages(pages);
+      setTotalPages(1);
       setCurrentFilePath(entry.json_path);
       setPageInputText('1');
+      setPreviewLoading(true);
       setPreviewVisible(true);
+
+      // Use InteractionManager to defer heavy file reading after modal is visible
+      interactionTaskRef.current = InteractionManager.runAfterInteractions(async () => {
+        try {
+          console.log('[CacheManagement2] Starting deferred file read...');
+          
+          // Check file size first
+          const fileSize = await getFileSize(entry.json_path);
+          const fileSizeMB = fileSize / 1024 / 1024;
+          const isLarge = fileSize > LARGE_FILE_THRESHOLD;
+          
+          setIsLargeFile(isLarge);
+          setCurrentFileSizeMB(fileSizeMB);
+          
+          // Use chunked reading for large files, full read for small files
+          const { content, totalPages } = await loadContentForPage(entry.json_path, 1);
+          
+          console.log('[CacheManagement2] Loaded page 1 of', totalPages, 'for file size:', fileSizeMB.toFixed(2), 'MB');
+
+          // Update state with loaded content
+          setPreviewRaw(content);
+          setTotalPages(totalPages);
+          setPreviewLoading(false);
+        } catch (readError) {
+          console.error('Failed to read file content:', readError);
+          setPreviewLoading(false);
+          Alert.alert('Error', 'Failed to load file content.');
+        }
+      });
     } catch (error) {
       console.error('Failed to open raw JSON file:', error);
       Alert.alert('Error', 'Failed to open JSON file.');
@@ -1181,22 +1628,37 @@ export default function CacheManagement2() {
     if (page < 1 || page > totalPages || !currentFilePath) return;
 
     try {
-      // Get full content from session cache
-      const fullContent = await loadFullContentToSessionCache(currentFilePath);
+      const fileSize = await getFileSize(currentFilePath);
+      const isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
 
-      if (previewMode === 'raw') {
-        // For raw mode, just slice the content
-        setPreviewRaw(getPaginatedContent(fullContent, page));
-      } else {
-        // For tree mode, try to parse the page slice
-        try {
-          const pageContent = getPaginatedContent(fullContent, page);
-          const parsed = JSON.parse(pageContent);
-          setPreviewContent(parsed);
-        } catch (parseError) {
-          // If page slice is not valid JSON, show in raw mode
+      if (isLargeFile) {
+        // For large files: use chunked reading
+        const { content } = await loadContentForPage(currentFilePath, page);
+        
+        if (previewMode === 'raw') {
+          setPreviewRaw(content);
+        } else {
+          // For tree mode with large files, show raw (can't parse partial JSON)
           setPreviewMode('raw');
+          setPreviewRaw(content);
+        }
+      } else {
+        // For small files: use cached content
+        const fullContent = await loadFullContentToSessionCache(currentFilePath);
+
+        if (previewMode === 'raw') {
           setPreviewRaw(getPaginatedContent(fullContent, page));
+        } else {
+          // For tree mode, try to parse the page slice
+          try {
+            const pageContent = getPaginatedContent(fullContent, page);
+            const parsed = JSON.parse(pageContent);
+            setPreviewContent(parsed);
+          } catch (parseError) {
+            // If page slice is not valid JSON, show in raw mode
+            setPreviewMode('raw');
+            setPreviewRaw(getPaginatedContent(fullContent, page));
+          }
         }
       }
 
@@ -1630,7 +2092,12 @@ export default function CacheManagement2() {
               showsVerticalScrollIndicator={true}
               keyboardShouldPersistTaps="handled"
             >
-              {previewMode === 'tree' && previewContent ? (
+              {previewLoading ? (
+                <View style={styles.previewLoadingContainer}>
+                  <ActivityIndicator size="large" color={colors.primary_blue} />
+                  <Text style={styles.previewLoadingText}>Loading file content...</Text>
+                </View>
+              ) : previewMode === 'tree' && previewContent ? (
                 <View style={styles.previewContentWrapper}>
                   {totalPages > 1 ? (
                     <Text style={styles.previewNotice}>
@@ -1643,7 +2110,14 @@ export default function CacheManagement2() {
                 <View style={styles.previewContentWrapper}>
                   {totalPages > 1 ? (
                     <Text style={styles.previewNotice}>
-                      Showing page {currentPage} of {totalPages} (Full file is cached in memory for instant navigation)
+                      {isLargeFile 
+                        ? `Showing page ${currentPage} of ${totalPages} (Large file: ${currentFileSizeMB.toFixed(1)}MB - page navigation may take a few seconds)`
+                        : `Showing page ${currentPage} of ${totalPages} (Full file is cached in memory for instant navigation)`
+                      }
+                    </Text>
+                  ) : isLargeFile ? (
+                    <Text style={styles.previewNotice}>
+                      Large file ({currentFileSizeMB.toFixed(1)}MB) - consider using smaller date ranges for faster loading
                     </Text>
                   ) : null}
                   <Text style={styles.previewContent} selectable>
@@ -1660,6 +2134,9 @@ export default function CacheManagement2() {
 
   return (
     <View style={styles.root}>
+      {/* Keep screen awake during downloads/updates */}
+      {(isDownloading || isUpdating) && <KeepAwake />}
+      
       {/* Header Section */}
       <View style={styles.headerSection}>
         <Text style={styles.title}>Cache Management 2</Text>
@@ -2274,6 +2751,17 @@ const styles = StyleSheet.create({
   previewContentWrapper: {
     flex: 1,
     minHeight: '100%',
+  },
+  previewLoadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  previewLoadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: colors.text_secondary,
   },
   previewContent: {
     fontSize: 12,

@@ -4,7 +4,7 @@
  * Ported from React TallyCatalyst SalesDashboard.js
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -13,6 +13,7 @@ import {
     ActivityIndicator,
     RefreshControl,
     TouchableOpacity,
+    InteractionManager,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import SQLite from 'react-native-sqlite-storage';
@@ -32,10 +33,9 @@ import {
 } from '../utils/formatters';
 import {
     transformVouchersToSaleRecords,
-    calculateSalesMetrics,
-    aggregateByField,
-    aggregateByMonth,
+    computeAllDashboardAggregations,
     SaleRecord,
+    AllDashboardAggregations,
 } from '../utils/salesTransformer';
 import type { SalesVoucher, ChartDataPoint, SalesFilters } from '../types/sales';
 
@@ -48,6 +48,95 @@ interface SalesDashboardProps {
 
 // Enable SQLite promises (safe to call multiple times)
 SQLite.enablePromise(true);
+
+// Session-level cache for parsed vouchers - avoids re-reading file on navigation back
+// This persists for the app session, making subsequent dashboard visits instant
+interface SessionCacheEntry {
+    vouchers: SalesVoucher[];
+    records: SaleRecord[];
+    aggregations: AllDashboardAggregations;
+    timestamp: number;
+}
+const salesSessionCache = new Map<string, SessionCacheEntry>();
+
+// SQLite-based persistent cache for dashboard aggregations
+// This stores pre-computed aggregations so dashboard loads instantly even after app restart
+const DASHBOARD_CACHE_TABLE = 'dashboard_aggregations_cache';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dashboardCacheDb: any | null = null;
+
+async function getDashboardCacheDatabase(): Promise<any> {
+    if (dashboardCacheDb) return dashboardCacheDb;
+    
+    dashboardCacheDb = await SQLite.openDatabase({
+        name: 'dashboard_cache.db',
+        location: 'default',
+    });
+    
+    // Create table for storing pre-computed aggregations
+    await dashboardCacheDb.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${DASHBOARD_CACHE_TABLE} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cache_key TEXT NOT NULL UNIQUE,
+            aggregations_json TEXT NOT NULL,
+            voucher_count INTEGER NOT NULL,
+            record_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            file_timestamp TEXT
+        )
+    `);
+    
+    return dashboardCacheDb;
+}
+
+async function getDashboardCacheEntry(cacheKey: string): Promise<AllDashboardAggregations | null> {
+    try {
+        console.log('[SalesDashboard] Looking for SQLite cache with key:', cacheKey);
+        const db = await getDashboardCacheDatabase();
+        const [results] = await db.executeSql(
+            `SELECT aggregations_json FROM ${DASHBOARD_CACHE_TABLE} WHERE cache_key = ? LIMIT 1`,
+            [cacheKey],
+        );
+        console.log('[SalesDashboard] SQLite cache query returned', results.rows.length, 'rows');
+        if (results.rows.length === 0) {
+            console.log('[SalesDashboard] No SQLite cache found for key');
+            return null;
+        }
+        
+        const row = results.rows.item(0);
+        const aggregations = JSON.parse(row.aggregations_json) as AllDashboardAggregations;
+        console.log('[SalesDashboard] Loaded aggregations from SQLite - revenue:', aggregations.metrics?.totalRevenue);
+        return aggregations;
+    } catch (error) {
+        console.warn('[SalesDashboard] Failed to get dashboard cache:', error);
+        return null;
+    }
+}
+
+async function saveDashboardCacheEntry(
+    cacheKey: string,
+    aggregations: AllDashboardAggregations,
+    voucherCount: number,
+    recordCount: number,
+    fileTimestamp?: string
+): Promise<void> {
+    try {
+        const db = await getDashboardCacheDatabase();
+        const aggregationsJson = JSON.stringify(aggregations);
+        const createdAt = new Date().toISOString();
+        
+        await db.executeSql(
+            `INSERT OR REPLACE INTO ${DASHBOARD_CACHE_TABLE} 
+             (cache_key, aggregations_json, voucher_count, record_count, created_at, file_timestamp) 
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [cacheKey, aggregationsJson, voucherCount, recordCount, createdAt, fileTimestamp || null],
+        );
+        console.log('[SalesDashboard] Saved dashboard aggregations to SQLite cache');
+    } catch (error) {
+        console.warn('[SalesDashboard] Failed to save dashboard cache:', error);
+    }
+}
 
 // Cache2 (Cache Management 2) helpers
 interface Cache2Entry {
@@ -110,6 +199,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
     const [sales, setSales] = useState<SalesVoucher[]>([]);
     const [saleRecords, setSaleRecords] = useState<SaleRecord[]>([]);
     const [loading, setLoading] = useState(true);
+    const [chartsLoading, setChartsLoading] = useState(true); // Progressive loading for charts
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [filters, setFilters] = useState<SalesFilters>({
@@ -117,204 +207,289 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
         endDate: getCurrentDate(),
     });
     const [showPeriodPicker, setShowPeriodPicker] = useState(false);
+    
+    // Pre-computed aggregations (computed once in single pass)
+    const [aggregations, setAggregations] = useState<AllDashboardAggregations | null>(null);
+    
+    // Track interaction manager task for cleanup
+    const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
 
-    // Load sales data from cache
+    // Load sales data from cache - defers ALL heavy operations to keep UI responsive
     const loadSalesData = useCallback(async () => {
         try {
             setError(null);
-            const email = await getUserEmail();
-            const guid = await getGuid();
-            const tallylocId = await getTallylocId();
-            const company = await getCompany();
+            
+            // Get user info quickly (these are fast async storage reads)
+            const [email, guid, tallylocId, company] = await Promise.all([
+                getUserEmail(),
+                getGuid(),
+                getTallylocId(),
+                getCompany(),
+            ]);
 
             console.log('[SalesDashboard] Loading sales data...');
             console.log('[SalesDashboard] guid:', guid);
             console.log('[SalesDashboard] tallylocId:', tallylocId);
-            console.log('[SalesDashboard] company:', company);
-            console.log('[SalesDashboard] startDate:', filters.startDate);
-            console.log('[SalesDashboard] endDate:', filters.endDate);
 
             if (!guid || !tallylocId) {
                 console.log('[SalesDashboard] Missing guid or tallylocId');
                 setError('No company selected. Please select a company first.');
                 setSales([]);
+                setLoading(false);
                 return;
             }
 
-            let data: SalesVoucher[] | null = null;
-
-            // First, try to load data from Cache Management 2 (cache2) using the new key format
-            try {
-                if (email && guid && tallylocId && company) {
-                    const cacheKey2 = generateCache2Key(email, guid, tallylocId);
-                    console.log('[SalesDashboard] Trying cache2 with key:', cacheKey2);
-
-                    const entry = await getCache2EntryByKey(cacheKey2);
-                    if (entry && entry.json_path) {
-                        console.log('[SalesDashboard] Found cache2 entry at path:', entry.json_path);
-
-                        const exists = await RNFS.exists(entry.json_path);
-                        if (exists) {
-                            const contentStr = await RNFS.readFile(entry.json_path, 'utf8');
-                            let parsed: unknown;
-                            try {
-                                parsed = JSON.parse(contentStr);
-                            } catch (parseError) {
-                                console.warn('[SalesDashboard] Failed to parse cache2 JSON:', parseError);
-                                parsed = null;
+            // Check if cache2 entry exists (fast DB query, no file read)
+            let cache2Path: string | null = null;
+            let cacheKey2: string | null = null;
+            if (email && guid && tallylocId && company) {
+                cacheKey2 = generateCache2Key(email, guid, tallylocId);
+                console.log('[SalesDashboard] Trying cache2 with key:', cacheKey2);
+                
+                // Priority 1: Check session cache (RAM - instant)
+                const sessionEntry = salesSessionCache.get(cacheKey2);
+                if (sessionEntry) {
+                    console.log('[SalesDashboard] Found session cache! Loading instantly...');
+                    setSales(sessionEntry.vouchers);
+                    setSaleRecords(sessionEntry.records);
+                    setAggregations(sessionEntry.aggregations);
+                    setLoading(false);
+                    setChartsLoading(false);
+                    return;
+                }
+                
+                // Priority 2: Check SQLite cache for pre-computed aggregations (fast DB read)
+                // This avoids the slow 7-second file read
+                const cachedAggregations = await getDashboardCacheEntry(cacheKey2);
+                if (cachedAggregations) {
+                    console.log('[SalesDashboard] Found SQLite cache! Loading aggregations instantly...');
+                    setAggregations(cachedAggregations);
+                    setLoading(false);
+                    setChartsLoading(false);
+                    return;
+                }
+                
+                // Priority 3: Need to read from file (slow, but only on first load after sync)
+                // Check file size first - if it's very large (>50MB), warn user and skip file read
+                const entry = await getCache2EntryByKey(cacheKey2);
+                if (entry && entry.json_path) {
+                    const exists = await RNFS.exists(entry.json_path);
+                    if (exists) {
+                        try {
+                            const stat = await RNFS.stat(entry.json_path);
+                            const fileSizeMB = (stat.size || 0) / 1024 / 1024;
+                            
+                            if (fileSizeMB > 50) {
+                                console.warn('[SalesDashboard] File is very large (', fileSizeMB.toFixed(2), 'MB). Skipping file read - please ensure dashboard cache is pre-computed.');
+                                setError(`File is very large (${fileSizeMB.toFixed(1)}MB). Dashboard cache not found. Please go to Cache Management and ensure data is synced, or use a smaller date range.`);
+                                setLoading(false);
+                                setChartsLoading(false);
+                                return;
                             }
-
-                            if (parsed) {
-                                // Extract vouchers array from the data
-                                // This mirrors the logic used in CacheManagement2 update handler
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                let vouchers: any[] = [];
-
-                                if (Array.isArray(parsed)) {
-                                    for (const item of parsed) {
-                                        if (item && typeof item === 'object') {
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            if (Array.isArray((item as any).vouchers)) {
-                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                                vouchers.push(...(item as any).vouchers);
-                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            } else if ((item as any).masterid !== undefined) {
-                                                vouchers.push(item);
-                                            }
-                                        }
-                                    }
-                                } else if (parsed && typeof parsed === 'object') {
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    if (Array.isArray((parsed as any).vouchers)) {
-                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        vouchers = (parsed as any).vouchers;
-                                    }
-                                }
-
-                                if (vouchers.length > 0) {
-                                    console.log('[SalesDashboard] Loaded', vouchers.length, 'vouchers from cache2');
-                                    data = vouchers as SalesVoucher[];
-                                } else {
-                                    console.log('[SalesDashboard] No vouchers found in cache2 JSON');
-                                }
-                            }
-                        } else {
-                            console.warn('[SalesDashboard] cache2 file does not exist:', entry.json_path);
+                            
+                            cache2Path = entry.json_path;
+                            console.log('[SalesDashboard] Found cache2 entry at path:', cache2Path, 'Size:', fileSizeMB.toFixed(2), 'MB');
+                        } catch (statError) {
+                            console.warn('[SalesDashboard] Failed to get file size, proceeding anyway:', statError);
+                            cache2Path = entry.json_path;
                         }
-                    } else {
-                        console.log('[SalesDashboard] No cache2 entry found for key:', cacheKey2);
                     }
                 }
-            } catch (cache2Error) {
-                console.warn('[SalesDashboard] Failed to load from cache2, falling back to legacy cache:', cache2Error);
             }
 
-            // If cache2 didn't provide data, fall back to existing cache manager
-            if (!data || data.length === 0) {
-                // Try to get sales data - this will search for matching keys
-                data = await cacheManager.getSalesData(
-                    guid,
-                    tallylocId, // Already a number from getTallylocId()
-                    filters.startDate,
-                    filters.endDate,
-                );
-            }
+            // Show loading UI immediately, then defer ALL heavy operations
+            setLoading(false);
+            setChartsLoading(true);
 
-            console.log('[SalesDashboard] Data returned:', data ? `Array with ${data.length} vouchers` : 'null');
+            // Use InteractionManager to defer ALL heavy operations (file read, parse, transform)
+            // This ensures the UI is visible and responsive before we do any heavy work
+            interactionTaskRef.current = InteractionManager.runAfterInteractions(async () => {
+                console.log('[SalesDashboard] Starting deferred data loading...');
+                const totalStartTime = Date.now();
+                
+                let data: SalesVoucher[] | null = null;
 
-            // If no data found, check if there's any sales cache available
-            // This helps diagnose issues where the cache key doesn't match
-            if (!data || data.length === 0) {
-                console.log('[SalesDashboard] No data found with exact key, checking for any sales cache...');
-                
-                // Get all cache entries to see what's available
-                const allEntries = await cacheManager.listAllCacheEntries();
-                const salesEntries = allEntries.filter(e => e.category === 'sales');
-                console.log('[SalesDashboard] Found', salesEntries.length, 'sales cache entries');
-                
-                if (salesEntries.length > 0) {
-                    // Log the available cache entries for debugging
-                    salesEntries.forEach(entry => {
-                        console.log('[SalesDashboard] Available sales cache:', entry.cacheKey, 
-                            'dates:', entry.startDate, '-', entry.endDate,
-                            'vouchers:', entry.voucherCount);
-                    });
-                    
-                    // If there are sales entries but none matched, it might be a date range issue
-                    // Try to find a cache entry for this company regardless of date range
-                    const matchingCompanyEntries = salesEntries.filter(e => 
-                        e.cacheKey.includes(`_${tallylocId}_complete_sales_`)
+                // Heavy operation 1: Read and parse cache2 file
+                if (cache2Path) {
+                    try {
+                        console.log('[SalesDashboard] Reading cache2 file...');
+                        const readStartTime = Date.now();
+                        const contentStr = await RNFS.readFile(cache2Path, 'utf8');
+                        console.log('[SalesDashboard] File read completed in', Date.now() - readStartTime, 'ms');
+                        
+                        const parseStartTime = Date.now();
+                        let parsed: unknown;
+                        try {
+                            parsed = JSON.parse(contentStr);
+                            console.log('[SalesDashboard] JSON parse completed in', Date.now() - parseStartTime, 'ms');
+                        } catch (parseError) {
+                            console.warn('[SalesDashboard] Failed to parse cache2 JSON:', parseError);
+                            parsed = null;
+                        }
+
+                        if (parsed) {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            let vouchers: any[] = [];
+
+                            if (Array.isArray(parsed)) {
+                                for (const item of parsed) {
+                                    if (item && typeof item === 'object') {
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        if (Array.isArray((item as any).vouchers)) {
+                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            vouchers.push(...(item as any).vouchers);
+                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        } else if ((item as any).masterid !== undefined) {
+                                            vouchers.push(item);
+                                        }
+                                    }
+                                }
+                            } else if (parsed && typeof parsed === 'object') {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                if (Array.isArray((parsed as any).vouchers)) {
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    vouchers = (parsed as any).vouchers;
+                                }
+                            }
+
+                            if (vouchers.length > 0) {
+                                console.log('[SalesDashboard] Loaded', vouchers.length, 'vouchers from cache2');
+                                data = vouchers as SalesVoucher[];
+                            }
+                        }
+                    } catch (cache2Error) {
+                        console.warn('[SalesDashboard] Failed to load from cache2:', cache2Error);
+                    }
+                }
+
+                // Fallback to legacy cache if cache2 didn't work
+                if (!data || data.length === 0) {
+                    console.log('[SalesDashboard] Trying legacy cache...');
+                    data = await cacheManager.getSalesData(
+                        guid,
+                        tallylocId,
+                        filters.startDate,
+                        filters.endDate,
+                    );
+                }
+
+                console.log('[SalesDashboard] Data returned:', data ? `Array with ${data.length} vouchers` : 'null');
+
+                // Fallback: try to find any matching company cache
+                if (!data || data.length === 0) {
+                    console.log('[SalesDashboard] Checking for any sales cache...');
+                    const allEntries = await cacheManager.listAllCacheEntries();
+                    const matchingCompanyEntries = allEntries.filter(e => 
+                        e.category === 'sales' && e.cacheKey.includes(`_${tallylocId}_complete_sales_`)
                     );
                     
                     if (matchingCompanyEntries.length > 0) {
-                        // Found a cache entry for this company, try to load it
                         const firstMatch = matchingCompanyEntries[0];
-                        console.log('[SalesDashboard] Found matching company cache entry:', firstMatch.cacheKey);
-                        
-                        // Extract date range from cache key and try to load
                         const keyParts = firstMatch.cacheKey.split('_complete_sales_');
                         if (keyParts.length === 2) {
                             const dateRange = keyParts[1].split('_');
                             if (dateRange.length === 2) {
-                                console.log('[SalesDashboard] Trying to load with dates:', dateRange[0], '-', dateRange[1]);
                                 data = await cacheManager.getSalesData(guid, tallylocId, dateRange[0], dateRange[1]);
-                                console.log('[SalesDashboard] Data from matched key:', data ? `Array with ${data.length} vouchers` : 'null');
                             }
                         }
                     }
                 }
-            }
 
-            if (data && Array.isArray(data) && data.length > 0) {
-                setSales(data);
+                if (data && Array.isArray(data) && data.length > 0) {
+                    setSales(data);
 
-                // Transform vouchers to item-level sale records
-                const records = transformVouchersToSaleRecords(data);
-                setSaleRecords(records);
-                console.log('[SalesDashboard] Transformed to', records.length, 'sale records');
-            } else {
-                setSales([]);
-                setSaleRecords([]);
-                
-                // Check if cache is corrupted
-                const corruptedKeys = getCorruptedCacheKeys();
-                if (corruptedKeys.length > 0 && corruptedKeys.some(k => k.includes('sales'))) {
-                    console.log('[SalesDashboard] Cache corruption detected - user should clear and re-download');
-                    setError('Cache data is corrupted. Please go to Cache Management and clear the sales cache, then re-download the data.');
+                    // Heavy operation 2: Transform vouchers to sale records
+                    console.log('[SalesDashboard] Starting data transformation...');
+                    const transformStartTime = Date.now();
+                    const records = transformVouchersToSaleRecords(data);
+                    setSaleRecords(records);
+                    console.log('[SalesDashboard] Transformed to', records.length, 'sale records in', Date.now() - transformStartTime, 'ms');
+
+                    // Heavy operation 3: Compute all aggregations in single pass
+                    const aggStartTime = Date.now();
+                    const allAggregations = computeAllDashboardAggregations(records);
+                    setAggregations(allAggregations);
+                    console.log('[SalesDashboard] Computed all aggregations in', Date.now() - aggStartTime, 'ms');
+
+                    // Save to session cache for instant loading on next visit (this session)
+                    if (cacheKey2) {
+                        salesSessionCache.set(cacheKey2, {
+                            vouchers: data,
+                            records: records,
+                            aggregations: allAggregations,
+                            timestamp: Date.now(),
+                        });
+                        console.log('[SalesDashboard] Saved to session cache');
+                        
+                        // Also save to SQLite for instant loading on next app launch
+                        // This runs async and doesn't block the UI
+                        saveDashboardCacheEntry(
+                            cacheKey2,
+                            allAggregations,
+                            data.length,
+                            records.length
+                        ).catch(err => console.warn('[SalesDashboard] Failed to save to SQLite cache:', err));
+                    }
+
+                    console.log('[SalesDashboard] Total deferred loading time:', Date.now() - totalStartTime, 'ms');
                 } else {
-                    console.log('[SalesDashboard] No data found - user should sync data from Cache Management');
+                    setSales([]);
+                    setSaleRecords([]);
+                    
+                    const corruptedKeys = getCorruptedCacheKeys();
+                    if (corruptedKeys.length > 0 && corruptedKeys.some(k => k.includes('sales'))) {
+                        setError('Cache data is corrupted. Please go to Cache Management and clear the sales cache, then re-download the data.');
+                    }
                 }
-            }
+                
+                setChartsLoading(false);
+            });
         } catch (err) {
             console.error('[SalesDashboard] Error loading sales data:', err);
             setError('Failed to load sales data. Please try again.');
             setSales([]);
+            setLoading(false);
         }
     }, [filters.startDate, filters.endDate]);
 
-    // Initial load
+    // Initial load - use InteractionManager to defer heavy work
     useEffect(() => {
         const init = async () => {
             setLoading(true);
+            setChartsLoading(true);
             await loadSalesData();
-            setLoading(false);
+            // Note: setLoading(false) is now called inside loadSalesData for progressive loading
         };
         init();
+        
+        // Cleanup InteractionManager task on unmount
+        return () => {
+            if (interactionTaskRef.current) {
+                interactionTaskRef.current.cancel();
+            }
+        };
     }, [loadSalesData]);
 
     // Refresh handler
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
+        setChartsLoading(true);
         await loadSalesData();
         setRefreshing(false);
     }, [loadSalesData]);
 
-    // Calculate all metrics using the transformer
-    const metrics = useMemo(() => {
-        return calculateSalesMetrics(saleRecords);
-    }, [saleRecords]);
+    // Helper to format month labels (YYYY-MM -> Mon YYYY)
+    const formatMonthLabel = useCallback((label: string): string => {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const [year, month] = label.split('-');
+        const monthName = months[parseInt(month, 10) - 1] || month;
+        return `${monthName} ${year}`;
+    }, []);
 
-    // Destructure for easy access
+    // All chart data now comes from pre-computed aggregations (computed in single pass)
+    // This eliminates 15+ separate iterations through the data
+    
+    // Metrics - from pre-computed aggregations
     const {
         totalRevenue,
         totalQuantity,
@@ -323,100 +498,97 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
         uniqueCustomers,
         avgInvoiceValue,
         profitMargin,
-    } = metrics;
+    } = aggregations?.metrics ?? {
+        totalRevenue: 0,
+        totalQuantity: 0,
+        totalProfit: 0,
+        totalInvoices: 0,
+        uniqueCustomers: 0,
+        avgInvoiceValue: 0,
+        profitMargin: 0,
+    };
 
-    // Chart Data: Sales by Customer (Top 10)
+    // Chart Data: Sales by Customer (Top 10) - from pre-computed
     const salesByCustomer = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'customer', 'amount', 10);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byCustomer.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Sales by Stock Group/Category
+    // Chart Data: Sales by Stock Group/Category - from pre-computed
     const salesByStockGroup = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'category', 'amount', 8);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byCategory.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Sales by Period (Month)
+    // Chart Data: Sales by Period (Month) - from pre-computed with formatted labels
     const salesByPeriod = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByMonth(saleRecords, 'amount');
-        // Format month labels (YYYY-MM -> Mon YYYY)
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return data.map(d => {
-            const [year, month] = d.label.split('-');
-            const monthName = months[parseInt(month, 10) - 1] || month;
-            return { label: `${monthName} ${year}`, value: d.value };
-        });
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byMonth.map(d => ({ 
+            label: formatMonthLabel(d.label), 
+            value: d.value 
+        }));
+    }, [aggregations, formatMonthLabel]);
 
-    // Chart Data: Top Items by Revenue
+    // Chart Data: Top Items by Revenue - from pre-computed
     const topItemsByRevenue = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'item', 'amount', 10);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byItem.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Top Items by Quantity
+    // Chart Data: Top Items by Quantity - from pre-computed
     const topItemsByQuantity = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'item', 'quantity', 10);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byItemQuantity.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Sales by Ledger Group
+    // Chart Data: Sales by Ledger Group - from pre-computed
     const salesByLedgerGroup = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'ledgerGroup', 'amount', 8);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byLedgerGroup.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Sales by Region/State
+    // Chart Data: Sales by Region/State - from pre-computed
     const salesByRegion = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'region', 'amount', 10);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byRegion.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Sales by Country
+    // Chart Data: Sales by Country - from pre-computed
     const salesByCountry = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'country', 'amount', 10);
-        return data.map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.byCountry.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Profit by Month
+    // Chart Data: Profit by Month - from pre-computed with formatted labels
     const profitByMonth = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByMonth(saleRecords, 'profit');
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return data.map(d => {
-            const [year, month] = d.label.split('-');
-            const monthName = months[parseInt(month, 10) - 1] || month;
-            return { label: `${monthName} ${year}`, value: d.value };
-        });
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.profitByMonth.map(d => ({ 
+            label: formatMonthLabel(d.label), 
+            value: d.value 
+        }));
+    }, [aggregations, formatMonthLabel]);
 
-    // Chart Data: Top Profitable Items
+    // Chart Data: Top Profitable Items - from pre-computed
     const topProfitableItems = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'item', 'profit', 10);
-        return data.filter(d => d.value > 0).map(d => ({ label: d.label, value: d.value }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.topProfitableItems.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Chart Data: Top Loss Items
+    // Chart Data: Top Loss Items - from pre-computed
     const topLossItems = useMemo((): ChartDataPoint[] => {
-        const data = aggregateByField(saleRecords, 'item', 'profit');
-        return data
-            .filter(d => d.value < 0)
-            .sort((a, b) => a.value - b.value)
-            .slice(0, 10)
-            .map(d => ({ label: d.label, value: Math.abs(d.value) }));
-    }, [saleRecords]);
+        if (!aggregations) return [];
+        return aggregations.topLossItems.map(d => ({ label: d.label, value: d.value }));
+    }, [aggregations]);
 
-    // Trend data for KPI cards (daily revenue for trend sparkline)
+    // Trend data for KPI cards - from pre-computed
     const revenueTrendData = useMemo((): number[] => {
-        const data = aggregateByMonth(saleRecords, 'amount');
-        return data.map(d => d.value);
-    }, [saleRecords]);
+        return aggregations?.revenueTrendData ?? [];
+    }, [aggregations]);
 
-    // Trend data for profit
+    // Trend data for profit - from pre-computed
     const profitTrendData = useMemo((): number[] => {
-        const data = aggregateByMonth(saleRecords, 'profit');
-        return data.map(d => d.value);
-    }, [saleRecords]);
+        return aggregations?.profitTrendData ?? [];
+    }, [aggregations]);
 
     // Handle period selection (receives timestamps from PeriodSelection component)
     const handlePeriodApply = useCallback(
@@ -629,8 +801,13 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation }) => {
                     )}
                 </View>
 
-                {/* Charts */}
-                {saleRecords.length > 0 ? (
+                {/* Charts - Show loading state while aggregations are being computed */}
+                {chartsLoading ? (
+                    <View style={styles.chartsLoadingContainer}>
+                        <ActivityIndicator size="small" color="#0d6464" />
+                        <Text style={styles.chartsLoadingText}>Loading charts...</Text>
+                    </View>
+                ) : aggregations ? (
                     <>
                         {/* Top Customers Bar Chart */}
                         <View style={styles.chartSection}>
@@ -904,6 +1081,20 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: '600',
         fontSize: 14,
+    },
+    chartsLoadingContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 32,
+        paddingHorizontal: 24,
+        backgroundColor: 'white',
+        borderRadius: 12,
+        marginTop: 16,
+    },
+    chartsLoadingText: {
+        marginTop: 8,
+        fontSize: 13,
+        color: '#64748b',
     },
     noDataContainer: {
         alignItems: 'center',

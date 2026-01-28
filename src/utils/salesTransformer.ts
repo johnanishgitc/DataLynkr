@@ -383,3 +383,421 @@ export function aggregateByMonth(
         .map(([label, data]) => ({ label, value: data.value, count: data.count }))
         .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/**
+ * All dashboard aggregations computed in a single pass
+ * This is much more efficient than calling aggregateByField multiple times
+ */
+export interface AllDashboardAggregations {
+    // Metrics
+    metrics: SalesMetrics;
+    // Aggregations by field (top N)
+    byCustomer: AggregatedData[];
+    byCategory: AggregatedData[];
+    byItem: AggregatedData[];
+    byItemQuantity: AggregatedData[];
+    byLedgerGroup: AggregatedData[];
+    byRegion: AggregatedData[];
+    byCountry: AggregatedData[];
+    byItemProfit: AggregatedData[];
+    // Monthly aggregations
+    byMonth: AggregatedData[];
+    profitByMonth: AggregatedData[];
+    // Top profitable and loss items
+    topProfitableItems: AggregatedData[];
+    topLossItems: AggregatedData[];
+    // Trend data
+    revenueTrendData: number[];
+    profitTrendData: number[];
+}
+
+/**
+ * Compute all dashboard aggregations in a single pass through the data
+ * This replaces 15+ separate iterations with just one
+ */
+export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashboardAggregations {
+    // Initialize maps for all aggregations
+    const customerMap = new Map<string, { amount: number; count: number }>();
+    const categoryMap = new Map<string, { amount: number; count: number }>();
+    const itemAmountMap = new Map<string, { amount: number; count: number }>();
+    const itemQuantityMap = new Map<string, { quantity: number; count: number }>();
+    const itemProfitMap = new Map<string, { profit: number; count: number }>();
+    const ledgerGroupMap = new Map<string, { amount: number; count: number }>();
+    const regionMap = new Map<string, { amount: number; count: number }>();
+    const countryMap = new Map<string, { amount: number; count: number }>();
+    const monthAmountMap = new Map<string, { amount: number; count: number }>();
+    const monthProfitMap = new Map<string, { profit: number; count: number }>();
+
+    // Metrics accumulators
+    let totalRevenue = 0;
+    let totalQuantity = 0;
+    let totalProfit = 0;
+    const uniqueInvoices = new Set<string>();
+    const uniqueCustomers = new Set<string>();
+
+    // Single pass through all records
+    for (const record of records) {
+        // Accumulate metrics
+        totalRevenue += record.amount;
+        totalQuantity += record.quantity;
+        totalProfit += record.profit;
+        if (record.masterid) uniqueInvoices.add(record.masterid);
+        if (record.customer) uniqueCustomers.add(record.customer.toLowerCase());
+
+        // Customer aggregation
+        const customerKey = record.customer || 'Unknown';
+        const customerData = customerMap.get(customerKey) || { amount: 0, count: 0 };
+        customerData.amount += record.amount;
+        customerData.count += 1;
+        customerMap.set(customerKey, customerData);
+
+        // Category aggregation
+        const categoryKey = record.category || 'Uncategorized';
+        const categoryData = categoryMap.get(categoryKey) || { amount: 0, count: 0 };
+        categoryData.amount += record.amount;
+        categoryData.count += 1;
+        categoryMap.set(categoryKey, categoryData);
+
+        // Item aggregations (amount, quantity, profit)
+        const itemKey = record.item || 'Unknown';
+        
+        const itemAmountData = itemAmountMap.get(itemKey) || { amount: 0, count: 0 };
+        itemAmountData.amount += record.amount;
+        itemAmountData.count += 1;
+        itemAmountMap.set(itemKey, itemAmountData);
+
+        const itemQtyData = itemQuantityMap.get(itemKey) || { quantity: 0, count: 0 };
+        itemQtyData.quantity += record.quantity;
+        itemQtyData.count += 1;
+        itemQuantityMap.set(itemKey, itemQtyData);
+
+        const itemProfitData = itemProfitMap.get(itemKey) || { profit: 0, count: 0 };
+        itemProfitData.profit += record.profit;
+        itemProfitData.count += 1;
+        itemProfitMap.set(itemKey, itemProfitData);
+
+        // Ledger group aggregation
+        const ledgerKey = record.ledgerGroup || 'Unknown';
+        const ledgerData = ledgerGroupMap.get(ledgerKey) || { amount: 0, count: 0 };
+        ledgerData.amount += record.amount;
+        ledgerData.count += 1;
+        ledgerGroupMap.set(ledgerKey, ledgerData);
+
+        // Region aggregation
+        const regionKey = record.region || 'Unknown';
+        const regionData = regionMap.get(regionKey) || { amount: 0, count: 0 };
+        regionData.amount += record.amount;
+        regionData.count += 1;
+        regionMap.set(regionKey, regionData);
+
+        // Country aggregation
+        const countryKey = record.country || 'Unknown';
+        const countryData = countryMap.get(countryKey) || { amount: 0, count: 0 };
+        countryData.amount += record.amount;
+        countryData.count += 1;
+        countryMap.set(countryKey, countryData);
+
+        // Monthly aggregations
+        if (record.date) {
+            const monthKey = record.date.slice(0, 7); // YYYY-MM
+            
+            const monthAmountData = monthAmountMap.get(monthKey) || { amount: 0, count: 0 };
+            monthAmountData.amount += record.amount;
+            monthAmountData.count += 1;
+            monthAmountMap.set(monthKey, monthAmountData);
+
+            const monthProfitData = monthProfitMap.get(monthKey) || { profit: 0, count: 0 };
+            monthProfitData.profit += record.profit;
+            monthProfitData.count += 1;
+            monthProfitMap.set(monthKey, monthProfitData);
+        }
+    }
+
+    // Helper to convert map to sorted array (top N by value)
+    const mapToSortedArray = <T extends { count: number }>(
+        map: Map<string, T>,
+        valueKey: keyof T,
+        limit?: number
+    ): AggregatedData[] => {
+        const arr = Array.from(map.entries())
+            .map(([label, data]) => ({
+                label,
+                value: data[valueKey] as number,
+                count: data.count,
+            }))
+            .sort((a, b) => b.value - a.value);
+        return limit ? arr.slice(0, limit) : arr;
+    };
+
+    // Helper to convert monthly map to chronologically sorted array
+    const monthMapToSortedArray = <T extends { count: number }>(
+        map: Map<string, T>,
+        valueKey: keyof T
+    ): AggregatedData[] => {
+        return Array.from(map.entries())
+            .map(([label, data]) => ({
+                label,
+                value: data[valueKey] as number,
+                count: data.count,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    };
+
+    // Calculate metrics
+    const totalInvoices = uniqueInvoices.size;
+    const avgInvoiceValue = totalInvoices > 0 ? totalRevenue / totalInvoices : 0;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+    const metrics: SalesMetrics = {
+        totalRevenue,
+        totalQuantity,
+        totalProfit,
+        totalInvoices,
+        uniqueCustomers: uniqueCustomers.size,
+        avgInvoiceValue,
+        profitMargin,
+    };
+
+    // Build aggregations
+    const byCustomer = mapToSortedArray(customerMap, 'amount', 10);
+    const byCategory = mapToSortedArray(categoryMap, 'amount', 8);
+    const byItem = mapToSortedArray(itemAmountMap, 'amount', 10);
+    const byItemQuantity = mapToSortedArray(itemQuantityMap, 'quantity', 10);
+    const byLedgerGroup = mapToSortedArray(ledgerGroupMap, 'amount', 8);
+    const byRegion = mapToSortedArray(regionMap, 'amount', 10);
+    const byCountry = mapToSortedArray(countryMap, 'amount', 10);
+
+    // Item profit - sorted for top profitable and loss items
+    const allItemProfits = mapToSortedArray(itemProfitMap, 'profit');
+    const topProfitableItems = allItemProfits.filter(d => d.value > 0).slice(0, 10);
+    const topLossItems = allItemProfits
+        .filter(d => d.value < 0)
+        .sort((a, b) => a.value - b.value) // Most negative first
+        .slice(0, 10)
+        .map(d => ({ ...d, value: Math.abs(d.value) }));
+
+    // Monthly data
+    const byMonth = monthMapToSortedArray(monthAmountMap, 'amount');
+    const profitByMonth = monthMapToSortedArray(monthProfitMap, 'profit');
+
+    // Trend data (just the values array for sparklines)
+    const revenueTrendData = byMonth.map(d => d.value);
+    const profitTrendData = profitByMonth.map(d => d.value);
+
+    return {
+        metrics,
+        byCustomer,
+        byCategory,
+        byItem,
+        byItemQuantity,
+        byLedgerGroup,
+        byRegion,
+        byCountry,
+        byItemProfit: allItemProfits.slice(0, 10),
+        byMonth,
+        profitByMonth,
+        topProfitableItems,
+        topLossItems,
+        revenueTrendData,
+        profitTrendData,
+    };
+}
+
+/**
+ * All dashboard data computed in a single pass for performance
+ */
+export interface DashboardData {
+    metrics: SalesMetrics;
+    salesByCustomer: AggregatedData[];
+    salesByStockGroup: AggregatedData[];
+    salesByPeriod: AggregatedData[];
+    topItemsByRevenue: AggregatedData[];
+    topItemsByQuantity: AggregatedData[];
+    salesByLedgerGroup: AggregatedData[];
+    salesByRegion: AggregatedData[];
+    salesByCountry: AggregatedData[];
+    profitByMonth: AggregatedData[];
+    topProfitableItems: AggregatedData[];
+    topLossItems: AggregatedData[];
+    revenueTrendData: number[];
+    profitTrendData: number[];
+}
+
+/**
+ * Compute all dashboard metrics and aggregations in a SINGLE PASS through the data.
+ * This is much more efficient than running 15+ separate iterations.
+ */
+export function computeDashboardDataSinglePass(records: SaleRecord[]): DashboardData {
+    // Initialize accumulators
+    let totalRevenue = 0;
+    let totalQuantity = 0;
+    let totalProfit = 0;
+    const uniqueInvoices = new Set<string>();
+    const uniqueCustomers = new Set<string>();
+
+    // Maps for aggregations
+    const customerMap = new Map<string, { amount: number; count: number }>();
+    const stockGroupMap = new Map<string, { amount: number; count: number }>();
+    const monthAmountMap = new Map<string, { amount: number; count: number }>();
+    const monthProfitMap = new Map<string, { profit: number; count: number }>();
+    const itemRevenueMap = new Map<string, { amount: number; count: number }>();
+    const itemQuantityMap = new Map<string, { quantity: number; count: number }>();
+    const itemProfitMap = new Map<string, { profit: number; count: number }>();
+    const ledgerGroupMap = new Map<string, { amount: number; count: number }>();
+    const regionMap = new Map<string, { amount: number; count: number }>();
+    const countryMap = new Map<string, { amount: number; count: number }>();
+
+    // Single pass through all records
+    for (const record of records) {
+        // Metrics accumulation
+        totalRevenue += record.amount;
+        totalQuantity += record.quantity;
+        totalProfit += record.profit;
+
+        if (record.masterid) {
+            uniqueInvoices.add(record.masterid);
+        }
+        if (record.customer) {
+            uniqueCustomers.add(record.customer.toLowerCase());
+        }
+
+        // Customer aggregation
+        const customerKey = record.customer || 'Unknown';
+        const customerData = customerMap.get(customerKey) || { amount: 0, count: 0 };
+        customerData.amount += record.amount;
+        customerData.count += 1;
+        customerMap.set(customerKey, customerData);
+
+        // Stock group aggregation
+        const stockGroupKey = record.category || 'Uncategorized';
+        const stockGroupData = stockGroupMap.get(stockGroupKey) || { amount: 0, count: 0 };
+        stockGroupData.amount += record.amount;
+        stockGroupData.count += 1;
+        stockGroupMap.set(stockGroupKey, stockGroupData);
+
+        // Month aggregation (for period chart and trends)
+        if (record.date) {
+            const monthKey = record.date.slice(0, 7);
+            const monthAmountData = monthAmountMap.get(monthKey) || { amount: 0, count: 0 };
+            monthAmountData.amount += record.amount;
+            monthAmountData.count += 1;
+            monthAmountMap.set(monthKey, monthAmountData);
+
+            const monthProfitData = monthProfitMap.get(monthKey) || { profit: 0, count: 0 };
+            monthProfitData.profit += record.profit;
+            monthProfitData.count += 1;
+            monthProfitMap.set(monthKey, monthProfitData);
+        }
+
+        // Item aggregations
+        const itemKey = record.item || 'Unknown';
+        const itemRevenueData = itemRevenueMap.get(itemKey) || { amount: 0, count: 0 };
+        itemRevenueData.amount += record.amount;
+        itemRevenueData.count += 1;
+        itemRevenueMap.set(itemKey, itemRevenueData);
+
+        const itemQuantityData = itemQuantityMap.get(itemKey) || { quantity: 0, count: 0 };
+        itemQuantityData.quantity += record.quantity;
+        itemQuantityData.count += 1;
+        itemQuantityMap.set(itemKey, itemQuantityData);
+
+        const itemProfitData = itemProfitMap.get(itemKey) || { profit: 0, count: 0 };
+        itemProfitData.profit += record.profit;
+        itemProfitData.count += 1;
+        itemProfitMap.set(itemKey, itemProfitData);
+
+        // Ledger group aggregation
+        const ledgerGroupKey = record.ledgerGroup || 'Unknown';
+        const ledgerGroupData = ledgerGroupMap.get(ledgerGroupKey) || { amount: 0, count: 0 };
+        ledgerGroupData.amount += record.amount;
+        ledgerGroupData.count += 1;
+        ledgerGroupMap.set(ledgerGroupKey, ledgerGroupData);
+
+        // Region aggregation
+        const regionKey = record.region || 'Unknown';
+        const regionData = regionMap.get(regionKey) || { amount: 0, count: 0 };
+        regionData.amount += record.amount;
+        regionData.count += 1;
+        regionMap.set(regionKey, regionData);
+
+        // Country aggregation
+        const countryKey = record.country || 'Unknown';
+        const countryData = countryMap.get(countryKey) || { amount: 0, count: 0 };
+        countryData.amount += record.amount;
+        countryData.count += 1;
+        countryMap.set(countryKey, countryData);
+    }
+
+    // Helper to convert map to sorted array
+    const mapToSortedArray = (
+        map: Map<string, { amount?: number; quantity?: number; profit?: number; count: number }>,
+        valueKey: 'amount' | 'quantity' | 'profit',
+        limit?: number
+    ): AggregatedData[] => {
+        const arr = Array.from(map.entries())
+            .map(([label, data]) => ({
+                label,
+                value: (data as Record<string, number>)[valueKey] || 0,
+                count: data.count,
+            }))
+            .sort((a, b) => b.value - a.value);
+        return limit ? arr.slice(0, limit) : arr;
+    };
+
+    // Helper to convert month map to chronologically sorted array
+    const monthMapToSortedArray = (
+        map: Map<string, { amount?: number; profit?: number; count: number }>,
+        valueKey: 'amount' | 'profit'
+    ): AggregatedData[] => {
+        return Array.from(map.entries())
+            .map(([label, data]) => ({
+                label,
+                value: (data as Record<string, number>)[valueKey] || 0,
+                count: data.count,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    };
+
+    // Calculate final metrics
+    const totalInvoices = uniqueInvoices.size;
+    const avgInvoiceValue = totalInvoices > 0 ? totalRevenue / totalInvoices : 0;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+    // Build aggregated arrays
+    const salesByPeriod = monthMapToSortedArray(monthAmountMap, 'amount');
+    const profitByMonthRaw = monthMapToSortedArray(monthProfitMap, 'profit');
+
+    // Get profitable and loss items
+    const allItemProfits = mapToSortedArray(itemProfitMap, 'profit');
+    const topProfitableItems = allItemProfits.filter(d => d.value > 0).slice(0, 10);
+    const topLossItems = allItemProfits
+        .filter(d => d.value < 0)
+        .sort((a, b) => a.value - b.value)
+        .slice(0, 10)
+        .map(d => ({ ...d, value: Math.abs(d.value) }));
+
+    return {
+        metrics: {
+            totalRevenue,
+            totalQuantity,
+            totalProfit,
+            totalInvoices,
+            uniqueCustomers: uniqueCustomers.size,
+            avgInvoiceValue,
+            profitMargin,
+        },
+        salesByCustomer: mapToSortedArray(customerMap, 'amount', 10),
+        salesByStockGroup: mapToSortedArray(stockGroupMap, 'amount', 8),
+        salesByPeriod,
+        topItemsByRevenue: mapToSortedArray(itemRevenueMap, 'amount', 10),
+        topItemsByQuantity: mapToSortedArray(itemQuantityMap, 'quantity', 10),
+        salesByLedgerGroup: mapToSortedArray(ledgerGroupMap, 'amount', 8),
+        salesByRegion: mapToSortedArray(regionMap, 'amount', 10),
+        salesByCountry: mapToSortedArray(countryMap, 'amount', 10),
+        profitByMonth: profitByMonthRaw,
+        topProfitableItems,
+        topLossItems,
+        revenueTrendData: salesByPeriod.map(d => d.value),
+        profitTrendData: profitByMonthRaw.map(d => d.value),
+    };
+}

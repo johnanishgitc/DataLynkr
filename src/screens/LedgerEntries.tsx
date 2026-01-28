@@ -516,7 +516,7 @@ export default function LedgerEntries() {
           {/* Container: scrollable card list per LedgerBook2 */}
           <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.containerContent, { paddingTop: headerHeight }]}
+            contentContainerStyle={[styles.containerContent, { paddingTop: headerHeight + 16 }]}
             onScroll={handleScroll}
             scrollEventThrottle={16}
           >
@@ -736,21 +736,21 @@ const styles = StyleSheet.create({
     borderBottomColor: CARD_BORDER,
     paddingVertical: 8,
     paddingHorizontal: 0,
-    marginBottom: 8,
+    marginBottom: 1,
   },
   cardRow1: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cardParticulars: { fontSize: 14, fontWeight: '600', color: '#0e172b', lineHeight: 24, flex: 1, marginRight: 8 },
+  cardParticulars: { fontSize: 14, fontWeight: '600', color: '#0e172b', lineHeight: 20, flex: 1, marginRight: 8 },
   cardAmtWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
-  cardAmt: { fontSize: 15, fontWeight: '600', lineHeight: 24 },
+  cardAmt: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
   cardDrCr: { fontSize: 12, fontWeight: '400', color: '#0e172b' },
   cardRow2: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 5,
     flexWrap: 'wrap',
     gap: 5,
   },
@@ -769,12 +769,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  cardBillWiseRef: { fontSize: 14, fontWeight: '600', color: '#0e172b', lineHeight: 24, flex: 1 },
-  cardBillWisePending: { fontSize: 15, fontWeight: '600', lineHeight: 24 },
+  cardBillWiseRef: { fontSize: 14, fontWeight: '600', color: '#0e172b', lineHeight: 20, flex: 1 },
+  cardBillWisePending: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
   cardBillWiseRow2: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 5,
     flexWrap: 'wrap',
     gap: 10,
   },
@@ -786,7 +786,7 @@ const styles = StyleSheet.create({
   cardBillWiseRow3: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 5,
     gap: 16,
   },
   cardBillWiseBalance: {
@@ -812,7 +812,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   footerBarTxt: { fontSize: 13, fontWeight: '600', color: colors.white },
   footerExpand: {

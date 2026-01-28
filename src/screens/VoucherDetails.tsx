@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import type {
 } from '../api/models/ledger';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
+import { useScroll } from '../store/ScrollContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -208,6 +209,7 @@ export default function VoucherDetails() {
   const route = useRoute<Route>();
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
+  const { setScrollDirection } = useScroll();
   const v = (route.params?.voucher ?? {}) as Record<string, unknown>;
   const ledgerNameFromParams = route.params?.ledger_name;
   const report_name = route.params?.report_name;
@@ -300,6 +302,15 @@ export default function VoucherDetails() {
   const swipePosition = useRef(new Animated.Value(0)).current;
   const lastSwipePosition = useRef(0);
   const currentTabIndexRef = useRef(0);
+
+  // Ensure global footer/tab bar is visible while on this screen
+  useEffect(() => {
+    setScrollDirection('up');
+    return () => {
+      // Reset to neutral on unmount so other screens can control scroll-based behavior
+      setScrollDirection(null);
+    };
+  }, [setScrollDirection]);
 
   function get(...keys: string[]): string {
     for (const k of keys) {
@@ -1347,6 +1358,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 4,
+    // Leave space for bottom tab bar so grand total is visible
+    marginBottom: 50,
   },
   footerItemTotal: {
     flexDirection: 'row',
