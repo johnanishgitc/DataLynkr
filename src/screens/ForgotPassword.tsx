@@ -9,14 +9,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Logo from '../components/Logo';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../navigation/types';
 import { apiService } from '../api';
 import { strings } from '../constants/strings';
+import { fonts } from '../constants/fonts';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'ForgotPassword'>;
 
@@ -66,7 +67,7 @@ export default function ForgotPassword() {
         <View style={styles.successWrap}>
           <View style={styles.card}>
             <View style={styles.topSection}>
-              <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
+              <Logo width={74} height={48} style={styles.logo} />
               <Text style={styles.brand}>{strings.app_name}</Text>
             </View>
             <Text style={styles.successText}>{strings.forgot_password_success}</Text>
@@ -92,7 +93,7 @@ export default function ForgotPassword() {
         >
           <View style={styles.card}>
             <View style={styles.topSection}>
-              <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
+              <Logo width={74} height={48} style={styles.logo} />
               <Text style={styles.brand}>{strings.app_name}</Text>
             </View>
 
@@ -183,6 +184,7 @@ const styles = StyleSheet.create({
     height: 48,
   },
   brand: {
+    fontFamily: fonts.brand,
     fontWeight: '500',
     fontSize: 30,
     color: '#f4c74d',

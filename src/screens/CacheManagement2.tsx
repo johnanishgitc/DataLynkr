@@ -17,6 +17,7 @@ import JSONTree from 'react-native-json-tree';
 import SQLite from 'react-native-sqlite-storage';
 import KeepAwake from 'react-native-keep-awake';
 import { colors } from '../constants/colors';
+import Logo from '../components/Logo';
 import { apiService } from '../api/client';
 import {
   getUserEmail,
@@ -2239,6 +2240,7 @@ export default function DataManagement() {
       
       {/* Header Section */}
       <View style={styles.headerSection}>
+        <Logo width={40} height={26} style={styles.headerLogo} />
         <Text style={styles.title}>Cache Management 2</Text>
         <Text style={styles.subtitle}>
           Independent sales data cache - downloads and stores data separately from the main cache.
@@ -2384,6 +2386,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border_gray,
+  },
+  headerLogo: {
+    marginBottom: 8,
   },
   title: {
     fontSize: 20,

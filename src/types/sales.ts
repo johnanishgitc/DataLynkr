@@ -98,26 +98,29 @@ export interface KPIData {
   trendData?: number[];
 }
 
+/** Single value or multiple values for a dimension (OR within dimension, AND across dimensions) */
+export type FilterDimensionValue = string | string[];
+
 export interface SalesFilters {
   startDate: string;
   endDate: string;
-  /** Drill-down: customer name */
-  customer?: string;
-  /** Drill-down: item name */
-  item?: string;
+  /** Drill-down: customer name(s) */
+  customer?: FilterDimensionValue;
+  /** Drill-down: item name(s) */
+  item?: FilterDimensionValue;
   /** Drill-down: stock group / category */
-  stockGroup?: string;
+  stockGroup?: FilterDimensionValue;
   /** Drill-down: ledger group */
-  ledgerGroup?: string;
-  salesperson?: string;
+  ledgerGroup?: FilterDimensionValue;
+  salesperson?: FilterDimensionValue;
   /** Drill-down: country */
-  country?: string;
+  country?: FilterDimensionValue;
   /** Drill-down: state / region */
-  state?: string;
+  state?: FilterDimensionValue;
   /** Drill-down: period - YYYY-MM, Q1-YYYY..Q4-YYYY, or YYYY (financial year) */
-  month?: string;
+  month?: FilterDimensionValue;
   /** Drill-down: pincode (from map or by-pincode chart) */
-  pincode?: string;
+  pincode?: FilterDimensionValue;
 }
 
 export interface DateRange {

@@ -9,8 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Image,
 } from 'react-native';
+import Logo from '../components/Logo';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,6 +19,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAuth } from '../store';
 import { apiService } from '../api';
 import { strings } from '../constants/strings';
+import { fonts } from '../constants/fonts';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
@@ -88,7 +89,7 @@ export default function Login() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topSection}>
-            <Image source={require('../assets/logo.png')} style={styles.logo} resizeMode="contain" />
+            <Logo width={74} height={48} style={styles.logo} />
             <Text style={styles.brand}>{strings.app_name}</Text>
             <Text style={styles.welcome}>{strings.welcome_back}</Text>
           </View>
@@ -192,6 +193,7 @@ const styles = StyleSheet.create({
     height: 48,
   },
   brand: {
+    fontFamily: fonts.brand,
     fontWeight: '500',
     fontSize: 30,
     color: '#f4c74d',

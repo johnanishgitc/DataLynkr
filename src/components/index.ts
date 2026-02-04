@@ -1,5 +1,6 @@
 export { default as SearchableDropdown } from './SearchableDropdown';
 export { CustNamesDropdown } from './CustNamesDropdown';
+export { default as Logo } from './Logo';
 export { StatusBarTopBar } from './StatusBarTopBar';
 export { default as DatePickerDropdown } from './DatePickerDropdown';
 export { default as CalendarPicker } from './CalendarPicker';

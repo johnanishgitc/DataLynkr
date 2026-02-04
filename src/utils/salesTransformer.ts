@@ -4,12 +4,30 @@
  * Based on SALES_DASHBOARD_SPEC.md Section 2
  */
 
-import type { SalesVoucher, InventoryEntry, LedgerEntry, SalesFilters } from '../types/sales';
+import type { SalesVoucher, InventoryEntry, LedgerEntry, SalesFilters, FilterDimensionValue } from '../types/sales';
 import {
     getFinancialYearStartMonthDay,
     getFinancialYearForDate,
     getQuarterMonths,
 } from './fyUtils';
+
+/**
+ * Generate array of all dates (YYYY-MM-DD) between start and end date (inclusive)
+ */
+function getKeysBetweenDates(startDate: string, endDate: string): string[] {
+    const dates: string[] = [];
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+
+    // Safety break loop
+    let loops = 0;
+    while (current <= end && loops < 1000) {
+        dates.push(current.toISOString().slice(0, 10));
+        current.setDate(current.getDate() + 1);
+        loops++;
+    }
+    return dates;
+}
 
 /**
  * Item-level sale record used for dashboard aggregations
@@ -88,8 +106,76 @@ function getNumber(obj: Record<string, unknown>, ...keys: string[]): number {
 }
 
 /**
- * Normalize date to YYYY-MM-DD format (matches Data Management from_date/to_date).
- * Handles YYYYMMDD, YYYY-MM-DD, DD-MM-YYYY, Unix timestamp, and API formats (e.g. DD-MMM-YYYY).
+ * Parse amount with Tally isDeemedPositive sign handling (matches web transformVouchersToSales).
+ * Returns signed value: credit/returns are negative, sales are positive.
+ */
+function parseAmount(amountStr: unknown, isDeemedPositiveFlag: unknown): number {
+    if (amountStr === undefined || amountStr === null || amountStr === '') return 0;
+    const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
+    const rawNum = parseFloat(cleaned) || 0;
+    const absVal = Math.abs(rawNum);
+    if (isDeemedPositiveFlag !== undefined && isDeemedPositiveFlag !== null && isDeemedPositiveFlag !== '') {
+        const flag = String(isDeemedPositiveFlag).toLowerCase().trim();
+        if (flag === 'yes' || flag === 'y' || flag === 'true') return -absVal;
+        if (flag === 'no' || flag === 'n' || flag === 'false') return absVal;
+    }
+    const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+    return isNegative ? -absVal : absVal;
+}
+
+/**
+ * True when voucher should be included (matches web SalesDashboard.js filter).
+ * Requires ALL conditions for BOTH sales and credit note:
+ * 1. reservedname = "Sales" or "Credit Note"
+ * 2. isoptional = "No"
+ * 3. iscancelled = "No"
+ * 4. Must have at least one ledger entry with ispartyledger = "Yes"
+ */
+function isSalesVoucher(voucher: SalesVoucher): boolean {
+    const voucherObj = voucher as unknown as Record<string, unknown>;
+    const reservedname = (getString(voucherObj, 'reservedname', 'RESERVEDNAME') || '').toLowerCase().trim();
+    const isoptional = (getField(voucherObj, 'isoptional', 'isOptional', 'ISOPTIONAL') ?? '').toString().toLowerCase().trim();
+    const iscancelled = (getField(voucherObj, 'iscancelled', 'isCancelled', 'ISCANCELLED') ?? '').toString().toLowerCase().trim();
+    const ledgerEntries = (voucherObj.ledgerentries ?? voucherObj.LEDGERENTRIES ?? voucherObj.ledgers ?? []) as Array<Record<string, unknown>>;
+    const hasPartyLedger = Array.isArray(ledgerEntries) && ledgerEntries.some(ledger => {
+        const ispartyledger = (getField(ledger, 'ispartyledger', 'isPartyLedger', 'ISPARTYLEDGER') ?? '').toString().toLowerCase().trim();
+        return ispartyledger === 'yes';
+    });
+    const reservednameMatch = reservedname === 'sales' || reservedname === 'credit note';
+    const isoptionalMatch = isoptional === 'no';
+    const iscancelledMatch = iscancelled === 'no';
+    return reservednameMatch && isoptionalMatch && iscancelledMatch && hasPartyLedger;
+}
+
+/** Month names for DD-Mon-YYYY (web parseDateFromNewFormat) */
+const MONTH_NAMES: Record<string, number> = {
+    jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+    jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * Parse date in web/Tally format DD-Mon-YYYY or D-Mon-YY (e.g. 01-Apr-2025 or 4-Apr-25) to YYYY-MM-DD.
+ * Supports both 2-digit (YY) and 4-digit (YYYY) years.
+ */
+function parseDateFromNewFormat(dateStr: string): string {
+    // Match D(D)-Mon-YY(YY) - supports 1-2 digit day and 2-4 digit year
+    const match = dateStr.trim().match(/^(\d{1,2})[-/]([A-Za-z]{3})[-/](\d{2,4})$/);
+    if (!match) return '';
+    const [, d, mon, yearStr] = match;
+    const m = MONTH_NAMES[mon.toLowerCase()];
+    if (!m) return '';
+    // Convert 2-digit year to 4-digit (assume 2000s for YY format)
+    let year = parseInt(yearStr, 10);
+    if (yearStr.length === 2) {
+        // 00-99 -> 2000-2099 (can adjust threshold if needed for 1900s)
+        year = year + 2000;
+    }
+    return `${year}-${String(m).padStart(2, '0')}-${d.padStart(2, '0')}`;
+}
+
+/**
+ * Normalize date to YYYY-MM-DD format (matches web and Data Management).
+ * Handles YYYYMMDD, YYYY-MM-DD, DD-MM-YYYY, DD-Mon-YYYY (web), Unix timestamp, and API formats.
  */
 function normalizeDate(dateStr: string): string {
     if (!dateStr || typeof dateStr !== 'string') return '';
@@ -108,6 +194,10 @@ function normalizeDate(dateStr: string): string {
         return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
     }
 
+    // Web format: DD-Mon-YYYY (e.g. 01-Apr-2025)
+    const newFormat = parseDateFromNewFormat(s);
+    if (newFormat) return newFormat;
+
     // Already YYYY-MM-DD or ISO format (with or without time)
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
         return s.slice(0, 10);
@@ -125,7 +215,7 @@ function normalizeDate(dateStr: string): string {
         }
     }
 
-    // Fallback: try native Date parse (handles "01-Apr-2025", "Apr 1 2025", ISO with T, etc.)
+    // Fallback: try native Date parse (handles "Apr 1 2025", ISO with T, etc.)
     const parsed = new Date(s);
     if (!isNaN(parsed.getTime())) {
         const y = parsed.getFullYear();
@@ -138,19 +228,26 @@ function normalizeDate(dateStr: string): string {
 }
 
 /**
- * Extract ledger group from ledger entries
+ * Extract ledger group from the party ledger entry only (matches web).
+ * Only considers ledger entries with ispartyledger = "Yes"; takes group from that entry's ledger.group / ledgergroup.
  */
 function extractLedgerGroup(voucher: SalesVoucher): string {
-    const ledgerEntries = voucher.ledgerentries || voucher.LEDGERENTRIES || [];
+    const v = voucher as unknown as Record<string, unknown>;
+    const ledgerEntries = (v.ledgerentries ?? v.LEDGERENTRIES ?? []) as Array<Record<string, unknown>>;
     if (!Array.isArray(ledgerEntries) || ledgerEntries.length === 0) {
         return 'Unknown';
     }
 
-    for (const entry of ledgerEntries as LedgerEntry[]) {
-        const group = entry.ledgergroupidentify ||
-            entry.ledgergroup ||
-            entry.LEDGERGROUPIDENTIFY ||
-            entry.LEDGERGROUP;
+    for (const entry of ledgerEntries) {
+        const ispartyledger = (getField(entry, 'ispartyledger', 'isPartyLedger', 'ISPARTYLEDGER') ?? '').toString().toLowerCase().trim();
+        if (ispartyledger !== 'yes') continue;
+
+        const ledgerObj = entry.ledger ?? entry.LEDGER;
+        if (ledgerObj && typeof ledgerObj === 'object') {
+            const group = getField(ledgerObj as Record<string, unknown>, 'group', 'GROUP', 'ledgergroup', 'LEDGERGROUP');
+            if (group) return String(group);
+        }
+        const group = getField(entry, 'ledgergroupidentify', 'ledgergroup', 'LEDGERGROUPIDENTIFY', 'LEDGERGROUP');
         if (group) return String(group);
     }
 
@@ -158,22 +255,50 @@ function extractLedgerGroup(voucher: SalesVoucher): string {
 }
 
 /**
- * Extract region/state from address or voucher fields
+ * Extract region from state only (matches web: region = state).
  */
 function extractRegion(voucher: SalesVoucher): string {
-    // Try direct fields first
-    const region = voucher.region || voucher.state || voucher.REGION || voucher.STATE;
-    if (region) return String(region);
+    const v = voucher as unknown as Record<string, unknown>;
+    const state = voucher.state ?? v.STATE;
+    if (state) return String(state);
 
-    // Try address object
-    const address = voucher.address || voucher.ADDRESS;
+    const address = v.address ?? v.ADDRESS;
     if (address && typeof address === 'object') {
         const addr = address as Record<string, unknown>;
-        const state = addr.state || addr.STATE || addr.region || addr.REGION;
-        if (state) return String(state);
+        const addrState = getField(addr, 'state', 'STATE');
+        if (addrState) return String(addrState);
     }
 
     return 'Unknown';
+}
+
+/**
+ * Extract country from voucher or address (matches web). Default 'Unknown' when missing.
+ */
+function extractCountry(voucher: SalesVoucher): string {
+    const voucherObj = voucher as unknown as Record<string, unknown>;
+    const country = getString(voucherObj, 'country', 'COUNTRY');
+    if (country) return country;
+
+    const address = voucherObj.address ?? voucherObj.ADDRESS;
+    if (address && typeof address === 'object') {
+        const addr = address as Record<string, unknown>;
+        const addrCountry = getString(addr, 'country', 'COUNTRY');
+        if (addrCountry) return addrCountry;
+    }
+
+    return 'Unknown';
+}
+
+/**
+ * Parse quantity from entry (matches web: strip commas, same key order).
+ */
+function parseQuantity(entry: Record<string, unknown>): number {
+    const raw = getField(entry, 'billedqty', 'quantity', 'qty', 'actualqty', 'BILLEDQTY', 'ACTUALQTY', 'BILLEQTY');
+    if (raw === undefined || raw === null || raw === '') return 0;
+    const str = String(raw).replace(/,/g, '');
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : Math.abs(num);
 }
 
 /**
@@ -190,12 +315,7 @@ function transformVoucher(voucher: SalesVoucher): SaleRecord[] {
     const rawDate = getString(voucherObj, 'cp_date', 'date', 'CP_DATE', 'DATE', 'voucherdate', 'VOUCHERDATE', 'transactiondate', 'TRANSACTIONDATE');
     const date = normalizeDate(rawDate);
 
-    // issales: only "sales" vouchers count as orders/invoices (1, '1', 'Yes', 'yes')
-    const issalesRaw = getField(voucherObj, 'issales', 'ISSALES', 'is_sales');
-    const issales =
-        issalesRaw === true ||
-        issalesRaw === 1 ||
-        (typeof issalesRaw === 'string' && /^1|yes$/i.test(String(issalesRaw).trim()));
+    // Web transformVouchersToSales sets issales: true on every record (all from sales/credit note vouchers)
     const vouchertype = getString(voucherObj, 'vouchertypename', 'vchtype', 'VOUCHERTYPENAME');
 
     // Customer fields
@@ -203,81 +323,50 @@ function transformVoucher(voucher: SalesVoucher): SaleRecord[] {
     const customerid = getString(voucherObj, 'partyledgernameid', 'partyid', 'PARTYLEDGERNAMEID');
     const gstin = getString(voucherObj, 'partygstin', 'gstin', 'gstno', 'PARTYGSTIN', 'GSTIN');
 
-    // Organizational fields
+    // Organizational fields (web: ledger group from party ledger, region = state, country from voucher/address or 'Unknown')
     const ledgerGroup = extractLedgerGroup(voucher);
     const region = extractRegion(voucher);
-    const country = getString(voucherObj, 'country', 'COUNTRY') || 'India';
+    const country = extractCountry(voucher);
     const pincode = getString(voucherObj, 'pincode', 'PINCODE');
     const salesperson = getString(voucherObj, 'salesperson', 'salesprsn', 'SalesPrsn', 'SALESPERSON');
     const sourceCompany = getString(voucherObj, 'sourceCompany', 'company', 'COMPANY');
 
-    // Get inventory entries
-    const inventoryEntries = (voucher.allinventoryentries ||
-        voucher.ALLINVENTORYENTRIES ||
-        voucher.inventry ||
-        voucher.INVENTRY ||
-        []) as InventoryEntry[];
+    // Get inventory entries (exact keys as web: allinventoryentries, inventry)
+    const inventoryEntries = (voucherObj.allinventoryentries ?? voucherObj.inventry ?? []) as InventoryEntry[];
 
-    // If no inventory entries, create a single record from voucher-level data
+    // Match web: skip vouchers with no inventory entries (web creates no records)
     if (!Array.isArray(inventoryEntries) || inventoryEntries.length === 0) {
-        let singleAmount = Math.abs(getNumber(voucherObj, 'amount', 'AMOUNT', 'ENTRYAMOUNT', 'LEDGERAMOUNT', 'BILLEDAMOUNT', 'ACTUALAMOUNT', 'billedamount', 'value', 'VALUE'));
-        if (singleAmount === 0) {
-            const ledgerEntries = (voucher.ledgerentries || voucher.LEDGERENTRIES || voucher.allledgerentries || []) as Array<Record<string, unknown>>;
-            for (const le of ledgerEntries) {
-                const amt = Math.abs(getNumber(le, 'amount', 'AMOUNT', 'DEBITAMT', 'CREDITAMT', 'debitamt', 'creditamt'));
-                if (amt > 0) {
-                    singleAmount += amt;
-                    break; // use first non-zero ledger amount as voucher total
-                }
-            }
-        }
-        return [{
-            masterid,
-            vouchernumber,
-            date,
-            vouchertype,
-            customer,
-            customerid,
-            gstin,
-            item: getString(voucherObj, 'stockitemname', 'item', 'STOCKITEMNAME') || 'Unknown',
-            itemid: getString(voucherObj, 'stockitemnameid', 'itemid', 'STOCKITEMNAMEID'),
-            category: getString(voucherObj, 'stockitemcategory', 'category', 'stockitemgroup', 'STOCKITEMCATEGORY') || 'Uncategorized',
-            uom: getString(voucherObj, 'uom', 'UOM'),
-            quantity: Math.abs(getNumber(voucherObj, 'quantity', 'billedqty', 'qty', 'actualqty', 'QUANTITY')),
-            amount: singleAmount,
-            profit: getNumber(voucherObj, 'profit', 'PROFIT', 'margin', 'MARGIN', 'netprofit'),
-            cgst: getNumber(voucherObj, 'cgst', 'CGST'),
-            sgst: getNumber(voucherObj, 'sgst', 'SGST'),
-            igst: getNumber(voucherObj, 'igst', 'IGST'),
-            ledgerGroup,
-            region,
-            country,
-            pincode,
-            salesperson,
-            issales,
-            sourceCompany,
-        }];
+        return [];
     }
 
-    // Voucher-level total (for revenue and tax proportion)
-    const voucherTotalFromApi = Math.abs(getNumber(voucherObj, 'amount', 'AMOUNT', 'ENTRYAMOUNT', 'LEDGERAMOUNT', 'BILLEDAMOUNT', 'ACTUALAMOUNT', 'billedamount', 'value', 'VALUE'));
-    const totalVoucherAmount = voucherTotalFromApi || 1; // use 1 when 0 so we don't divide by zero
+    // Voucher-level total with sign (for fallback distribution when line amounts are 0)
+    const voucherTotalRaw = getField(voucherObj, 'amount', 'AMOUNT', 'amt', 'AMT', 'ENTRYAMOUNT', 'LEDGERAMOUNT', 'BILLEDAMOUNT', 'ACTUALAMOUNT', 'billedamount', 'value', 'VALUE');
+    const voucherTotalFromApi = voucherTotalRaw != null && voucherTotalRaw !== ''
+        ? parseAmount(voucherTotalRaw, getField(voucherObj, 'isdeemedpositive', 'isDeemedPositive', 'ISDEEMEDPOSITIVE'))
+        : 0;
     const voucherCgst = getNumber(voucherObj, 'cgst', 'CGST');
     const voucherSgst = getNumber(voucherObj, 'sgst', 'SGST');
     const voucherIgst = getNumber(voucherObj, 'igst', 'IGST');
 
-    // Helper: get line amount from entry (top-level + nested INVENTORYALLOCATIONS / BATCHALLOCATIONS)
+    // Helper: get line amount from entry with isDeemedPositive (matches web: amount || amt)
     const getEntryAmount = (entry: Record<string, unknown>): number => {
-        let amt = Math.abs(getNumber(entry, 'amount', 'AMOUNT', 'BILLEDAMOUNT', 'BILLEDVALUE', 'VALUE', 'ACTUALAMOUNT', 'billedamount', 'billedvalue'));
-        if (amt > 0) return amt;
+        const rawAmount = getField(entry, 'amount', 'AMOUNT', 'amt', 'AMT', 'BILLEDAMOUNT', 'BILLEDVALUE', 'VALUE', 'ACTUALAMOUNT', 'billedamount', 'billedvalue');
+        if (rawAmount !== undefined && rawAmount !== null && rawAmount !== '') {
+            const isDeemedPositive = getField(entry, 'isdeemedpositive', 'isDeemedPositive', 'ISDEEMEDPOSITIVE');
+            return parseAmount(rawAmount, isDeemedPositive);
+        }
         const nested = entry.INVENTORYALLOCATIONS ?? entry.inventoryallocations ?? entry.BATCHALLOCATIONS ?? entry.batchallocation;
         const arr = Array.isArray(nested) ? nested : nested && typeof nested === 'object' ? [nested] : [];
+        let nestedTotal = 0;
         for (const sub of arr) {
             const subObj = sub as Record<string, unknown>;
-            amt += Math.abs(getNumber(subObj, 'amount', 'AMOUNT', 'VALUE', 'BILLEDAMOUNT', 'BILLEDVALUE', 'ACTUALAMOUNT'));
+            const subRaw = getField(subObj, 'amount', 'AMOUNT', 'amt', 'AMT', 'VALUE', 'BILLEDAMOUNT', 'BILLEDVALUE', 'ACTUALAMOUNT');
+            if (subRaw !== undefined && subRaw !== null && subRaw !== '') {
+                nestedTotal += parseAmount(subRaw, getField(subObj, 'isdeemedpositive', 'isDeemedPositive', 'ISDEEMEDPOSITIVE'));
+            }
         }
-        if (amt > 0) return amt;
-        const qty = Math.abs(getNumber(entry, 'billedqty', 'quantity', 'qty', 'actualqty', 'BILLEDQTY', 'ACTUALQTY', 'BILLEQTY'));
+        if (nestedTotal !== 0) return nestedTotal;
+        const qty = parseQuantity(entry);
         const rate = getNumber(entry, 'rate', 'RATE');
         const discount = getNumber(entry, 'discount', 'DISCOUNT');
         if (qty > 0 && rate > 0) return Math.round((qty * rate - discount) * 100) / 100;
@@ -291,18 +380,18 @@ function transformVoucher(voucher: SalesVoucher): SaleRecord[] {
     for (const entry of inventoryEntries) {
         const entryObj = entry as unknown as Record<string, unknown>;
         const amt = getEntryAmount(entryObj);
-        const qty = Math.abs(getNumber(entryObj, 'billedqty', 'quantity', 'qty', 'actualqty', 'BILLEDQTY', 'ACTUALQTY', 'BILLEQTY'));
+        const qty = parseQuantity(entryObj);
         entryAmounts.push(amt);
         totalEntryAmount += amt;
         totalEntryQty += qty;
     }
 
     // When line amounts are all 0 but voucher has a total, distribute voucher total by quantity (or equally)
-    const useVoucherTotal = voucherTotalFromApi > 0 && totalEntryAmount === 0 && inventoryEntries.length > 0;
+    const useVoucherTotal = voucherTotalFromApi !== 0 && totalEntryAmount === 0 && inventoryEntries.length > 0;
     const finalEntryAmounts = useVoucherTotal
         ? entryAmounts.map((_, i) => {
             const entryObj = inventoryEntries[i] as unknown as Record<string, unknown>;
-            const qty = Math.abs(getNumber(entryObj, 'billedqty', 'quantity', 'qty', 'actualqty', 'BILLEDQTY', 'ACTUALQTY', 'BILLEQTY'));
+            const qty = parseQuantity(entryObj);
             if (totalEntryQty > 0 && qty > 0) return (voucherTotalFromApi * qty) / totalEntryQty;
             return voucherTotalFromApi / inventoryEntries.length;
         })
@@ -316,13 +405,17 @@ function transformVoucher(voucher: SalesVoucher): SaleRecord[] {
         const itemAmount = finalEntryAmounts[idx] ?? 0;
         const proportion = sumForProportion > 0 ? itemAmount / sumForProportion : 0;
 
-        // Get category from entry's accalloc if available
+        // Get category from entry's accalloc if available (web default: Other)
         let category = getString(entryObj, 'stockitemcategory', 'category', 'stockitemgroup', 'STOCKITEMCATEGORY');
         const accalloc = entryObj.accalloc || entryObj.ACCALLOC;
         if (!category && Array.isArray(accalloc) && accalloc.length > 0) {
             const allocObj = accalloc[0] as Record<string, unknown>;
             category = getString(allocObj, 'ledgergroupidentify', 'ledgergroup', 'LEDGERGROUPIDENTIFY') || '';
         }
+
+        // Web uses parseAmount(inventoryItem.profit) || 0 with no isDeemedPositive for profit
+        const profitRaw = getField(entryObj, 'profit', 'PROFIT', 'margin', 'MARGIN', 'netprofit');
+        const profit = profitRaw != null && profitRaw !== '' ? parseAmount(profitRaw, undefined) : 0;
 
         return {
             masterid,
@@ -334,11 +427,11 @@ function transformVoucher(voucher: SalesVoucher): SaleRecord[] {
             gstin,
             item: getString(entryObj, 'stockitemname', 'item', 'STOCKITEMNAME') || 'Unknown',
             itemid: getString(entryObj, 'stockitemnameid', 'itemid', 'STOCKITEMNAMEID'),
-            category: category || 'Uncategorized',
+            category: category || 'Other',
             uom: getString(entryObj, 'uom', 'UOM'),
-            quantity: Math.abs(getNumber(entryObj, 'billedqty', 'quantity', 'qty', 'actualqty', 'BILLEDQTY', 'ACTUALQTY', 'BILLEQTY')),
+            quantity: parseQuantity(entryObj),
             amount: itemAmount,
-            profit: getNumber(entryObj, 'profit', 'PROFIT', 'margin', 'MARGIN', 'netprofit'),
+            profit,
             cgst: voucherCgst * proportion,
             sgst: voucherSgst * proportion,
             igst: voucherIgst * proportion,
@@ -347,18 +440,20 @@ function transformVoucher(voucher: SalesVoucher): SaleRecord[] {
             country,
             pincode,
             salesperson,
-            issales,
+            issales: true,
             sourceCompany,
         };
     });
 }
 
 /**
- * Transform an array of vouchers into item-level sale records
+ * Transform an array of vouchers into item-level sale records.
+ * Filters vouchers to match web: only sales and credit note, not optional, not cancelled, has party ledger.
  */
 export function transformVouchersToSaleRecords(vouchers: SalesVoucher[]): SaleRecord[] {
     if (!Array.isArray(vouchers)) return [];
-    return vouchers.flatMap(transformVoucher);
+    const salesVouchers = vouchers.filter(isSalesVoucher);
+    return salesVouchers.flatMap(transformVoucher);
 }
 
 /**
@@ -371,11 +466,13 @@ export function filterSaleRecordsByDate(
 ): SaleRecord[] {
     const start = normalizeDate(startDate);
     const end = normalizeDate(endDate);
+    if (start === '' || end === '') return records;
 
     return records.filter(record => {
-        const date = record.date;
-        if (!date) return false;
-        return date >= start && date <= end;
+        if (!record.date) return false;
+        const rNorm = normalizeDate(record.date);
+        if (rNorm === '' || rNorm.length !== 10) return false;
+        return rNorm >= start && rNorm <= end;
     });
 }
 
@@ -391,110 +488,117 @@ function isNoFilter(val: string | undefined | null): boolean {
     return v === '' || v.toLowerCase() === 'all';
 }
 
+/** Normalize dimension filter to array of non-empty strings (empty = no filter) */
+function getFilterValues(val: FilterDimensionValue | undefined | null): string[] {
+    if (val == null) return [];
+    if (Array.isArray(val)) {
+        const a = val.map(v => (v ?? '').toString().trim()).filter(Boolean);
+        return a.length === 0 ? [] : a;
+    }
+    const s = (val ?? '').toString().trim();
+    return s === '' || s.toLowerCase() === 'all' ? [] : [s];
+}
+
 /**
  * Filter sale records by full dashboard filters (date range + drill-down dimensions).
- * Used to make the dashboard dynamic: clicking a bar/slice/point filters the whole dashboard.
- * String comparisons are trimmed and case-insensitive so chart labels match record values.
+ * Supports multiple values per dimension: record matches if it matches any value (OR within dimension).
+ * Dimensions are ANDed together. Single-pass for performance.
  */
 export function filterSaleRecordsByFilters(
     records: SaleRecord[],
     filters: SalesFilters
 ): SaleRecord[] {
-    let result = records;
+    const start = filters.startDate && filters.endDate ? normalizeDate(filters.startDate) : '';
+    const end = filters.startDate && filters.endDate ? normalizeDate(filters.endDate) : '';
+    const hasDateFilter = start !== '' && end !== '';
 
-    // Date range (normalize both filter and record dates to YYYY-MM-DD for comparison)
-    if (filters.startDate && filters.endDate) {
-        const start = normalizeDate(filters.startDate);
-        const end = normalizeDate(filters.endDate);
-        if (start && end) {
-            result = result.filter(r => {
-                if (!r.date) return false;
-                const rDate = normalizeDate(r.date);
-                return rDate >= start && rDate <= end;
-            });
-        }
-    }
+    // Multi-value: allowed set of normalized strings (empty = no filter)
+    const toSet = (vals: string[], fallback: string): Set<string> | null => {
+        if (vals.length === 0) return null;
+        return new Set(vals.map(v => norm(v, fallback)));
+    };
+    const custSet = toSet(getFilterValues(filters.customer), '');
+    const stockSet = toSet(getFilterValues(filters.stockGroup), '');
+    const ledgerSet = toSet(getFilterValues(filters.ledgerGroup), '');
+    const stateSet = toSet(getFilterValues(filters.state), '');
+    const countrySet = toSet(getFilterValues(filters.country), '');
+    const itemSet = toSet(getFilterValues(filters.item), '');
+    const salespersonSet = toSet(getFilterValues(filters.salesperson), '');
+    const pincodeVals = getFilterValues(filters.pincode).map(v => v.trim().replace(/\s+/g, ''));
+    const hasPincodeFilter = pincodeVals.length > 0 && pincodeVals.some(Boolean);
 
-    if (!isNoFilter(filters.customer)) {
-        const cust = (filters.customer ?? '').trim();
-        result = result.filter(r => norm(r.customer, 'unknown') === norm(cust, ''));
-    }
-    if (!isNoFilter(filters.stockGroup)) {
-        const stock = (filters.stockGroup ?? '').trim();
-        result = result.filter(r => norm(r.category, 'uncategorized') === norm(stock, ''));
-    }
-    if (!isNoFilter(filters.ledgerGroup)) {
-        const ledger = (filters.ledgerGroup ?? '').trim();
-        result = result.filter(r => norm(r.ledgerGroup, 'unknown') === norm(ledger, ''));
-    }
-    if (!isNoFilter(filters.state)) {
-        const stateVal = (filters.state ?? '').trim();
-        result = result.filter(r => norm(r.region, 'unknown') === norm(stateVal, ''));
-    }
-    if (!isNoFilter(filters.country)) {
-        const countryVal = (filters.country ?? '').trim();
-        result = result.filter(r => norm(r.country, 'unknown') === norm(countryVal, ''));
-    }
-    if (!isNoFilter(filters.item)) {
-        const itemVal = (filters.item ?? '').trim();
-        result = result.filter(r => norm(r.item, 'unknown') === norm(itemVal, ''));
-    }
-    if (!isNoFilter(filters.month)) {
-        const periodVal = (filters.month ?? '').trim();
+    // Month filter: support multiple periods (OR)
+    type MonthMatcher = (r: SaleRecord) => boolean;
+    let monthMatcher: MonthMatcher | null = null;
+    const monthVals = getFilterValues(filters.month);
+    if (monthVals.length > 0) {
         const fy = getFinancialYearStartMonthDay();
         const fyStartMonth = fy.month;
         const fyStartDay = fy.day;
-
-        const quarterMatch = periodVal.match(/^Q(\d)-(\d{4})$/);
-        const yearOnlyMatch = /^\d{4}$/.test(periodVal);
-
-        if (quarterMatch) {
-            const quarter = parseInt(quarterMatch[1], 10);
-            const selectedYear = parseInt(quarterMatch[2], 10);
-            const quarterMonths = getQuarterMonths(quarter, fyStartMonth);
-            result = result.filter(r => {
-                if (!r.date) return false;
-                const rNorm = normalizeDate(r.date);
-                const [y, m] = [rNorm.slice(0, 4), parseInt(rNorm.slice(5, 7), 10)];
-                return parseInt(y, 10) === selectedYear && quarterMonths.includes(m);
-            });
-        } else if (yearOnlyMatch) {
-            const selectedFyYear = parseInt(periodVal, 10);
-            result = result.filter(r => {
-                if (!r.date) return false;
-                const rNorm = normalizeDate(r.date);
-                const [y, m, d] = rNorm.split('-').map(Number);
-                const recordDate = new Date(y, m - 1, d);
-                return getFinancialYearForDate(recordDate, fyStartMonth, fyStartDay) === selectedFyYear;
-            });
-        } else {
-            const monthNorm =
-                periodVal.length === 7 && periodVal[4] === '-'
-                    ? periodVal
-                    : periodVal.length === 6
-                        ? `${periodVal.slice(0, 4)}-${periodVal.slice(4, 6)}`
-                        : periodVal;
-            result = result.filter(r => {
-                if (!r.date) return false;
-                const rNorm = normalizeDate(r.date).slice(0, 7);
-                return rNorm === monthNorm;
-            });
+        const matchers: MonthMatcher[] = [];
+        for (const periodVal of monthVals) {
+            const quarterMatch = periodVal.match(/^Q(\d)-(\d{4})$/);
+            const yearOnlyMatch = /^\d{4}$/.test(periodVal);
+            if (quarterMatch) {
+                const quarter = parseInt(quarterMatch[1], 10);
+                const selectedYear = parseInt(quarterMatch[2], 10);
+                const quarterMonths = getQuarterMonths(quarter, fyStartMonth);
+                matchers.push(r => {
+                    if (!r.date) return false;
+                    const rNorm = normalizeDate(r.date);
+                    const [y, m] = [rNorm.slice(0, 4), parseInt(rNorm.slice(5, 7), 10)];
+                    return parseInt(y, 10) === selectedYear && quarterMonths.includes(m);
+                });
+            } else if (yearOnlyMatch) {
+                const selectedFyYear = parseInt(periodVal, 10);
+                matchers.push(r => {
+                    if (!r.date) return false;
+                    const rNorm = normalizeDate(r.date);
+                    const [y, m, d] = rNorm.split('-').map(Number);
+                    const recordDate = new Date(y, m - 1, d);
+                    return getFinancialYearForDate(recordDate, fyStartMonth, fyStartDay) === selectedFyYear;
+                });
+            } else {
+                const monthNorm =
+                    periodVal.length === 7 && periodVal[4] === '-'
+                        ? periodVal
+                        : periodVal.length === 6
+                            ? `${periodVal.slice(0, 4)}-${periodVal.slice(4, 6)}`
+                            : periodVal;
+                matchers.push(r => {
+                    if (!r.date) return false;
+                    return normalizeDate(r.date).slice(0, 7) === monthNorm;
+                });
+            }
         }
-    }
-    if (!isNoFilter(filters.salesperson)) {
-        const salespersonVal = (filters.salesperson ?? '').trim();
-        result = result.filter(r => norm(r.salesperson, '') === norm(salespersonVal, ''));
-    }
-    if (!isNoFilter(filters.pincode)) {
-        const pincodeVal = (filters.pincode ?? '').trim().replace(/\s+/g, '');
-        if (pincodeVal !== '') {
-            result = result.filter(r => {
-                const rPincode = String(r.pincode ?? '').trim().replace(/\s+/g, '');
-                return rPincode === pincodeVal;
-            });
+        if (matchers.length > 0) {
+            monthMatcher = r => matchers.some(m => m(r));
         }
     }
 
+    const result: SaleRecord[] = [];
+    for (let i = 0; i < records.length; i++) {
+        const r = records[i];
+        if (hasDateFilter) {
+            if (!r.date) continue;
+            const rDate = normalizeDate(r.date);
+            if (!rDate || rDate.length !== 10) continue;
+            if (rDate < start || rDate > end) continue;
+        }
+        if (custSet !== null && !custSet.has(norm(r.customer, 'unknown'))) continue;
+        if (stockSet !== null && !stockSet.has(norm(r.category, 'other'))) continue;
+        if (ledgerSet !== null && !ledgerSet.has(norm(r.ledgerGroup, 'unknown'))) continue;
+        if (stateSet !== null && !stateSet.has(norm(r.region, 'unknown'))) continue;
+        if (countrySet !== null && !countrySet.has(norm(r.country, 'unknown'))) continue;
+        if (itemSet !== null && !itemSet.has(norm(r.item, 'unknown'))) continue;
+        if (monthMatcher !== null && !monthMatcher(r)) continue;
+        if (salespersonSet !== null && !salespersonSet.has(norm(r.salesperson, ''))) continue;
+        if (hasPincodeFilter) {
+            const rPincode = String(r.pincode ?? '').trim().replace(/\s+/g, '');
+            if (!pincodeVals.includes(rPincode)) continue;
+        }
+        result.push(r);
+    }
     return result;
 }
 
@@ -648,9 +752,15 @@ export interface AllDashboardAggregations {
     // Top profitable and loss items
     topProfitableItems: AggregatedData[];
     topLossItems: AggregatedData[];
-    // Trend data
+    // Trend data (per-KPI sparklines; same length and order as byMonth)
     revenueTrendData: number[];
     profitTrendData: number[];
+    invoicesTrendData: number[];
+    quantityTrendData: number[];
+    uniqueCustomersTrendData: number[];
+    avgInvoiceValueTrendData: number[];
+    profitMarginTrendData: number[];
+    avgProfitPerOrderTrendData: number[];
 }
 
 /** Normalize key for case-insensitive grouping; return trimmed original for display (per KPI doc). */
@@ -679,6 +789,16 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
     const countryMap = new Map<string, Bucket>();
     const monthAmountMap = new Map<string, { amount: number; count: number }>();
     const monthProfitMap = new Map<string, { profit: number; count: number }>();
+    const monthQuantityMap = new Map<string, { quantity: number }>();
+    const monthInvoicesMap = new Map<string, Set<string>>();
+
+    // Daily maps for trend data ("soundwave" graphs)
+    const dailyAmountMap = new Map<string, number>();
+    const dailyProfitMap = new Map<string, number>();
+    const dailyQuantityMap = new Map<string, number>();
+    const dailyInvoicesMap = new Map<string, Set<string>>();
+    let minDate = '9999-99-99';
+    let maxDate = '0000-00-00';
 
     // Metrics: revenue/quantity/profit/customers from all records; invoices from orders only when API sends issales
     let totalRevenue = 0;
@@ -704,7 +824,7 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
         custData.count += 1;
         customerMap.set(custNorm, custData);
 
-        const { norm: catNorm, original: catOrig } = normKey(record.category, 'Uncategorized');
+        const { norm: catNorm, original: catOrig } = normKey(record.category, 'Other');
         const categoryData = categoryMap.get(catNorm) || { originalKey: catOrig, amount: 0, count: 0 };
         categoryData.amount = (categoryData.amount ?? 0) + record.amount;
         categoryData.count += 1;
@@ -745,15 +865,50 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
         countryMap.set(countryNorm, countryData);
 
         if (record.date) {
-            const monthKey = record.date.slice(0, 7);
-            const monthAmountData = monthAmountMap.get(monthKey) || { amount: 0, count: 0 };
-            monthAmountData.amount += record.amount;
-            monthAmountData.count += 1;
-            monthAmountMap.set(monthKey, monthAmountData);
-            const monthProfitData = monthProfitMap.get(monthKey) || { profit: 0, count: 0 };
-            monthProfitData.profit += record.profit ?? 0;
-            monthProfitData.count += 1;
-            monthProfitMap.set(monthKey, monthProfitData);
+            // Normalize date first to handle legacy cached data with raw date formats (e.g. "4-Apr-25")
+            const normalizedDate = normalizeDate(record.date);
+            if (normalizedDate.length >= 10) {
+                // Monthly aggregation (for Sales By Period list)
+                const monthKey = normalizedDate.slice(0, 7);
+                const monthAmountData = monthAmountMap.get(monthKey) || { amount: 0, count: 0 };
+                monthAmountData.amount += record.amount;
+                monthAmountData.count += 1;
+                monthAmountMap.set(monthKey, monthAmountData);
+                const monthProfitData = monthProfitMap.get(monthKey) || { profit: 0, count: 0 };
+                monthProfitData.profit += record.profit ?? 0;
+                monthProfitData.count += 1;
+                monthProfitMap.set(monthKey, monthProfitData);
+                const monthQty = monthQuantityMap.get(monthKey) || { quantity: 0 };
+                monthQty.quantity += record.quantity;
+                monthQuantityMap.set(monthKey, monthQty);
+                if (record.masterid && (!useOrdersOnlyForInvoices || isOrderRecord(record))) {
+                    let invSet = monthInvoicesMap.get(monthKey);
+                    if (!invSet) {
+                        invSet = new Set<string>();
+                        monthInvoicesMap.set(monthKey, invSet);
+                    }
+                    invSet.add(record.masterid);
+                }
+
+                // Daily aggregation (for soundwave trend charts)
+                // Maintain min/max date range to fill gaps
+                const dayKey = normalizedDate.slice(0, 10);
+                if (dayKey < minDate) minDate = dayKey;
+                if (dayKey > maxDate) maxDate = dayKey;
+
+                dailyAmountMap.set(dayKey, (dailyAmountMap.get(dayKey) ?? 0) + record.amount);
+                dailyProfitMap.set(dayKey, (dailyProfitMap.get(dayKey) ?? 0) + (record.profit ?? 0));
+                dailyQuantityMap.set(dayKey, (dailyQuantityMap.get(dayKey) ?? 0) + record.quantity);
+
+                if (record.masterid && (!useOrdersOnlyForInvoices || isOrderRecord(record))) {
+                    let dayInvSet = dailyInvoicesMap.get(dayKey);
+                    if (!dayInvSet) {
+                        dayInvSet = new Set<string>();
+                        dailyInvoicesMap.set(dayKey, dayInvSet);
+                    }
+                    dayInvSet.add(record.masterid);
+                }
+            }
         }
     }
 
@@ -822,8 +977,68 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
     const byMonth = monthMapToSortedArray(monthAmountMap, 'amount');
     const profitByMonth = monthMapToSortedArray(monthProfitMap, 'profit');
 
-    const revenueTrendData = byMonth.map(d => d.value);
-    const profitTrendData = profitByMonth.map(d => d.value);
+    // Generate complete daily trend arrays (filling gaps with 0)
+    let allDates: string[] = [];
+    if (minDate !== '9999-99-99' && maxDate !== '0000-00-00') {
+        allDates = getKeysBetweenDates(minDate, maxDate);
+    }
+
+    // If no data, return empty arrays (or single 0)
+    if (allDates.length === 0) {
+        allDates = [];
+    }
+
+    const revenueTrendData = allDates.map(d => dailyAmountMap.get(d) ?? 0);
+    const profitTrendData = allDates.map(d => dailyProfitMap.get(d) ?? 0);
+    const invoicesTrendData = allDates.map(d => dailyInvoicesMap.get(d)?.size ?? 0);
+    const quantityTrendData = allDates.map(d => dailyQuantityMap.get(d) ?? 0);
+
+    // For cumulative customers, we need to recalculate daily cumulative counts
+    // Re-use logic but for days
+    const cumulativeCustomersByDay = new Map<string, number>();
+    const seenCustomersForTrends = new Set<string>();
+
+    // Sort records by date for accurate cumulative calculation
+    const sortedByDate = [...records]
+        .filter(r => r.date && (r.customer != null ? String(r.customer).trim() : '') !== '')
+        .map(r => ({ ...r, normalizedDate: normalizeDate(r.date) }))
+        .filter(r => r.normalizedDate.length >= 10)
+        .sort((a, b) => a.normalizedDate.localeCompare(b.normalizedDate));
+
+    for (const r of sortedByDate) {
+        if (r.normalizedDate.length < 10) continue;
+        const dayKey = r.normalizedDate.slice(0, 10);
+        const custNorm = (r.customer != null ? String(r.customer).trim() : '').toLowerCase();
+        seenCustomersForTrends.add(custNorm);
+        // Overwrite with latest count for this day (records are sorted)
+        cumulativeCustomersByDay.set(dayKey, seenCustomersForTrends.size);
+    }
+
+    let lastDailyCumulative = 0;
+    const uniqueCustomersTrendData = allDates.map(d => {
+        // If day exists in map, use its value and update last. If not, use last (cumulative doesn't drop).
+        const v = cumulativeCustomersByDay.get(d);
+        if (v !== undefined) lastDailyCumulative = v;
+        return lastDailyCumulative;
+    });
+
+    const avgInvoiceValueTrendData = allDates.map(d => {
+        const inv = dailyInvoicesMap.get(d)?.size ?? 0;
+        const rev = dailyAmountMap.get(d) ?? 0;
+        return inv > 0 ? rev / inv : 0;
+    });
+
+    const profitMarginTrendData = allDates.map(d => {
+        const rev = dailyAmountMap.get(d) ?? 0;
+        const prof = dailyProfitMap.get(d) ?? 0;
+        return rev > 0 ? (prof / rev) * 100 : 0;
+    });
+
+    const avgProfitPerOrderTrendData = allDates.map(d => {
+        const inv = dailyInvoicesMap.get(d)?.size ?? 0;
+        const prof = dailyProfitMap.get(d) ?? 0;
+        return inv > 0 ? prof / inv : 0;
+    });
 
     return {
         metrics,
@@ -841,6 +1056,12 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
         topLossItems,
         revenueTrendData,
         profitTrendData,
+        invoicesTrendData,
+        quantityTrendData,
+        uniqueCustomersTrendData,
+        avgInvoiceValueTrendData,
+        profitMarginTrendData,
+        avgProfitPerOrderTrendData,
     };
 }
 
@@ -908,7 +1129,7 @@ export function computeDashboardDataSinglePass(records: SaleRecord[]): Dashboard
         customerMap.set(customerKey, customerData);
 
         // Stock group aggregation
-        const stockGroupKey = record.category || 'Uncategorized';
+        const stockGroupKey = record.category || 'Other';
         const stockGroupData = stockGroupMap.get(stockGroupKey) || { amount: 0, count: 0 };
         stockGroupData.amount += record.amount;
         stockGroupData.count += 1;

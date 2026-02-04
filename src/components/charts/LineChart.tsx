@@ -51,17 +51,12 @@ const LineChart: React.FC<LineChartProps> = ({
         return `${prefix}${value.toFixed(2)}`;
     };
 
-    // Compact format for Y-axis
+    // Compact format for Y-axis – show full figures (no Cr/L/K shorthand)
     const formatCompact = (value: number): string => {
-        const absValue = Math.abs(value);
-        if (absValue >= 10000000) {
-            return `${(value / 10000000).toFixed(1)}Cr`;
-        } else if (absValue >= 100000) {
-            return `${(value / 100000).toFixed(1)}L`;
-        } else if (absValue >= 1000) {
-            return `${(value / 1000).toFixed(1)}K`;
-        }
-        return value.toFixed(0);
+        if (!isFinite(value)) return '0';
+        // Round to nearest integer for axis and use locale formatting
+        const rounded = Math.round(value);
+        return rounded.toLocaleString();
     };
 
     // Calculate max value for scaling

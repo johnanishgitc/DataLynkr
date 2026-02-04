@@ -14,6 +14,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/types';
 import type { UserConnection } from '../api';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Logo from '../components/Logo';
 import { apiService } from '../api';
 import { useAuth } from '../store';
 import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
@@ -162,7 +163,10 @@ export default function AdminDashboard() {
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top || 12 }]}>
-        <Text style={styles.title}>{strings.select_connection}</Text>
+        <View style={styles.headerLeft}>
+          <Logo width={28} height={18} style={styles.headerLogo} />
+          <Text style={styles.title}>{strings.select_connection}</Text>
+        </View>
         <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12}>
           <Icon name="refresh" size={24} color="#ffffff" />
         </TouchableOpacity>
@@ -210,6 +214,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
     backgroundColor: '#1e488f',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerLogo: {
+    marginRight: 8,
   },
   title: {
     fontSize: 17,

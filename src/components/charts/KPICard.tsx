@@ -29,27 +29,29 @@ interface KPICardProps {
     chartType?: 'bar' | 'line';
     showVisibilityToggle?: boolean;
     onVisibilityToggle?: () => void;
+    /** When provided, card is pressable and shows full value in a popup (handled by parent). */
+    onPress?: () => void;
 }
 
 const VARIANT_COLORS = {
     blue: {
         bg: '#1e3a5f',
-        chartFill: 'rgba(255,255,255,0.32)',
-        chartLine: 'rgba(255,255,255,0.55)',
+        chartFill: 'rgba(255,255,255,0.4)', // Higher opacity for bars
+        chartLine: 'rgba(255,255,255,0.6)',
     },
     green: {
         bg: '#0d5c4a',
-        chartFill: 'rgba(255,255,255,0.32)',
-        chartLine: 'rgba(255,255,255,0.55)',
+        chartFill: 'rgba(255,255,255,0.4)',
+        chartLine: 'rgba(255,255,255,0.6)',
     },
     purple: {
         bg: '#4c1d95',
-        chartFill: 'rgba(255,255,255,0.32)',
-        chartLine: 'rgba(255,255,255,0.55)',
+        chartFill: 'rgba(255,255,255,0.4)',
+        chartLine: 'rgba(255,255,255,0.6)',
     },
     default: {
         bg: '#ffffff',
-        chartFill: 'rgba(0,0,0,0.08)',
+        chartFill: 'rgba(0,0,0,0.15)',
         chartLine: 'rgba(0,0,0,0.2)',
     },
 };
@@ -65,6 +67,7 @@ const KPICard: React.FC<KPICardProps> = ({
     chartType = 'line',
     showVisibilityToggle = false,
     onVisibilityToggle,
+    onPress,
 }) => {
     const colors = VARIANT_COLORS[variant];
     const isColored = variant !== 'default';
@@ -79,13 +82,34 @@ const KPICard: React.FC<KPICardProps> = ({
     // Bar chart: vertical bars from trendData
     const barRects = useMemo(() => {
         if (trendData.length < 1 || chartType !== 'bar') return [];
-        const data = trendData.slice(-12);
+
+        const data = trendData;
         const maxVal = Math.max(...data, 1);
         const barAreaWidth = CHART_WIDTH - 2 * CHART_PADDING;
         const n = data.length;
-        const barWidth = Math.max(2, (barAreaWidth - (n - 1) * BAR_GAP) / n);
+
+        // Soundwave style: for dense data (e.g. daily for a year), use minimal gap
+        const isDense = n > 50;
+        const gap = isDense ? 0.5 : BAR_GAP;
+
+        // Calculate max possible bar width
+        let barWidth = (barAreaWidth - (n - 1) * gap) / n;
+
+        // Clamp bar width: min 1px if feasible, max 6px for sparse data
+        // If data is extremely dense, let width go below 1px (SVG handles sub-pixel)
+        if (!isDense) {
+            barWidth = Math.min(6, Math.max(2, barWidth));
+        }
+
+        // Center the chart if total width is less than available area
+        const totalContentWidth = n * barWidth + (n - 1) * gap;
+        const startX = totalContentWidth < barAreaWidth
+            ? (barAreaWidth - totalContentWidth) / 2 + CHART_PADDING
+            : CHART_PADDING;
+
         return data.map((d, i) => {
-            const x = CHART_PADDING + i * (barWidth + BAR_GAP);
+            const x = startX + i * (barWidth + gap);
+            // Minimum height 2 (dot) to show activity even if value is 0 or low
             const barHeight = Math.max(2, (d / maxVal) * (CHART_HEIGHT - 2 * CHART_PADDING));
             const y = CHART_HEIGHT - CHART_PADDING - barHeight;
             return { x, y, width: barWidth, height: barHeight };
@@ -140,7 +164,7 @@ const KPICard: React.FC<KPICardProps> = ({
         }).start();
     }, [hasChart, trendData.length]);
 
-    return (
+    const cardContent = (
         <View
             style={[
                 styles.container,
@@ -231,6 +255,15 @@ const KPICard: React.FC<KPICardProps> = ({
             </View>
         </View>
     );
+
+    if (onPress) {
+        return (
+            <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+                {cardContent}
+            </TouchableOpacity>
+        );
+    }
+    return cardContent;
 };
 
 const styles = StyleSheet.create({
@@ -275,8 +308,8 @@ const styles = StyleSheet.create({
         right: 12,
         width: 36,
         height: 36,
-        borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderRadius: 8, // Slightly more squared
+        backgroundColor: 'rgba(255,255,255,0.15)', // More transparent
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 2,
@@ -287,8 +320,8 @@ const styles = StyleSheet.create({
         right: 10,
         width: 32,
         height: 32,
-        borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        borderRadius: 12, // Match icon container feel
+        backgroundColor: 'rgba(255,255,255,0.15)',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 2,

@@ -278,13 +278,28 @@ function getLedgerEntryPercentage(e: LedgerEntryDetail): string {
   return '0%';
 }
 
-// Ledger Details expandable - Figma: Label | Percentage | Amount (--- when zero)
+// Ledger Details expandable - Figma: Label | Percentage | Amount
+// - Do NOT show rows where amount is 0
+// - Do NOT show rows where LEDGERNAME matches voucher PARTICULARS
 function LedgerDetailsExpandable({
   entries,
+  particulars,
 }: {
   entries: LedgerEntryDetail[];
+  particulars?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const normParticulars = (particulars ?? '').toString().trim().toLowerCase();
+
+  const visibleEntries = entries.filter((e) => {
+    const { amount: amountVal } = getLedgerEntryAmount(e);
+    if (amountVal <= 0) return false;
+    const ledgername = (e.LEDGERNAME ?? (e as Record<string, unknown>).ledgername ?? '') as string;
+    const normLedger = ledgername.toString().trim().toLowerCase();
+    if (normParticulars && normLedger === normParticulars) return false;
+    return true;
+  });
+
   return (
     <View style={styles.ledgerDetailsWrap}>
       <TouchableOpacity
@@ -302,7 +317,7 @@ function LedgerDetailsExpandable({
       </TouchableOpacity>
       {expanded && (
         <View style={styles.ledgerDetailsExpand}>
-          {entries.map((e, i) => {
+          {visibleEntries.map((e, i) => {
             const { amount: amountVal } = getLedgerEntryAmount(e);
             const ledgername = (e.LEDGERNAME ?? (e as Record<string, unknown>).ledgername ?? '—') as string;
             const pct = getLedgerEntryPercentage(e);
@@ -487,7 +502,7 @@ export default function VoucherDetailView() {
               {fmtNum(itemTotal)} {drCr}
             </Text>
           </View>
-          <LedgerDetailsExpandable entries={entries} />
+          <LedgerDetailsExpandable entries={entries} particulars={part} />
           <View style={styles.grandTotalBar}>
             <Text style={styles.grandTotalLabel}>Grand Total</Text>
             <Text style={styles.grandTotalVal}>

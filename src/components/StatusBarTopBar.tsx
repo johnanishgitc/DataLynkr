@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
+import Logo from './Logo';
 
 export interface StatusBarTopBarProps {
   title?: string;
@@ -50,6 +51,7 @@ export function StatusBarTopBar({
           >
             <Icon name={isBack ? 'chevron-left' : 'menu'} size={24} color={colors.white} />
           </TouchableOpacity>
+          <Logo width={24} height={16} style={styles.barLogo} />
           <Text style={styles.title} numberOfLines={1}>
             {title}
           </Text>
@@ -101,6 +103,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   menuBtn: {
+    marginRight: 8,
+  },
+  barLogo: {
     marginRight: 8,
   },
   title: {

@@ -7,7 +7,6 @@ export type AuthStackParamList = {
 };
 
 export type HomeStackParamList = {
-  Home: undefined;
   DataManagement: undefined;
   SalesDashboard: undefined;
   ComingSoon: { tab_name: string };
