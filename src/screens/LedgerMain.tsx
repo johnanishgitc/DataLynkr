@@ -8,7 +8,7 @@ import type { LedgerListResponse } from '../api';
 import { CustNamesDropdown, StatusBarTopBar } from '../components';
 import { colors } from '../constants/colors';
 
-const DEFAULT_REPORT = 'Ledger Vouchers';
+const DEFAULT_REPORT = 'Ledger Voucher';
 
 function defaultFromDate(): number {
   const d = new Date();

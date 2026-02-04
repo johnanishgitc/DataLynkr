@@ -12,7 +12,7 @@ import {
   TextInput,
   Animated,
 } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -23,6 +23,7 @@ import { apiService } from '../api';
 import type { LedgerListResponse } from '../api';
 import { getDataOrConstruct } from '../api/models/ledger';
 import type { VoucherEntry, LedgerReportData } from '../api';
+import type { InventoryAllocation } from '../api/models/ledger';
 import { ExportMenu, StatusBarTopBar, PeriodSelection } from '../components';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
@@ -41,8 +42,14 @@ const CARD_BORDER = '#e6ecfd';
 const AMT_DEBIT = '#ff4242';
 const AMT_CREDIT = '#39b57c';
 
-const REPORT_OPTIONS = ['Ledger Vouchers', 'Bill Wise'];
-const DEFAULT_REPORT = 'Ledger Vouchers';
+const REPORT_OPTIONS = [
+  'Ledger Voucher',
+  'Bill Wise Outstanding',
+  'Sales Order Ledger Outstandings',
+  'Cleared Orders',
+  'Past Orders',
+];
+const DEFAULT_REPORT = 'Ledger Voucher';
 
 function defaultFromDate(): number {
   const d = new Date();
@@ -56,10 +63,12 @@ function defaultToDate(): number {
 }
 
 // Map display names to API report types
-// Based on backend code: TallyCatalyst/src/TallyDashboard/Ledgerbook.js line 155
 const REPORT_TYPE_MAP: Record<string, string> = {
-  'Ledger Vouchers': 'Ledger Vouchers',
-  'Bill Wise': 'Bill wise O/s', // Backend expects "Bill wise O/s"
+  'Ledger Voucher': 'Ledger Vouchers',
+  'Bill Wise Outstanding': 'Bill wise O/s',
+  'Sales Order Ledger Outstandings': 'Sales Order Ledger Outstandings',
+  'Cleared Orders': 'Cleared Orders',
+  'Past Orders': 'Past Orders',
 };
 
 function amt(x: unknown): string {
@@ -135,16 +144,21 @@ export default function LedgerEntries() {
   const [reportDropdownOpen, setReportDropdownOpen] = useState(false);
   const [periodSelectionOpen, setPeriodSelectionOpen] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
+  const [reportSearch, setReportSearch] = useState('');
 
-  // Scroll-based header/footer collapse
+  // Scroll-based header (blue bar) + footer collapse.
+  // Note: customer/report/date range rows stay fixed and never collapse.
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
   
-  // Calculate approximate header height: StatusBarTopBar (~47px compact + safe area) + topContainer (~80px)
-  const headerHeight = insets.top + 47 + 80; // Approximate total header height
+  // Calculate approximate header height: StatusBarTopBar (~47px) + topContainer (~80px base, +30 when User row shown)
+  // + Bill Wise / Sales Order Ledger table header (~40px) when applicable
+  const headerHeight = insets.top + 47 + 80
+    + (report_name !== 'Ledger Voucher' ? 30 : 0)
+    + (report_name === 'Bill Wise Outstanding' || report_name === 'Sales Order Ledger Outstandings' ? 40 : 0);
   const footerHeight = 60; // Approximate footer height
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -153,13 +167,15 @@ export default function LedgerEntries() {
 
     // Determine scroll direction
     if (scrollDiff > 0 && currentScrollY > 50) {
-      // Scrolling down - hide header and footer
+      // Scrolling down - hide header bar and footer
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
         Animated.parallel([
           Animated.timing(headerTranslateY, {
-            toValue: -headerHeight,
+            // Slide the header up just enough to hide the blue bar
+            // while keeping the filter strip aligned nicely under the system status bar.
+            toValue: -40,
             duration: 300,
             useNativeDriver: true,
           }),
@@ -171,7 +187,7 @@ export default function LedgerEntries() {
         ]).start();
       }
     } else if (scrollDiff < 0 || currentScrollY <= 10) {
-      // Scrolling up or near top - show header and footer
+      // Scrolling up or near top - show header bar and footer
       if (localScrollDirection.current !== 'up') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
@@ -206,6 +222,12 @@ export default function LedgerEntries() {
     return ledgerNames.filter((n) => n.toLowerCase().includes(q));
   }, [ledgerNames, customerSearch]);
 
+  const filteredReports = useMemo(() => {
+    if (!reportSearch.trim()) return REPORT_OPTIONS;
+    const q = reportSearch.trim().toLowerCase();
+    return REPORT_OPTIONS.filter((n) => n.toLowerCase().includes(q));
+  }, [reportSearch]);
+
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -231,17 +253,17 @@ export default function LedgerEntries() {
     return () => { cancel = true; };
   }, []);
 
-  // Auto-open customer dropdown when component loads if no ledger_name is selected
-  // Wait for ledger names to be loaded before opening
-  useEffect(() => {
-    if (!ledger_name && ledgerNames.length > 0 && !loading) {
-      // Small delay to ensure UI is ready
-      const timer = setTimeout(() => {
-        setCustomerDropdownOpen(true);
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [ledger_name, ledgerNames, loading]);
+  // Auto-open report name dropdown (Ledger Vouchers / Bill Wise) when screen is focused and no ledger is selected
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!ledger_name && ledgerNames.length > 0 && !loading) {
+        const timer = setTimeout(() => {
+          setReportDropdownOpen(true);
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }, [ledger_name, ledgerNames, loading])
+  );
 
   useEffect(() => {
     let cancel = false;
@@ -285,7 +307,7 @@ export default function LedgerEntries() {
             msg = response.data?.message || response.data?.error || `Request failed with status code ${response.status || 'unknown'}`;
             
             // Special handling for Bill Wise reports
-            if (report_name === 'Bill Wise' && response.status === 400) {
+            if (report_name === 'Bill Wise Outstanding' && response.status === 400) {
               detailedError = '\n\nNote: Bill Wise reports require the ledger to have bill-wise tracking enabled in Tally. Please verify:\n1. The ledger has bill-wise tracking enabled\n2. The ledger belongs to a group that supports bill-wise tracking (e.g., Sundry Debtors, Sundry Creditors)';
             }
           } else if ('message' in e) {
@@ -302,13 +324,23 @@ export default function LedgerEntries() {
   }, [ledger_name, report_name, from_date, to_date]);
 
   const onRow = (v: VoucherEntry) => {
-    (nav.navigate as (a: string, b: object) => void)('VoucherDetails', {
-      voucher: v,
-      ledger_name,
-      report_name,
-      from_date,
-      to_date,
-    });
+    const vouchers = (v.VOUCHERS ?? []) as VoucherEntry[];
+    const isBillWiseWithVouchers =
+      report_name === 'Bill Wise Outstanding' && vouchers.length > 0;
+    if (isBillWiseWithVouchers) {
+      (nav.navigate as (a: string, b: object) => void)('VoucherDetails', {
+        voucher: v,
+        ledger_name,
+        report_name,
+        from_date,
+        to_date,
+      });
+    } else {
+      (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
+        voucher: v,
+        ledger_name,
+      });
+    }
   };
 
   const onPdf = async () => {
@@ -370,9 +402,89 @@ export default function LedgerEntries() {
     return { debitSum, creditSum, openDeb, openCr, closeDeb, closeCr };
   }, [rows, opening, closing]);
 
+  // BWO Figma: Total Pending Amount, Total Opening Amount for footer
+  const billWiseTotals = useMemo(() => {
+    let openDeb = 0;
+    let openCr = 0;
+    let pendDeb = 0;
+    let pendCr = 0;
+    for (const v of rows) {
+      openDeb += toNum(v.DEBITOPENBAL);
+      openCr += toNum(v.CREDITOPENBAL);
+      pendDeb += toNum(v.DEBITCLSBAL);
+      pendCr += toNum(v.CREDITCLSBAL);
+    }
+    const openFormatted = openDeb > openCr
+      ? `${fmtNum(openDeb - openCr)} Dr`
+      : openCr > openDeb
+        ? `${fmtNum(openCr - openDeb)} Cr`
+        : '0.00';
+    const pendFormatted = pendDeb > pendCr
+      ? `${fmtNum(pendDeb - pendCr)} Dr`
+      : pendCr > pendDeb
+        ? `${fmtNum(pendCr - pendDeb)} Cr`
+        : '0.00';
+    return { openingFormatted: openFormatted, pendingFormatted: pendFormatted };
+  }, [rows]);
+
   const dateRangeStr = `${formatDate(from_date)} – ${formatDate(to_date)}`;
-  const isBillWise = report_name === 'Bill Wise';
-  const reportDisplayName = isBillWise ? strings.bill_wise_outstanding : report_name;
+  const isBillWise = report_name === 'Bill Wise Outstanding';
+  const isSalesOrderLedger = report_name === 'Sales Order Ledger Outstandings';
+  const isLedgerVoucher = report_name === 'Ledger Voucher';
+  const reportDisplayName = report_name;
+
+  // Sales Order Ledger Outstandings: flatten INVENTORYALLOCATIONS into line items (Particulars, Rate, Value, Qty)
+  const soloLineItems = useMemo(() => {
+    if (!isSalesOrderLedger || !data?.data) return [];
+    const out: { particulars: string; rate: number; value: number; qty: number; qtyLabel: string }[] = [];
+    const raw = data.data as VoucherEntry[];
+    for (const v of raw) {
+      const invList = (v.INVENTORYALLOCATIONS ?? []) as InventoryAllocation[];
+      const arr = Array.isArray(invList) ? invList : (invList && typeof invList === 'object' ? [invList] : []);
+      if (arr.length === 0) {
+        const part = (v.PARTICULARS ?? '').trim() || '—';
+        const rate = toNum((v as Record<string, unknown>).RATE);
+        const value = toNum((v as Record<string, unknown>).VALUE) || toNum(v.DEBITAMT) || toNum(v.CREDITAMT);
+        const qty = toNum((v as Record<string, unknown>).ACTUALQTY) || toNum((v as Record<string, unknown>).BILLEQTY) || 0;
+        const uom = String((v as Record<string, unknown>).UOM ?? (v as Record<string, unknown>).uom ?? 'Nos').trim() || 'Nos';
+        out.push({
+          particulars: part,
+          rate,
+          value,
+          qty,
+          qtyLabel: qty ? `${fmtNum(qty)} ${uom}` : '—',
+        });
+        continue;
+      }
+      for (const inv of arr) {
+        const rawInv = inv as Record<string, unknown>;
+        const part = (inv.STOCKITEMNAME ?? rawInv.stockitemname ?? '').toString().trim() || '—';
+        const rate = toNum(inv.RATE);
+        const value = toNum(inv.VALUE) ?? toNum(inv.AMOUNT) ?? toNum(inv.BILLEDVALUE) ?? toNum(inv.BILLEDAMOUNT);
+        const qty = toNum(inv.ACTUALQTY) || toNum(inv.BILLEQTY) || 0;
+        const uom = (inv as Record<string, unknown>).UOM ?? (inv as Record<string, unknown>).uom;
+        const uomStr = (uom != null && String(uom).trim()) ? String(uom).trim() : 'Nos';
+        out.push({
+          particulars: part,
+          rate,
+          value,
+          qty,
+          qtyLabel: qty ? `${fmtNum(qty)} ${uomStr}` : '—',
+        });
+      }
+    }
+    return out;
+  }, [isSalesOrderLedger, data?.data]);
+
+  const soloTotals = useMemo(() => {
+    let totalQty = 0;
+    let totalValue = 0;
+    for (const item of soloLineItems) {
+      totalQty += item.qty;
+      totalValue += item.value;
+    }
+    return { totalQty, totalValue };
+  }, [soloLineItems]);
 
   // Helper to format balance display (Dr/Cr)
   function formatBalance(debit: unknown, credit: unknown): string {
@@ -413,46 +525,45 @@ export default function LedgerEntries() {
     );
   };
 
+  const renderCardSolo = (item: { particulars: string; rate: number; value: number; qtyLabel: string }, i: number) => (
+    <View key={i} style={styles.cardSolo}>
+      <View style={styles.cardSoloMainRow}>
+        <Text style={styles.cardSoloParticulars} numberOfLines={2}>{item.particulars}</Text>
+        <View style={styles.cardSoloRight}>
+          <Text style={styles.cardSoloRate}>{fmtNum(item.rate)}</Text>
+          <Text style={styles.cardSoloValue}>{fmtNum(item.value)}</Text>
+        </View>
+      </View>
+      <View style={styles.cardSoloSubRow}>
+        <Text style={styles.cardSoloQty}>{item.qtyLabel}</Text>
+      </View>
+    </View>
+  );
+
   const renderCardBillWise = (v: VoucherEntry, i: number) => {
-    // For Bill wise O/s, use REFNO as the primary reference (per documentation)
+    // BWO Figma: Overdue days | Opening Amt | Pending Amt; sub-row: Date (Due Date: DueOn) | #RefNo
     const billRef = v.REFNO || v.BILLNAME || '—';
     const dueOn = v.DUEON ?? '—';
     const od = v.OVERDUEDAYS;
-    const overdueStr = od != null ? `${od} days` : '—';
-    
-    // Calculate opening and pending balances
+    const overdueStr = od != null ? `${od} Days` : '—';
     const openingBalance = formatBalance(v.DEBITOPENBAL, v.CREDITOPENBAL);
     const pendingBalance = formatBalance(v.DEBITCLSBAL, v.CREDITCLSBAL);
-    
-    // Determine color based on pending balance
-    const pendingDebit = toNum(v.DEBITCLSBAL);
-    const pendingCredit = toNum(v.CREDITCLSBAL);
-    const balanceColor = pendingDebit > 0 ? AMT_DEBIT : pendingCredit > 0 ? AMT_CREDIT : colors.text_primary;
-    
+    const dateStr = v.DATE ?? '—';
+    const dateDueStr = `${dateStr} (Due Date: ${dueOn})`;
+
     return (
-      <TouchableOpacity key={i} style={styles.card} onPress={() => onRow(v)} activeOpacity={0.7}>
-        <View style={styles.cardBillWiseRow1}>
-          <Text style={styles.cardBillWiseRef} numberOfLines={1}>#{billRef}</Text>
-          <Text style={[styles.cardBillWisePending, { color: balanceColor }]}>{pendingBalance}</Text>
-        </View>
-        <View style={styles.cardBillWiseRow2}>
-          <View style={styles.cardBillWiseMetaItem}>
-            <Text style={styles.cardMetaLabel}>{strings.due_on}</Text>
-            <Text style={styles.cardMeta}>{dueOn}</Text>
+      <TouchableOpacity key={i} style={styles.cardBillWise} onPress={() => onRow(v)} activeOpacity={0.7}>
+        <View style={styles.cardBillWiseContent}>
+          <View style={styles.cardBillWiseMainRow}>
+            <Text style={styles.cardBillWiseOverdue}>{overdueStr}</Text>
+            <View style={styles.cardBillWiseAmounts}>
+              <Text style={styles.cardBillWiseAmt}>{openingBalance}</Text>
+              <Text style={styles.cardBillWiseAmt}>{pendingBalance}</Text>
+            </View>
           </View>
-          <View style={styles.cardBillWiseMetaItem}>
-            <Text style={styles.cardMetaLabel}>{strings.overdue_days}</Text>
-            <Text style={styles.cardMeta}>{overdueStr}</Text>
-          </View>
-        </View>
-        <View style={styles.cardBillWiseRow3}>
-          <View style={styles.cardBillWiseBalance}>
-            <Text style={styles.cardMetaLabel}>Opening</Text>
-            <Text style={styles.cardMetaValue}>{openingBalance}</Text>
-          </View>
-          <View style={styles.cardBillWiseBalance}>
-            <Text style={styles.cardMetaLabel}>Pending</Text>
-            <Text style={[styles.cardMetaValue, { color: balanceColor }]}>{pendingBalance}</Text>
+          <View style={styles.cardBillWiseSubRow}>
+            <Text style={styles.cardBillWiseDateRef} numberOfLines={1}>{dateDueStr}</Text>
+            <Text style={styles.cardBillWiseRefNo}>#{billRef}</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -462,6 +573,8 @@ export default function LedgerEntries() {
   return (
     <View style={styles.root}>
       {/* LedgerBook2: blue header with hamburger menu, title, share, bell */}
+      {/* Entire wrapper (blue bar + filters) slides up so that when the blue bar collapses, 
+          the filter rows move up and stick to the top. */}
       <Animated.View
         style={[
           styles.headerWrapper,
@@ -471,7 +584,7 @@ export default function LedgerEntries() {
         ]}
       >
         <StatusBarTopBar
-          title="Ledger Book"
+          title={isSalesOrderLedger ? 'Sales order ledger outstandings' : 'Ledger Book'}
           leftIcon="menu"
           onMenuPress={() => {
             const parent = nav.getParent();
@@ -483,23 +596,49 @@ export default function LedgerEntries() {
           compact
         />
 
-        {/* TopContainer per LedgerBook2: customer dropdown, report dropdown, date range */}
+        {/* TopContainer per LedgerBook2: report dropdown first, then customer dropdown, date range */}
         <View style={styles.topContainer}>
-        <TouchableOpacity style={[styles.topRow, styles.topRowBorder]} onPress={() => setCustomerDropdownOpen(true)} activeOpacity={0.7}>
-          <Icon name="account" size={18} color={colors.text_primary} />
-          <Text style={styles.topTxt} numberOfLines={1}>{ledger_name || 'Select Company'}</Text>
-          <Icon name="chevron-down" size={20} color={colors.text_primary} />
-        </TouchableOpacity>
         <TouchableOpacity style={[styles.topRow, styles.topRowBorder]} onPress={() => setReportDropdownOpen(true)} activeOpacity={0.7}>
           <Icon name="file-document-outline" size={18} color={colors.text_primary} />
           <Text style={styles.topTxt} numberOfLines={1}>{reportDisplayName}</Text>
           <Icon name="chevron-down" size={20} color={colors.text_primary} />
         </TouchableOpacity>
+        <TouchableOpacity style={[styles.topRow, styles.topRowBorder]} onPress={() => setCustomerDropdownOpen(true)} activeOpacity={0.7}>
+          <Icon name="account" size={18} color={colors.text_primary} />
+          <Text style={styles.topTxt} numberOfLines={1}>{ledger_name || 'Select Company'}</Text>
+          <Icon name="chevron-down" size={20} color={colors.text_primary} />
+        </TouchableOpacity>
+        {!isLedgerVoucher && (
+          <View style={[styles.topRow, styles.topRowBorder]}>
+            <Icon name="account-outline" size={18} color={colors.text_primary} />
+            <Text style={[styles.topTxt, { fontWeight: '600' }]}>User</Text>
+          </View>
+        )}
         <TouchableOpacity style={[styles.topRow, styles.topRowDate]} onPress={() => setPeriodSelectionOpen(true)} activeOpacity={0.7}>
           <Icon name="calendar" size={18} color={colors.text_primary} />
           <Text style={styles.topTxtDate}>{dateRangeStr}</Text>
         </TouchableOpacity>
       </View>
+        {/* BWO Figma: table header bar - Overdue | Opening Amt | Pending Amt */}
+        {isBillWise && (
+          <View style={styles.billWiseTableHeader}>
+            <Text style={styles.billWiseTableHeaderCell}>Overdue</Text>
+            <View style={styles.billWiseTableHeaderRight}>
+              <Text style={[styles.billWiseTableHeaderCell, { flex: 1, textAlign: 'right' }]}>Opening Amt</Text>
+              <Text style={[styles.billWiseTableHeaderCell, { flex: 1, textAlign: 'right' }]}>Pending Amt</Text>
+            </View>
+          </View>
+        )}
+        {/* SOLO Figma: table header - Particulars & Qty | Rate | Value */}
+        {isSalesOrderLedger && (
+          <View style={styles.soloTableHeader}>
+            <Text style={styles.soloTableHeaderCell}>Particulars & Qty</Text>
+            <View style={styles.soloTableHeaderRight}>
+              <Text style={[styles.soloTableHeaderCell, styles.soloTableHeaderRate]}>Rate</Text>
+              <Text style={[styles.soloTableHeaderCell, styles.soloTableHeaderValue]}>Value</Text>
+            </View>
+          </View>
+        )}
       </Animated.View>
 
       {loading ? (
@@ -516,12 +655,14 @@ export default function LedgerEntries() {
           {/* Container: scrollable card list per LedgerBook2 */}
           <ScrollView
             style={styles.container}
-            contentContainerStyle={[styles.containerContent, { paddingTop: headerHeight + 16 }]}
+            contentContainerStyle={[styles.containerContent, { paddingTop: headerHeight + 10 }]}
             onScroll={handleScroll}
             scrollEventThrottle={16}
           >
-            {rows.map((v, i) => (isBillWise ? renderCardBillWise(v, i) : renderCard(v, i)))}
-            {rows.length === 0 && !opening && !closing ? (
+            {isSalesOrderLedger
+              ? soloLineItems.map((item, i) => renderCardSolo(item, i))
+              : rows.map((v, i) => (isBillWise ? renderCardBillWise(v, i) : renderCard(v, i)))}
+            {(isSalesOrderLedger ? soloLineItems.length === 0 : rows.length === 0) && !opening && !closing ? (
               <Text style={[styles.empty, styles.emptyInList]}>{strings.table_data_will_appear}</Text>
             ) : null}
           </ScrollView>
@@ -546,37 +687,65 @@ export default function LedgerEntries() {
             </TouchableOpacity>
             {footerExpanded && (
               <View style={styles.footerExpand}>
-                {(totals.openDeb !== 0 || totals.openCr !== 0) && (
-                  <View style={styles.footerRow}>
-                    <Text style={styles.footerLabel}>Opening Bal (Debit)</Text>
-                    <Text style={styles.footerVal}>{fmtNum(totals.openDeb)}</Text>
-                  </View>
-                )}
-                {totals.openCr !== 0 && (
-                  <View style={styles.footerRow}>
-                    <Text style={styles.footerLabel}>Opening Bal (Credit)</Text>
-                    <Text style={[styles.footerVal, { color: AMT_CREDIT }]}>{fmtNum(totals.openCr)}</Text>
-                  </View>
-                )}
-                <View style={styles.footerRow}>
-                  <Text style={styles.footerLabel}>Debit</Text>
-                  <Text style={[styles.footerVal, { color: AMT_DEBIT }]}>{fmtNum(totals.debitSum)}</Text>
-                </View>
-                <View style={styles.footerRow}>
-                  <Text style={styles.footerLabel}>Credit</Text>
-                  <Text style={[styles.footerVal, { color: AMT_CREDIT }]}>{fmtNum(totals.creditSum)}</Text>
-                </View>
-                {(totals.closeDeb !== 0 || totals.closeCr !== 0) && (
-                  <View style={styles.footerRow}>
-                    <Text style={styles.footerLabel}>Closing Bal (Debit)</Text>
-                    <Text style={styles.footerVal}>{fmtNum(totals.closeDeb)}</Text>
-                  </View>
-                )}
-                {totals.closeCr !== 0 && (
-                  <View style={styles.footerRow}>
-                    <Text style={styles.footerLabel}>Closing Bal (Credit)</Text>
-                    <Text style={[styles.footerVal, { color: AMT_CREDIT }]}>{fmtNum(totals.closeCr)}</Text>
-                  </View>
+                {isSalesOrderLedger ? (
+                  <>
+                    <View style={styles.footerRow}>
+                      <Text style={styles.footerLabel}>Total Pending Order Qty</Text>
+                      <Text style={styles.footerVal}>
+                        {soloTotals.totalQty > 0 ? fmtNum(soloTotals.totalQty) : '— — — —'}
+                      </Text>
+                    </View>
+                    <View style={styles.footerRow}>
+                      <Text style={styles.footerLabel}>Total Pending Order Value</Text>
+                      <Text style={styles.footerVal}>{fmtNum(soloTotals.totalValue)}</Text>
+                    </View>
+                  </>
+                ) : isBillWise ? (
+                  <>
+                    <View style={styles.footerRow}>
+                      <Text style={styles.footerLabel}>Total Pending Amount</Text>
+                      <Text style={styles.footerVal}>{billWiseTotals.pendingFormatted}</Text>
+                    </View>
+                    <View style={styles.footerRow}>
+                      <Text style={styles.footerLabel}>Total Opening Amount</Text>
+                      <Text style={styles.footerVal}>{billWiseTotals.openingFormatted}</Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    {(totals.openDeb !== 0 || totals.openCr !== 0) && (
+                      <View style={styles.footerRow}>
+                        <Text style={styles.footerLabel}>Opening Bal (Debit)</Text>
+                        <Text style={styles.footerVal}>{fmtNum(totals.openDeb)}</Text>
+                      </View>
+                    )}
+                    {totals.openCr !== 0 && (
+                      <View style={styles.footerRow}>
+                        <Text style={styles.footerLabel}>Opening Bal (Credit)</Text>
+                        <Text style={[styles.footerVal, { color: AMT_CREDIT }]}>{fmtNum(totals.openCr)}</Text>
+                      </View>
+                    )}
+                    <View style={styles.footerRow}>
+                      <Text style={styles.footerLabel}>Debit</Text>
+                      <Text style={[styles.footerVal, { color: AMT_DEBIT }]}>{fmtNum(totals.debitSum)}</Text>
+                    </View>
+                    <View style={styles.footerRow}>
+                      <Text style={styles.footerLabel}>Credit</Text>
+                      <Text style={[styles.footerVal, { color: AMT_CREDIT }]}>{fmtNum(totals.creditSum)}</Text>
+                    </View>
+                    {(totals.closeDeb !== 0 || totals.closeCr !== 0) && (
+                      <View style={styles.footerRow}>
+                        <Text style={styles.footerLabel}>Closing Bal (Debit)</Text>
+                        <Text style={styles.footerVal}>{fmtNum(totals.closeDeb)}</Text>
+                      </View>
+                    )}
+                    {totals.closeCr !== 0 && (
+                      <View style={styles.footerRow}>
+                        <Text style={styles.footerLabel}>Closing Bal (Credit)</Text>
+                        <Text style={[styles.footerVal, { color: AMT_CREDIT }]}>{fmtNum(totals.closeCr)}</Text>
+                      </View>
+                    )}
+                  </>
                 )}
               </View>
             )}
@@ -627,14 +796,26 @@ export default function LedgerEntries() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Report dropdown modal */}
+      {/* Report dropdown modal - matches Ledger Reports design: Select + search, light blue list */}
       <Modal visible={reportDropdownOpen} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setReportDropdownOpen(false)}>
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => { setReportDropdownOpen(false); setReportSearch(''); }}>
+          <View style={[styles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalSearchRow}>
+              <TextInput
+                style={styles.modalSearchInput}
+                placeholder={strings.select}
+                placeholderTextColor={colors.text_secondary}
+                value={reportSearch}
+                onChangeText={setReportSearch}
+              />
+              <Icon name="magnify" size={20} color={colors.text_gray} style={styles.modalSearchIcon} />
+            </View>
             <FlatList
-              data={REPORT_OPTIONS}
+              data={filteredReports}
               keyExtractor={(i) => i}
               style={styles.modalList}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={styles.modalEmpty}>No reports found</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.modalOpt}
@@ -646,6 +827,7 @@ export default function LedgerEntries() {
                       to_date,
                     });
                     setReportDropdownOpen(false);
+                    setReportSearch('');
                   }}
                   activeOpacity={0.7}
                 >
@@ -692,7 +874,7 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 1000,
     elevation: 10, // Android elevation to ensure header stays above ScrollView
-    backgroundColor: colors.primary_blue, // Match StatusBarTopBar to prevent content peek-through
+    backgroundColor: 'transparent', // Let only the animated StatusBarTopBar provide the blue background
     overflow: 'hidden', // Prevent content from showing through when scrolling
   },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -763,39 +945,131 @@ const styles = StyleSheet.create({
     borderRightColor: '#d3d3d3',
   },
   cardMetaLast: { flexDirection: 'row' },
-  /* Bill Wise cards: #ref, Due on, Overdue days, Opening/Pending balances */
-  cardBillWiseRow1: {
+  /* BWO Figma: table header - Overdue | Opening Amt | Pending Amt */
+  billWiseTableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#d3d3d3',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  billWiseTableHeaderCell: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
+  },
+  billWiseTableHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    width: 191,
+  },
+  /* SOLO Figma: table header - Particulars & Qty | Rate | Value */
+  soloTableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#d3d3d3',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  soloTableHeaderCell: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
+  },
+  soloTableHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 68,
+  },
+  soloTableHeaderRate: { minWidth: 60, textAlign: 'right' },
+  soloTableHeaderValue: { minWidth: 80, textAlign: 'right' },
+  /* SOLO Figma: card - Particulars | Rate | Value; sub: Qty (e.g. "29 User", "20 Nos") */
+  cardSolo: {
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: '#c4d4ff',
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+    marginBottom: 0,
+  },
+  cardSoloMainRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  cardBillWiseRef: { fontSize: 14, fontWeight: '600', color: '#0e172b', lineHeight: 20, flex: 1 },
-  cardBillWisePending: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
-  cardBillWiseRow2: {
+  cardSoloParticulars: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0e172b',
+    marginRight: 8,
+  },
+  cardSoloRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 5,
-    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    width: 172,
+  },
+  cardSoloRate: { fontSize: 13, fontWeight: '600', color: '#0e172b' },
+  cardSoloValue: { fontSize: 13, fontWeight: '600', color: '#0e172b' },
+  cardSoloSubRow: { marginTop: 4 },
+  cardSoloQty: { fontSize: 13, fontWeight: '400', color: '#6a7282' },
+  /* BWO Figma: card layout - Overdue | Opening Amt | Pending Amt; sub: Date (Due Date) | #Ref */
+  cardBillWise: {
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: '#c4d4ff',
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+    marginBottom: 0,
+  },
+  cardBillWiseContent: {},
+  cardBillWiseMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardBillWiseOverdue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0e172b',
+  },
+  cardBillWiseAmounts: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
+    width: 191,
   },
-  cardBillWiseMetaItem: {
+  cardBillWiseAmt: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0e172b',
+    textAlign: 'right',
+  },
+  cardBillWiseSubRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    marginTop: 8,
   },
-  cardBillWiseRow3: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 5,
-    gap: 16,
+  cardBillWiseDateRef: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#6a7282',
+    paddingRight: 10,
+    borderRightWidth: 1,
+    borderRightColor: '#d3d3d3',
   },
-  cardBillWiseBalance: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  cardBillWiseRefNo: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#6a7282',
+    paddingLeft: 5,
   },
-  cardMetaLabel: { fontSize: 12, color: '#9ca3af', fontWeight: '500' },
-  cardMetaValue: { fontSize: 13, color: '#0e172b', fontWeight: '600' },
   /* Figma SalesOrderParty: border-t #c4d4ff, px-4 py-2.5, bg #1e488f; -mt-10; expand px-[26px] py-2, gap-3, rounded-sm */
   footer: {
     position: 'absolute',

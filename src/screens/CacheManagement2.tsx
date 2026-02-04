@@ -167,7 +167,8 @@ interface DateChunk {
 const DB_NAME = 'cache2.db';
 const TABLE_NAME = 'cache2_entries';
 const PAGE_SIZE_CHARS = 50000; // characters per page for paginated viewing
-const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB - files larger than this use chunked reading
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB - files larger than this use chunked-reading / no in-memory cache
+const MAX_SAFE_FILE_MB = 64; // Above this, skip in-memory view for View Raw / Tree only (update and download have no limit)
 const sessionCache = new Map<string, string>(); // in-memory cache of full JSON content for current session (only for small files)
 const fileSizeCache = new Map<string, number>(); // Cache file sizes to avoid repeated stat calls
 
@@ -341,7 +342,7 @@ function getCurrentFinancialYearStart(): Date {
   return new Date(fyStartYear, 3, 1); // April 1st of current FY
 }
 
-export default function CacheManagement2() {
+export default function DataManagement() {
   // State - default from date is start of current financial year, to date is today
   const [fromDate, setFromDate] = useState<Date>(() => getCurrentFinancialYearStart());
   const [toDate, setToDate] = useState<Date>(() => new Date());
@@ -409,8 +410,8 @@ export default function CacheManagement2() {
 
       setEntries(entriesWithSize);
 
-      // Pre-cache the most recently downloaded file in the background for instant "View Raw"
-      // This helps when user downloads a file and immediately wants to view it
+      // Pre-cache the most recently downloaded SMALL file in the background for instant "View Raw"
+      // For large files we intentionally do NOT pre-cache to avoid OutOfMemory
       if (entriesWithSize.length > 0) {
         // Sort by created_at descending to get the most recent
         const sortedEntries = [...entriesWithSize].sort((a, b) => 
@@ -423,7 +424,7 @@ export default function CacheManagement2() {
           const isSmallFile = fileSize < 1024 * 1024; // Less than 1MB
           
           if (isSmallFile) {
-            // For small files, cache immediately (fast enough not to block)
+            // For very small files, cache immediately (fast enough not to block)
             (async () => {
               try {
                 const fileExists = await RNFS.exists(mostRecentEntry.json_path);
@@ -439,21 +440,8 @@ export default function CacheManagement2() {
               }
             })();
           } else {
-            // For large files, cache in background - don't block UI
-            InteractionManager.runAfterInteractions(async () => {
-              try {
-                const fileExists = await RNFS.exists(mostRecentEntry.json_path);
-                if (fileExists) {
-                  console.log('[CacheManagement2] Pre-caching large file in background for instant View Raw...');
-                  const startTime = Date.now();
-                  const content = await RNFS.readFile(mostRecentEntry.json_path, 'utf8');
-                  sessionCache.set(mostRecentEntry.json_path, content);
-                  console.log('[CacheManagement2] Pre-cached file in', Date.now() - startTime, 'ms, size:', content.length, 'chars');
-                }
-              } catch (precacheError) {
-                console.warn('[CacheManagement2] Failed to pre-cache file:', precacheError);
-              }
-            });
+            // For large files, don't pre-cache to avoid OOM – they'll be read lazily with size checks
+            console.log('[CacheManagement2] Skipping pre-cache for large file; will rely on on-demand reading.');
           }
         } else if (mostRecentEntry.json_path && sessionCache.has(mostRecentEntry.json_path)) {
           console.log('[CacheManagement2] Most recent file already cached');
@@ -546,11 +534,28 @@ export default function CacheManagement2() {
         vouchertype: '$$isSales, $$IsCreditNote',
       };
 
+      const maxRetries = 3; // retry same chunk with same payload 3 more times (4 attempts total)
+      let lastChunkError: unknown = null;
+      let response: Awaited<ReturnType<typeof apiService.getSalesExtract>> | null = null;
+
       try {
-        const response = await apiService.getSalesExtract(payload);
-        // Collect response data (handle array or single object)
-        // Skip responses with empty vouchers array: { "vouchers": [] }
-        if (response.data) {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            if (attempt > 0) {
+              const delay = 2000 * Math.pow(2, attempt);
+              console.log(`Chunk ${i + 1} retry ${attempt}/${maxRetries} in ${delay}ms`);
+              await new Promise(r => setTimeout(r, delay));
+            }
+            response = await apiService.getSalesExtract(payload);
+            lastChunkError = null;
+            break;
+          } catch (err) {
+            lastChunkError = err;
+            if (attempt === maxRetries) throw err;
+            console.warn(`Chunk ${i + 1} attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
+          }
+        }
+        if (response?.data) {
           // Check if response is { vouchers: [] } - skip it
           if (
             typeof response.data === 'object' &&
@@ -570,7 +575,8 @@ export default function CacheManagement2() {
           }
         }
       } catch (chunkError) {
-        console.error(`Failed to download chunk ${i + 1}:`, chunkError);
+        const err = lastChunkError ?? chunkError;
+        console.error(`Failed to download chunk ${i + 1} after ${maxRetries + 1} attempts:`, err);
 
         // Save interrupted state for potential resume
         const interruptedState: InterruptedDownloadState = {
@@ -587,19 +593,19 @@ export default function CacheManagement2() {
         setInterruptedDownload(interruptedState);
         setIsDownloading(false);
 
-        const errorMsg = chunkError instanceof Error ? chunkError.message : 'Unknown error';
+        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
         const isNetworkError =
           errorMsg.includes('Network') ||
           errorMsg.includes('network') ||
           errorMsg.includes('timeout') ||
           errorMsg.includes('Timeout') ||
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (chunkError as any)?.isNetworkError === true;
+          (err as any)?.isNetworkError === true;
 
         // Show alert with options to continue or start over
         Alert.alert(
           isNetworkError ? 'Network Error' : 'Download Interrupted',
-          `Download paused at chunk ${i + 1} of ${chunks.length}.\n\nError: ${errorMsg}\n\nYou can continue from where you left off or start over.`,
+          `Download paused at chunk ${i + 1} of ${chunks.length} after ${maxRetries + 1} attempts.\n\nError: ${errorMsg}\n\nYou can continue from where you left off or start over.`,
           [
             {
               text: 'Start Over',
@@ -659,19 +665,50 @@ export default function CacheManagement2() {
     const fileName = `${cacheKey}_${timestamp}.json`;
     const filePath = `${cacheDir}/${fileName}`;
 
-    // Write combined JSON to file
-    const jsonContent = JSON.stringify(allResponses, null, 2);
-    const fileSizeBytes = new Blob([jsonContent]).size || jsonContent.length * 2; // Approximate size
-    const fileSizeMB = fileSizeBytes / 1024 / 1024;
-    
-    await RNFS.writeFile(filePath, jsonContent, 'utf8');
+    // Stream JSON array to file without building one huge string
+    try {
+      // Start JSON array
+      await RNFS.writeFile(filePath, '[', 'utf8');
+      let isFirst = true;
+
+      for (const item of allResponses) {
+        const segment = JSON.stringify(item);
+        const prefix = isFirst ? '' : ',';
+        await RNFS.appendFile(filePath, prefix + segment, 'utf8');
+        isFirst = false;
+      }
+
+      // Close JSON array
+      await RNFS.appendFile(filePath, ']', 'utf8');
+    } catch (writeError) {
+      console.error('[CacheManagement2] Failed to stream JSON to file:', writeError);
+      setErrorMessage('Failed to save cache file.');
+      setIsDownloading(false);
+      return;
+    }
+
+    // Get actual file size from disk
+    let fileSizeBytes = 0;
+    let fileSizeMB = 0;
+    try {
+      const stat = await RNFS.stat(filePath);
+      fileSizeBytes = stat.size || 0;
+      fileSizeMB = fileSizeBytes / 1024 / 1024;
+    } catch (statError) {
+      console.warn('[CacheManagement2] Failed to stat cache file:', statError);
+    }
     
     // Only cache small files in memory (<10MB) for instant "View Raw" access
     // Large files will use chunked reading instead
-    if (fileSizeMB < 10) {
-      sessionCache.set(filePath, jsonContent);
-      console.log('[CacheManagement2] File content cached for instant View Raw access');
-    } else {
+    if (fileSizeMB > 0 && fileSizeMB < 10) {
+      try {
+        const smallContent = await RNFS.readFile(filePath, 'utf8');
+        sessionCache.set(filePath, smallContent);
+        console.log('[CacheManagement2] File content cached for instant View Raw access');
+      } catch (readError) {
+        console.warn('[CacheManagement2] Failed to cache small file content:', readError);
+      }
+    } else if (fileSizeMB > 0) {
       console.log('[CacheManagement2] Large file (', fileSizeMB.toFixed(2), 'MB) - not caching in memory, will use chunked reading');
       // Cache file size for quick lookups
       fileSizeCache.set(filePath, fileSizeBytes);
@@ -690,10 +727,8 @@ export default function CacheManagement2() {
     await refreshEntries();
 
     // Pre-compute dashboard aggregations for instant loading
-    // Use the jsonContent we already have in memory (no need to read file again)
+    // Use the in-memory responses we already have (no need to read/parse file)
     try {
-      const fileSizeMB = fileSizeBytes / 1024 / 1024;
-      
       if (fileSizeMB > 50) {
         setStatusMessage(`Large file detected (${fileSizeMB.toFixed(1)}MB). Pre-computing dashboard cache (this may take a minute)...`);
       } else {
@@ -703,30 +738,19 @@ export default function CacheManagement2() {
       console.log('[CacheManagement2] Pre-computing dashboard aggregations...');
       console.log('[CacheManagement2] File size:', fileSizeMB.toFixed(2), 'MB');
       
-      const parsed = JSON.parse(jsonContent);
-      
-      // Extract vouchers using the same logic as SalesDashboard
+      // Extract vouchers using the same logic as SalesDashboard, but directly from allResponses
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let allVouchers: any[] = [];
       
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === 'object') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            if (Array.isArray((item as any).vouchers)) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              allVouchers.push(...(item as any).vouchers);
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } else if ((item as any).masterid !== undefined) {
-              allVouchers.push(item);
-            }
-          }
-        }
-      } else if (parsed && typeof parsed === 'object') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (Array.isArray((parsed as any).vouchers)) {
+      for (const item of allResponses) {
+        if (item && typeof item === 'object') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          allVouchers = (parsed as any).vouchers;
+          const anyItem = item as any;
+          if (Array.isArray(anyItem.vouchers)) {
+            allVouchers.push(...anyItem.vouchers);
+          } else if (anyItem.masterid !== undefined) {
+            allVouchers.push(anyItem);
+          }
         }
       }
       
@@ -1094,8 +1118,14 @@ export default function CacheManagement2() {
         return;
       }
 
-      // Load and parse existing JSON
-      setStatusMessage('Loading existing cache...');
+      // Load and parse existing JSON (no size limit; production caches can be very large)
+      const existingSizeBytes = existingEntry.sizeBytes ?? (await getFileSize(existingEntry.json_path));
+      const existingSizeMB = existingSizeBytes / 1024 / 1024;
+      setStatusMessage(
+        existingSizeMB > MAX_SAFE_FILE_MB
+          ? `Loading cache (${existingSizeMB.toFixed(0)} MB)... this may take a while`
+          : 'Loading existing cache...'
+      );
       const existingContent = await RNFS.readFile(existingEntry.json_path, 'utf8');
       let parsedData: unknown;
       try {
@@ -1493,6 +1523,19 @@ export default function CacheManagement2() {
         return;
       }
 
+      // Guard: if file is extremely large, do not attempt tree view to avoid OOM
+      const sizeBytes = entry.sizeBytes ?? (await getFileSize(entry.json_path));
+      const sizeMB = sizeBytes / 1024 / 1024;
+      if (sizeMB > MAX_SAFE_FILE_MB) {
+        Alert.alert(
+          'File too large',
+          `This file is ${sizeMB.toFixed(
+            1
+          )}MB and cannot be opened in tree view on this device. Please use the Sales Dashboard or a smaller date range instead.`
+        );
+        return;
+      }
+
       // Show preview modal immediately with loading state
       setPreviewTitle(entry.key);
       setPreviewContent(null);
@@ -1572,6 +1615,19 @@ export default function CacheManagement2() {
               },
             },
           ]
+        );
+        return;
+      }
+
+      // Guard: if file is extremely large, do not attempt to read it fully to avoid OOM
+      const sizeBytes = entry.sizeBytes ?? (await getFileSize(entry.json_path));
+      const sizeMB = sizeBytes / 1024 / 1024;
+      if (sizeMB > MAX_SAFE_FILE_MB) {
+        Alert.alert(
+          'File too large',
+          `This file is ${sizeMB.toFixed(
+            1
+          )}MB and cannot be opened as raw JSON on this device. Please use the Sales Dashboard or a smaller date range instead.`
         );
         return;
       }
@@ -1747,6 +1803,43 @@ export default function CacheManagement2() {
     );
   };
 
+  const handleDeleteCacheEntry = (entry: CacheEntry) => {
+    Alert.alert(
+      'Delete cache?',
+      `Remove cache "${entry.key}" (${entry.from_date} → ${entry.to_date})? This will delete the entry and its file.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const jsonPath = entry.json_path;
+              await deleteCacheEntry(entry.id);
+              try {
+                const exists = await RNFS.exists(jsonPath);
+                if (exists) {
+                  await RNFS.unlink(jsonPath);
+                }
+              } catch (e) {
+                console.warn('Failed to delete cache file', jsonPath, e);
+              }
+              sessionCache.delete(jsonPath);
+              fileSizeCache.delete(jsonPath);
+              await deleteDashboardCacheEntry(entry.key);
+              await refreshEntries();
+              setStatusMessage('Cache entry deleted.');
+              setErrorMessage('');
+            } catch (e) {
+              console.error('Failed to delete cache entry:', e);
+              Alert.alert('Error', 'Failed to delete cache entry. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // Render cache entry row
   const renderCacheEntry = ({ item }: { item: CacheEntry }) => (
     <View style={styles.entryRow}>
@@ -1775,6 +1868,13 @@ export default function CacheManagement2() {
           activeOpacity={0.7}
         >
           <Text style={styles.viewRawButtonText}>View Raw</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.deleteEntryButton}
+          onPress={() => handleDeleteCacheEntry(item)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.deleteEntryButtonText}>Delete</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -2496,6 +2596,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: colors.text_secondary,
+  },
+  deleteEntryButton: {
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#dc3545',
+    backgroundColor: '#fff5f5',
+  },
+  deleteEntryButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#dc3545',
   },
   clearAllButton: {
     paddingHorizontal: 10,

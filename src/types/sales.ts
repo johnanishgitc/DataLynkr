@@ -101,13 +101,23 @@ export interface KPIData {
 export interface SalesFilters {
   startDate: string;
   endDate: string;
+  /** Drill-down: customer name */
   customer?: string;
+  /** Drill-down: item name */
   item?: string;
+  /** Drill-down: stock group / category */
   stockGroup?: string;
+  /** Drill-down: ledger group */
   ledgerGroup?: string;
   salesperson?: string;
+  /** Drill-down: country */
   country?: string;
+  /** Drill-down: state / region */
   state?: string;
+  /** Drill-down: period - YYYY-MM, Q1-YYYY..Q4-YYYY, or YYYY (financial year) */
+  month?: string;
+  /** Drill-down: pincode (from map or by-pincode chart) */
+  pincode?: string;
 }
 
 export interface DateRange {
