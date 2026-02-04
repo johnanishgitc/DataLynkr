@@ -3,6 +3,7 @@ import type { LedgerStackParamList } from './types';
 import LedgerMain from '../screens/LedgerMain';
 import LedgerEntries from '../screens/LedgerEntries';
 import VoucherDetails from '../screens/VoucherDetails';
+import VoucherDetailView from '../screens/VoucherDetailView';
 
 const Stack = createNativeStackNavigator<LedgerStackParamList>();
 
@@ -12,6 +13,7 @@ export default function LedgerStack() {
       <Stack.Screen name="LedgerMain" component={LedgerMain} options={{ headerShown: false }} />
       <Stack.Screen name="LedgerEntries" component={LedgerEntries} options={{ headerShown: false }} />
       <Stack.Screen name="VoucherDetails" component={VoucherDetails} options={{ headerShown: false }} />
+      <Stack.Screen name="VoucherDetailView" component={VoucherDetailView} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

@@ -50,12 +50,42 @@ export interface InventoryAllocation {
   DISCOUNT?: unknown;
   AMOUNT?: unknown;
   VALUE?: unknown;
+  BILLEDAMOUNT?: unknown;
+  BILLEDVALUE?: unknown;
+  ACTUALAMOUNT?: unknown;
+  /** Nested sub-allocations (batch/godown wise) */
+  INVENTORYALLOCATIONS?: InventoryAllocation[] | InventoryAllocation | null;
+  /** Batch allocations (Tally/sales API) */
+  BATCHALLOCATIONS?: BatchAllocationRow[] | BatchAllocationRow | null;
+  batchallocation?: BatchAllocationRow[] | BatchAllocationRow | null;
+  /** Godown name for batch/godown allocation */
+  GODOWNNAME?: string | null;
+  GODOWN?: string | null;
+  /** Batch name/number */
+  BATCHNAME?: string | null;
+  BATCH?: string | null;
+  BATCHNO?: string | null;
+}
+
+export interface BatchAllocationRow {
+  BATCHNAME?: string | null;
+  BATCH?: string | null;
+  GODOWNNAME?: string | null;
+  GODOWN?: string | null;
+  ACTUALQTY?: string | number | null;
+  BILLEQTY?: string | number | null;
+  AMOUNT?: unknown;
+  VALUE?: unknown;
+  STOCKITEMNAME?: string | null;
 }
 
 export interface LedgerEntryDetail {
   LEDGERNAME?: string | null;
   DEBITAMT?: unknown;
   CREDITAMT?: unknown;
+  AMOUNT?: unknown;
+  RATE?: unknown;
+  PERCENTAGE?: unknown;
   BILLALLOCATIONS?: BillAllocation[] | BillAllocation | null;
   INVENTORYALLOCATIONS?: InventoryAllocation[] | InventoryAllocation | null;
 }

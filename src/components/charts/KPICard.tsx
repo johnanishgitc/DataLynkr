@@ -1,162 +1,234 @@
 /**
  * KPI Card Component
- * Displays key performance indicator with optional trend chart
- * Matches web dashboard design with colored backgrounds and sparklines
+ * Colored cards with white text, dynamic line/area chart in background
+ * (smooth trend line + filled area), icon bottom-right, optional visibility toggle.
  */
 
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import React, { useMemo, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Animated } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2; // 2 cards per row with padding
+const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
+const CARD_MIN_HEIGHT = 110;
+const CHART_WIDTH = 200;
+const CHART_HEIGHT = 56;
+const CHART_PADDING = 5;
+const BAR_GAP = 2;
 
 interface KPICardProps {
     title: string;
     value: number;
-    target?: number;
+    target?: number | null;
     trendData?: number[];
     format?: (val: number) => string;
     unit?: string;
     iconName?: string;
-    iconBgColor?: string;
-    iconColor?: string;
-    bgColor?: string;
-    textColor?: string;
-    variant?: 'default' | 'accent' | 'coral' | 'teal' | 'purple';
+    variant?: 'blue' | 'green' | 'purple' | 'default';
+    chartType?: 'bar' | 'line';
+    showVisibilityToggle?: boolean;
+    onVisibilityToggle?: () => void;
 }
 
 const VARIANT_COLORS = {
-    default: {
-        bg: '#ffffff',
-        text: '#1e293b',
-        border: '#e2e8f0',
+    blue: {
+        bg: '#1e3a5f',
+        chartFill: 'rgba(255,255,255,0.32)',
+        chartLine: 'rgba(255,255,255,0.55)',
     },
-    accent: {
-        bg: '#0d6464',
-        text: '#ffffff',
-        border: 'transparent',
-    },
-    coral: {
-        bg: '#f97316',
-        text: '#ffffff',
-        border: 'transparent',
-    },
-    teal: {
-        bg: '#0d9488',
-        text: '#ffffff',
-        border: 'transparent',
+    green: {
+        bg: '#0d5c4a',
+        chartFill: 'rgba(255,255,255,0.32)',
+        chartLine: 'rgba(255,255,255,0.55)',
     },
     purple: {
-        bg: '#7c3aed',
-        text: '#ffffff',
-        border: 'transparent',
+        bg: '#4c1d95',
+        chartFill: 'rgba(255,255,255,0.32)',
+        chartLine: 'rgba(255,255,255,0.55)',
+    },
+    default: {
+        bg: '#ffffff',
+        chartFill: 'rgba(0,0,0,0.08)',
+        chartLine: 'rgba(0,0,0,0.2)',
     },
 };
 
 const KPICard: React.FC<KPICardProps> = ({
     title,
     value,
-    target,
     trendData = [],
     format = val => val.toLocaleString(),
     unit = '',
     iconName,
-    iconBgColor = '#dcfce7',
-    iconColor = '#16a34a',
-    bgColor,
-    textColor,
-    variant = 'default',
+    variant = 'blue',
+    chartType = 'line',
+    showVisibilityToggle = false,
+    onVisibilityToggle,
 }) => {
     const colors = VARIANT_COLORS[variant];
-    const cardBg = bgColor || colors.bg;
-    const cardText = textColor || colors.text;
-    const isLightBg = variant === 'default';
+    const isColored = variant !== 'default';
+    const textColor = isColored ? '#ffffff' : '#1e293b';
+    const titleColor = isColored ? 'rgba(255,255,255,0.85)' : '#64748b';
 
     const formattedValue = useMemo(() => format(value), [value, format]);
 
-    // Generate sparkline path data
-    const sparklinePoints = useMemo(() => {
-        if (trendData.length < 2) return null;
+    const valueLength = (formattedValue + unit).length;
+    const valueFontSize = valueLength > 12 ? 15 : valueLength > 8 ? 17 : 19;
 
-        const data = trendData.slice(-12); // Last 12 data points
-        const maxVal = Math.max(...data);
-        const minVal = Math.min(...data);
+    // Bar chart: vertical bars from trendData
+    const barRects = useMemo(() => {
+        if (trendData.length < 1 || chartType !== 'bar') return [];
+        const data = trendData.slice(-12);
+        const maxVal = Math.max(...data, 1);
+        const barAreaWidth = CHART_WIDTH - 2 * CHART_PADDING;
+        const n = data.length;
+        const barWidth = Math.max(2, (barAreaWidth - (n - 1) * BAR_GAP) / n);
+        return data.map((d, i) => {
+            const x = CHART_PADDING + i * (barWidth + BAR_GAP);
+            const barHeight = Math.max(2, (d / maxVal) * (CHART_HEIGHT - 2 * CHART_PADDING));
+            const y = CHART_HEIGHT - CHART_PADDING - barHeight;
+            return { x, y, width: barWidth, height: barHeight };
+        });
+    }, [trendData, chartType]);
+
+    // Line/area chart: points and paths (smooth curve, filled area + visible trend line)
+    const { areaChartPath, linePath } = useMemo(() => {
+        if (trendData.length < 2 || chartType !== 'line') {
+            return { areaChartPath: '', linePath: '' };
+        }
+
+        const minVal = Math.min(...trendData);
+        const maxVal = Math.max(...trendData);
         const range = maxVal - minVal || 1;
-        const width = 80;
-        const height = 40;
-        const stepX = width / (data.length - 1);
 
-        return data.map((d, i) => ({
-            x: i * stepX,
-            y: height - ((d - minVal) / range) * height,
-        }));
-    }, [trendData]);
+        const points = trendData.map((d, i) => {
+            const x =
+                (i / (trendData.length - 1)) * (CHART_WIDTH - 2 * CHART_PADDING) + CHART_PADDING;
+            const y =
+                CHART_HEIGHT -
+                CHART_PADDING -
+                ((d - minVal) / range) * (CHART_HEIGHT - 2 * CHART_PADDING);
+            return { x, y };
+        });
+
+        let lineOnly = `M${points[0].x},${points[0].y}`;
+        for (let i = 0; i < points.length - 1; i++) {
+            const { x: x1, y: y1 } = points[i];
+            const { x: x2, y: y2 } = points[i + 1];
+            const midX = (x1 + x2) / 2;
+            lineOnly += ` Q${x1},${y1} ${midX},${y1}`;
+            lineOnly += ` T${x2},${y2}`;
+        }
+
+        const last = points[points.length - 1];
+        const first = points[0];
+        const areaPath = `${lineOnly} L${last.x},${CHART_HEIGHT} L${first.x},${CHART_HEIGHT} Z`;
+        return { areaChartPath: areaPath, linePath: lineOnly };
+    }, [trendData, chartType]);
+
+    const hasChart = (chartType === 'bar' && barRects.length > 0) || (chartType === 'line' && trendData.length > 1);
+
+    const chartOpacity = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        if (!hasChart) return;
+        chartOpacity.setValue(0);
+        Animated.timing(chartOpacity, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true,
+        }).start();
+    }, [hasChart, trendData.length]);
 
     return (
-        <View style={[
-            styles.container,
-            {
-                backgroundColor: cardBg,
-                borderColor: colors.border,
-            },
-        ]}>
-            {/* Sparkline in background (for cards with trend data) */}
-            {sparklinePoints && sparklinePoints.length > 1 && (
-                <View style={styles.sparklineContainer}>
-                    <View style={styles.sparklineWrapper}>
-                        {sparklinePoints.map((point, index) => {
-                            if (index === 0) return null;
-                            const prev = sparklinePoints[index - 1];
-                            const lineLength = Math.sqrt(
-                                Math.pow(point.x - prev.x, 2) + Math.pow(point.y - prev.y, 2)
-                            );
-                            const angle = Math.atan2(point.y - prev.y, point.x - prev.x) * (180 / Math.PI);
-
-                            return (
-                                <View
-                                    key={index}
-                                    style={[
-                                        styles.sparklineLine,
-                                        {
-                                            width: lineLength,
-                                            left: prev.x,
-                                            top: prev.y,
-                                            transform: [{ rotate: `${angle}deg` }],
-                                            backgroundColor: isLightBg ? 'rgba(13, 100, 100, 0.3)' : 'rgba(255, 255, 255, 0.3)',
-                                        },
-                                    ]}
+        <View
+            style={[
+                styles.container,
+                {
+                    backgroundColor: colors.bg,
+                    borderRadius: 12,
+                    padding: 14,
+                    minHeight: CARD_MIN_HEIGHT,
+                    width: CARD_WIDTH,
+                },
+            ]}
+        >
+            {/* Dynamic line/area chart - lower half, smooth trend line + filled area */}
+            {hasChart && (
+                <Animated.View
+                    style={[styles.chartContainer, { opacity: chartOpacity }]}
+                    pointerEvents="none"
+                >
+                    <Svg
+                        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+                        preserveAspectRatio="none"
+                        style={styles.chartSvg}
+                    >
+                        {chartType === 'bar' &&
+                            barRects.map((r, i) => (
+                                <Rect
+                                    key={i}
+                                    x={r.x}
+                                    y={r.y}
+                                    width={r.width}
+                                    height={r.height}
+                                    rx={2}
+                                    fill={colors.chartFill}
                                 />
-                            );
-                        })}
-                    </View>
+                            ))}
+                        {chartType === 'line' && areaChartPath ? (
+                            <>
+                                <Path d={areaChartPath} fill={colors.chartFill} />
+                                {linePath ? (
+                                    <Path
+                                        d={linePath}
+                                        fill="none"
+                                        stroke={colors.chartLine}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                ) : null}
+                            </>
+                        ) : null}
+                    </Svg>
+                </Animated.View>
+            )}
+
+            {/* Visibility toggle - top right */}
+            {showVisibilityToggle && (
+                <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={onVisibilityToggle}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Toggle visibility"
+                >
+                    <Icon name="visibility" size={18} color="#ffffff" />
+                </TouchableOpacity>
+            )}
+
+            {/* Icon - bottom right, semi-transparent square */}
+            {iconName && (
+                <View style={styles.iconContainer}>
+                    <Icon name={iconName} size={20} color="#ffffff" />
                 </View>
             )}
 
-            {/* Content */}
             <View style={styles.content}>
-                <Text style={[styles.title, { color: isLightBg ? '#64748b' : 'rgba(255,255,255,0.8)' }]}>
+                <Text style={[styles.title, { color: titleColor }]} numberOfLines={1}>
                     {title.toUpperCase()}
                 </Text>
-                <Text style={[styles.value, { color: cardText }]}>
+                <Text
+                    style={[
+                        styles.value,
+                        { color: textColor, fontSize: valueFontSize },
+                    ]}
+                    numberOfLines={2}
+                >
                     {formattedValue}
-                    {unit && <Text style={styles.unit}>{unit}</Text>}
+                    {unit}
                 </Text>
             </View>
-
-            {/* Icon in bottom right */}
-            {iconName && (
-                <View style={[
-                    styles.iconContainer,
-                    { backgroundColor: isLightBg ? iconBgColor : 'rgba(255,255,255,0.2)' },
-                ]}>
-                    <Icon
-                        name={iconName}
-                        size={20}
-                        color={isLightBg ? iconColor : '#ffffff'}
-                    />
-                </View>
-            )}
         </View>
     );
 };
@@ -164,56 +236,38 @@ const KPICard: React.FC<KPICardProps> = ({
 const styles = StyleSheet.create({
     container: {
         position: 'relative',
-        borderRadius: 12,
-        padding: 14,
-        borderWidth: 1,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-        elevation: 3,
-        minHeight: 100,
-        width: CARD_WIDTH,
-        justifyContent: 'space-between',
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        elevation: 4,
         overflow: 'hidden',
     },
-    sparklineContainer: {
+    chartContainer: {
         position: 'absolute',
-        bottom: 10,
-        right: 50,
-        width: 80,
-        height: 40,
-        opacity: 0.6,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: '58%',
+        opacity: 0.9,
     },
-    sparklineWrapper: {
-        position: 'relative',
-        width: 80,
-        height: 40,
-    },
-    sparklineLine: {
-        position: 'absolute',
-        height: 2,
-        borderRadius: 1,
-        transformOrigin: 'left center',
+    chartSvg: {
+        width: '100%',
+        height: '100%',
     },
     content: {
+        position: 'relative',
         zIndex: 1,
-        flex: 1,
     },
     title: {
         fontSize: 10,
         fontWeight: '600',
-        letterSpacing: 0.5,
+        letterSpacing: 0.6,
         marginBottom: 6,
     },
     value: {
-        fontSize: 22,
         fontWeight: '700',
-        lineHeight: 28,
-    },
-    unit: {
-        fontSize: 14,
-        fontWeight: '500',
+        lineHeight: 22,
     },
     iconContainer: {
         position: 'absolute',
@@ -222,6 +276,19 @@ const styles = StyleSheet.create({
         width: 36,
         height: 36,
         borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 2,
+    },
+    eyeButton: {
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: 'rgba(255,255,255,0.2)',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 2,

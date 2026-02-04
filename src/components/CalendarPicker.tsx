@@ -22,6 +22,9 @@ export interface CalendarPickerProps {
   onDone?: () => void;
   /** Hide the Done button (for inline usage). */
   hideDone?: boolean;
+  /** Restrict selectable dates to this range (timestamps). */
+  minDate?: number;
+  maxDate?: number;
 }
 
 function getDaysInMonth(year: number, month: number): number {
@@ -32,12 +35,23 @@ function getFirstDayOffset(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-export function CalendarPicker({ value, onSelect, onDone, hideDone = false }: CalendarPickerProps) {
+function startOfDayMs(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minDate, maxDate }: CalendarPickerProps) {
   const initial = value ?? new Date();
   const [year, setYear] = useState(initial.getFullYear());
   const [month, setMonth] = useState(initial.getMonth());
   const [selected, setSelected] = useState<Date | null>(value ? new Date(value.getFullYear(), value.getMonth(), value.getDate()) : null);
   const [showPicker, setShowPicker] = useState<'year' | 'month' | null>(null);
+
+  const isDateInRange = (y: number, m: number, day: number): boolean => {
+    const ms = new Date(y, m, day).getTime();
+    if (minDate != null && ms < minDate) return false;
+    if (maxDate != null && ms > maxDate) return false;
+    return true;
+  };
 
   const prev = () => {
     if (month === 0) {
@@ -56,50 +70,52 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false }: Ca
   const rows = useMemo(() => {
     const days = getDaysInMonth(year, month);
     const off = getFirstDayOffset(year, month);
-    // Adjust offset: getFirstDayOffset returns 0=Sunday, but we want Monday=0
     const adjustedOff = (off + 6) % 7;
-    
-    const arr: ({ day: number; isCurrentMonth: boolean } | null)[] = [];
-    
-    // Previous month days
+    const prevYear = month === 0 ? year - 1 : year;
+    const prevMonth = month === 0 ? 11 : month - 1;
+    const nextYear = month === 11 ? year + 1 : year;
+    const nextMonth = month === 11 ? 0 : month + 1;
+
+    type Cell = { day: number; isCurrentMonth: boolean; cellYear: number; cellMonth: number };
+    const arr: (Cell | null)[] = [];
+
     if (adjustedOff > 0) {
-      const prevYear = month === 0 ? year - 1 : year;
-      const prevMonth = month === 0 ? 11 : month - 1;
       const prevMonthDays = getDaysInMonth(prevYear, prevMonth);
       const startDay = prevMonthDays - adjustedOff + 1;
       for (let d = startDay; d <= prevMonthDays; d++) {
-        arr.push({ day: d, isCurrentMonth: false });
+        arr.push({ day: d, isCurrentMonth: false, cellYear: prevYear, cellMonth: prevMonth });
       }
     }
-    
-    // Current month days
     for (let d = 1; d <= days; d++) {
-      arr.push({ day: d, isCurrentMonth: true });
+      arr.push({ day: d, isCurrentMonth: true, cellYear: year, cellMonth: month });
     }
-    
-    // Next month days to fill remaining cells
-    const remaining = 42 - arr.length; // 6 rows * 7 days
+    const remaining = 42 - arr.length;
     for (let d = 1; d <= remaining; d++) {
-      arr.push({ day: d, isCurrentMonth: false });
+      arr.push({ day: d, isCurrentMonth: false, cellYear: nextYear, cellMonth: nextMonth });
     }
-    
-    const out: ({ day: number; isCurrentMonth: boolean } | null)[][] = [];
+
+    const out: (Cell | null)[][] = [];
     for (let r = 0; r < 6; r++) {
-      const row: ({ day: number; isCurrentMonth: boolean } | null)[] = [];
+      const row: (Cell | null)[] = [];
       for (let c = 0; c < 7; c++) row.push(arr[r * 7 + c] ?? null);
       out.push(row);
     }
     return out;
   }, [year, month]);
 
-  const handleDay = (day: number) => {
-    const d = new Date(year, month, day);
+  const handleDay = (day: number, cellYear: number, cellMonth: number) => {
+    const d = new Date(cellYear, cellMonth, day);
+    if (minDate != null || maxDate != null) {
+      const ms = startOfDayMs(d);
+      if (minDate != null && ms < minDate) return;
+      if (maxDate != null && ms > maxDate) return;
+    }
     setSelected(d);
     onSelect(d);
   };
 
-  const isSelected = (day: number, isCurrentMonth: boolean) =>
-    isCurrentMonth && selected && selected.getFullYear() === year && selected.getMonth() === month && selected.getDate() === day;
+  const isSelected = (day: number, isCurrentMonth: boolean, cellYear: number, cellMonth: number) =>
+    selected && selected.getFullYear() === cellYear && selected.getMonth() === cellMonth && selected.getDate() === day;
 
   const handleYearSelect = (selectedYear: number) => {
     setYear(selectedYear);
@@ -201,33 +217,35 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false }: Ca
             {row.map((dayInfo, ci) =>
               dayInfo === null ? (
                 <View key={`e-${ri}-${ci}`} style={styles.cell} />
-              ) : (
-                <TouchableOpacity
-                  key={`${year}-${month}-${dayInfo.day}-${dayInfo.isCurrentMonth}`}
-                  style={[
-                    styles.cell,
-                    styles.cellTap,
-                    dayInfo.isCurrentMonth && isSelected(dayInfo.day, dayInfo.isCurrentMonth) && styles.cellSelected,
-                  ]}
-                  onPress={() => {
-                    if (dayInfo.isCurrentMonth) {
-                      handleDay(dayInfo.day);
-                    }
-                  }}
-                  activeOpacity={0.7}
-                  disabled={!dayInfo.isCurrentMonth}
-                >
-                  <Text
+              ) : (() => {
+                const inRange = isDateInRange(dayInfo.cellYear, dayInfo.cellMonth, dayInfo.day);
+                const selected = isSelected(dayInfo.day, dayInfo.isCurrentMonth, dayInfo.cellYear, dayInfo.cellMonth);
+                return (
+                  <TouchableOpacity
+                    key={`${year}-${month}-${dayInfo.cellYear}-${dayInfo.cellMonth}-${dayInfo.day}-${ci}`}
                     style={[
-                      styles.cellTxt,
-                      !dayInfo.isCurrentMonth && styles.cellTxtInactive,
-                      dayInfo.isCurrentMonth && isSelected(dayInfo.day, dayInfo.isCurrentMonth) && styles.cellTxtSelected,
+                      styles.cell,
+                      styles.cellTap,
+                      selected && styles.cellSelected,
+                      !inRange && styles.cellDisabled,
                     ]}
+                    onPress={() => inRange && handleDay(dayInfo.day, dayInfo.cellYear, dayInfo.cellMonth)}
+                    activeOpacity={0.7}
+                    disabled={!inRange}
                   >
-                    {dayInfo.day}
-                  </Text>
-                </TouchableOpacity>
-              )
+                    <Text
+                      style={[
+                        styles.cellTxt,
+                        !dayInfo.isCurrentMonth && styles.cellTxtInactive,
+                        selected && styles.cellTxtSelected,
+                        !inRange && styles.cellTxtDisabled,
+                      ]}
+                    >
+                      {dayInfo.day}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()
             )}
           </View>
         ))}
@@ -302,6 +320,8 @@ const styles = StyleSheet.create({
   cellTxt: { fontSize: 14, fontWeight: '400', color: '#131313' },
   cellTxtInactive: { color: INACTIVE_TEXT },
   cellTxtSelected: { color: colors.white },
+  cellDisabled: { opacity: 0.5 },
+  cellTxtDisabled: { color: INACTIVE_TEXT },
   done: {
     marginTop: 16,
     paddingVertical: 12,

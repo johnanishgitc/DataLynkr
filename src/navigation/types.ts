@@ -8,8 +8,7 @@ export type AuthStackParamList = {
 
 export type HomeStackParamList = {
   Home: undefined;
-  CacheManagement: undefined;
-  CacheManagement2: undefined;
+  DataManagement: undefined;
   SalesDashboard: undefined;
   ComingSoon: { tab_name: string };
 };
@@ -28,6 +27,10 @@ export type LedgerStackParamList = {
     report_name?: string;
     from_date?: number;
     to_date?: number;
+  };
+  VoucherDetailView: {
+    voucher: object;
+    ledger_name?: string;
   };
 };
 

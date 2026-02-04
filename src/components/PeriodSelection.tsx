@@ -17,6 +17,9 @@ export interface PeriodSelectionProps {
   fromDate: number;
   toDate: number;
   onApply: (from: number, to: number) => void;
+  /** Restrict calendar and selection to this range (e.g. available data range). */
+  minDate?: number;
+  maxDate?: number;
 }
 
 function startOfDay(d: Date): number {
@@ -97,7 +100,13 @@ const PRESETS: { id: string; label: string }[] = [
   { id: 'financial-year', label: 'Financial Year' },
 ];
 
-export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }: PeriodSelectionProps) {
+function clampToRange(ms: number, minMs?: number, maxMs?: number): number {
+  if (minMs != null && ms < minMs) return minMs;
+  if (maxMs != null && ms > maxMs) return maxMs;
+  return ms;
+}
+
+export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply, minDate, maxDate }: PeriodSelectionProps) {
   const [from, setFrom] = useState(fromDate);
   const [to, setTo] = useState(toDate);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
@@ -105,31 +114,38 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
 
   useEffect(() => {
     if (visible) {
-      setFrom(fromDate);
-      setTo(toDate);
+      const clampedFrom = clampToRange(fromDate, minDate, maxDate);
+      const clampedTo = clampToRange(toDate, minDate, maxDate);
+      setFrom(clampedFrom);
+      setTo(clampedTo);
       setSelectedPreset(null);
       setPickerWhich(null);
     }
-  }, [visible, fromDate, toDate]);
+  }, [visible, fromDate, toDate, minDate, maxDate]);
 
   const handlePickerSelect = (d: Date) => {
-    const ms = startOfDay(d);
+    let ms = startOfDay(d);
+    ms = clampToRange(ms, minDate, maxDate);
     if (pickerWhich === 'from') {
       setFrom(ms);
       if (ms > to) {
-        setTo(ms);
+        setTo(clampToRange(ms, minDate, maxDate));
       }
     } else if (pickerWhich === 'to') {
       setTo(ms);
       if (ms < from) {
-        setFrom(ms);
+        setFrom(clampToRange(ms, minDate, maxDate));
       }
     }
     setSelectedPreset(null);
   };
 
   const handlePreset = (id: string) => {
-    const { from: f, to: t } = getPresetRange(id);
+    let { from: f, to: t } = getPresetRange(id);
+    if (minDate != null && f < minDate) f = minDate;
+    if (maxDate != null && t > maxDate) t = maxDate;
+    if (minDate != null && t < minDate) t = minDate;
+    if (maxDate != null && f > maxDate) f = maxDate;
     setFrom(f);
     setTo(t);
     setSelectedPreset(id);
@@ -137,7 +153,9 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
   };
 
   const handleApply = () => {
-    onApply(from, to);
+    const clampedFrom = clampToRange(from, minDate, maxDate);
+    const clampedTo = clampToRange(to, minDate, maxDate);
+    onApply(clampedFrom, clampedTo);
     onClose();
   };
 
@@ -204,10 +222,14 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
                       ? new Date(from)
                       : pickerWhich === 'to' && to
                       ? new Date(to)
+                      : minDate != null
+                      ? new Date(minDate)
                       : new Date()
                   }
                   onSelect={handlePickerSelect}
                   hideDone={true}
+                  minDate={minDate}
+                  maxDate={maxDate}
                 />
               </View>
             )}

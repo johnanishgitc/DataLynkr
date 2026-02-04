@@ -10,8 +10,8 @@ export interface StatusBarTopBarProps {
   /** When leftIcon='back', called on back press (e.g. goBack). */
   onLeftPress?: () => void;
   onRightIconsPress?: () => void;
-  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book screens) */
-  rightIcons?: 'default' | 'share-bell';
+  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'kebab' = single kebab in white circle (Voucher Details) */
+  rightIcons?: 'default' | 'share-bell' | 'kebab';
   /** 'menu' = hamburger (default), 'back' = back arrow for sub-screens (LedgerBook2). */
   leftIcon?: 'menu' | 'back';
   /** LedgerBook2 Figma: bar paddingVertical 3px (py-[3px]). */
@@ -33,6 +33,7 @@ export function StatusBarTopBar({
 }: StatusBarTopBarProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const isShareBell = rightIcons === 'share-bell';
+  const isKebab = rightIcons === 'kebab';
   const isBack = leftIcon === 'back';
 
   return (
@@ -55,11 +56,13 @@ export function StatusBarTopBar({
         </View>
         <TouchableOpacity
           onPress={onRightIconsPress}
-          style={styles.right}
+          style={[styles.right, isKebab && styles.rightKebabCircle]}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          accessibilityLabel={isShareBell ? 'Share' : 'Options'}
+          accessibilityLabel={isKebab ? 'More options' : isShareBell ? 'Share' : 'Options'}
         >
-          {isShareBell ? (
+          {isKebab ? (
+            <Icon name="dots-horizontal" size={16} color="#0E172B" />
+          ) : isShareBell ? (
             <>
               <Icon name="share-variant" size={22} color={colors.white} style={styles.rightIcon} />
               <Icon name="bell" size={22} color={colors.white} />
@@ -112,5 +115,13 @@ const styles = StyleSheet.create({
   },
   rightIcon: {
     marginRight: 12,
+  },
+  rightKebabCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

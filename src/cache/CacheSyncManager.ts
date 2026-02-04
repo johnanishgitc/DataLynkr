@@ -720,80 +720,40 @@ export async function downloadCompleteSales(
 
           // Execute batch in parallel (or sequentially if in background)
           const batchPromises = batchIndices.map(async (chunkIdx) => {
-            // Retry logic for each chunk
-            let cData: unknown = null;
-            let retryCount = 0;
-            const maxRetries = 8; // Increased retries for background resilience
+            // Retry: same chunk, same payload — up to 3 retries (4 attempts total) before stopping
+            const maxRetries = 3;
             const baseRetryDelay = 3000;
+            const payload = {
+              tallyloc_id: tallylocId,
+              company,
+              guid,
+              fromdate: chunks[chunkIdx].start,
+              todate: chunks[chunkIdx].end,
+              serverslice: 'No',
+              vouchertype: VOUCHERTYPE,
+            } as Parameters<typeof apiService.getSalesExtract>[0];
 
-            while (retryCount < maxRetries) {
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
               try {
                 const appState = AppState.currentState;
                 const isInBackground = appState === 'background' || appState === 'inactive';
-                
-                // When in background, wait before making request to ensure app state is stable
-                if (isInBackground) {
-                  // Wait longer before retrying in background to let system stabilize
-                  const waitTime = retryCount > 0 
-                    ? baseRetryDelay * Math.pow(2, retryCount) + 5000 // Longer delay in background
-                    : 2000; // Initial wait when entering background
-                  console.log(`[DOWNLOAD] App in background, waiting ${waitTime}ms before request (retry ${retryCount + 1}/${maxRetries})`);
-                  await new Promise(r => setTimeout(r, waitTime));
-                } else if (retryCount > 0) {
-                  // Normal retry delay when in foreground
-                  const delay = baseRetryDelay * Math.pow(2, retryCount);
+                if (attempt > 0) {
+                  const delay = isInBackground
+                    ? baseRetryDelay * Math.pow(2, attempt) + 5000
+                    : baseRetryDelay * Math.pow(2, attempt);
+                  console.log(`[DOWNLOAD] Chunk ${chunkIdx + 1} retry ${attempt}/${maxRetries} in ${delay}ms`);
                   await new Promise(r => setTimeout(r, delay));
                 }
-
-                // Check cancel in loop
                 const ctrl = getDownloadControl(guid, tallylocId);
                 if (ctrl.isCancelled) throw new Error('Download cancelled');
-
-                // Make the API request
-                const result = await apiService.getSalesExtract(
-                  {
-                    tallyloc_id: tallylocId,
-                    company,
-                    guid,
-                    fromdate: chunks[chunkIdx].start,
-                    todate: chunks[chunkIdx].end,
-                    serverslice: 'No',
-                    vouchertype: VOUCHERTYPE,
-                  } as Parameters<typeof apiService.getSalesExtract>[0],
-                  Date.now()
-                );
-                cData = result.data;
-                return { chunkIdx, data: cData };
+                const result = await apiService.getSalesExtract(payload, Date.now());
+                return { chunkIdx, data: result.data };
               } catch (retryError) {
-                retryCount++;
-                const err = retryError as { message?: string; code?: string; response?: { status?: string | number }; isNetworkError?: boolean };
-                const isNetwork = err?.isNetworkError === true || 
-                                 err?.code === 'NETWORK_ERROR' || 
-                                 err?.code === 'ERR_NETWORK' ||
-                                 err?.code === 'ECONNABORTED' ||
-                                 err?.message?.includes('Network') ||
-                                 err?.message?.includes('timeout') ||
-                                 !err?.response; // No response usually means network error
-
-                if (retryCount < maxRetries && isNetwork) {
-                  const appState = AppState.currentState;
-                  const isInBackground = appState === 'background' || appState === 'inactive';
-                  
-                  // Longer delay for network errors, especially in background
-                  const delay = isInBackground 
-                    ? baseRetryDelay * Math.pow(2, retryCount) + 8000 // Much longer in background
-                    : baseRetryDelay * Math.pow(2, retryCount);
-                  
-                  console.log(`[DOWNLOAD] Network error on chunk ${chunkIdx + 1}, retrying in ${delay}ms (${retryCount}/${maxRetries}, background: ${isInBackground})`);
-                  await new Promise(r => setTimeout(r, delay));
-                  continue;
-                } else if (retryCount >= maxRetries) {
-                  console.error(`[DOWNLOAD] Max retries exceeded for chunk ${chunkIdx + 1}`);
-                  throw retryError;
-                } else {
-                  // Non-network error, throw immediately
+                if (attempt === maxRetries) {
+                  console.error(`[DOWNLOAD] Chunk ${chunkIdx + 1} failed after ${maxRetries + 1} attempts`);
                   throw retryError;
                 }
+                console.warn(`[DOWNLOAD] Chunk ${chunkIdx + 1} attempt ${attempt + 1} failed:`, (retryError as Error)?.message ?? retryError);
               }
             }
             return { chunkIdx, data: null, error: 'Max retries exceeded' };
