@@ -13,6 +13,7 @@ import type {
   UserConnectionsResponse,
   VoucherDataRequest,
   VoucherDataResponse,
+  VoucherViewRequest,
   SalesExtractRequest,
   SalesExtractResponse,
   VoucherSyncRequest,
@@ -22,6 +23,12 @@ import type {
   StockItemRequest,
   StockItemResponse,
   ExternalUserCacheEnabledResponse,
+  SalesOrderOutstandingRequest,
+  SalesOrderOutstandingResponse,
+  GodownStockRequest,
+  GodownStockResponse,
+  CompanyStockRequest,
+  CompanyStockResponse,
 } from './models';
 
 const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
@@ -165,11 +172,19 @@ export const apiService = {
   getLedgerReport: (body: LedgerReportRequest) =>
     getApi().post<LedgerReportResponse>('api/tally/led_statbillrep', body),
 
+  /** Sales Order Ledger Outstandings (orders outstanding) */
+  getSalesOrderOutstanding: (body: SalesOrderOutstandingRequest) =>
+    getApi().post<SalesOrderOutstandingResponse>('api/tally/orders/ordersoutstanding', body),
+
   getUserConnections: () =>
     getApi().get<UserConnectionsResponse>('api/tally/user-connections'),
 
   getVoucherData: (body: VoucherDataRequest) =>
     getApi().post<VoucherDataResponse>('api/tally/voucherdata/getvoucherdata', body),
+
+  /** Voucher view – returns HTML string. */
+  getVoucherView: (body: VoucherViewRequest) =>
+    getApi().post<string>('api/tally/vchauth/voucherview', body, { responseType: 'text' }),
 
   getSalesExtract: (body: SalesExtractRequest, ts?: number) =>
     getDownloadApi().post<SalesExtractResponse>('api/reports/salesextract', body, {
@@ -195,6 +210,14 @@ export const apiService = {
     getApi().get<ExternalUserCacheEnabledResponse>('api/tally/external-user-cache-enabled', {
       params: { email, ...(ts != null && { ts }) },
     }),
+
+  /** Godown-wise stock breakdown for an item */
+  getGodownStock: (body: GodownStockRequest) =>
+    getApi().post<GodownStockResponse>('api/tally/godownStock', body),
+
+  /** Company-wise stock breakdown for an item */
+  getCompanyStock: (body: CompanyStockRequest) =>
+    getApi().post<CompanyStockResponse>('api/tally/companystock', body),
 };
 
 export default apiService;

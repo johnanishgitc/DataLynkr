@@ -1,5 +1,6 @@
 /**
- * Voucher Details - Figma BWOBillDetails (node 3045-55749) - EXACT implementation
+ * Voucher Details - Figma Bill Details (node 3062-22885) - EXACT implementation
+ * Header: Bill Details, back, share, notification. Info: Ledger, Ref No (Due On). Transaction list.
  */
 import React, { useEffect } from 'react';
 import {
@@ -12,28 +13,23 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { LedgerStackParamList } from '../navigation/types';
 import type { VoucherEntry } from '../api/models/ledger';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
+import { toNum, fmtNum } from '../components/VoucherDetailsContent';
+
+/** Figma 3062-22885 variables */
+const FIGMA = {
+  primaryFontColor: '#0e172b',
+  tableTitleColor: '#6a7282',
+  cardStrokeColor: '#c5d4ff',
+  liteBlueColor: '#e6ecfd',
+  tableGrayColor: '#d3d3d3',
+} as const;
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetails'>;
-
-function toNum(x: unknown): number {
-  if (x == null) return 0;
-  if (typeof x === 'number' && !isNaN(x)) return x;
-  const n = parseFloat(String(x));
-  return isNaN(n) ? 0 : n;
-}
-
-function fmtNum(n: number): string {
-  return n.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 export default function VoucherDetails() {
   const route = useRoute<Route>();
@@ -49,7 +45,6 @@ export default function VoucherDetails() {
     '—';
   const billRef = (v.REFNO ?? v.BILLNAME ?? '—') as string;
   const dueOn = (v.DUEON ?? '') as string;
-  const refNoDisplay = dueOn ? `${billRef} (Due On: ${dueOn})` : String(billRef);
 
   const vouchers = (v.VOUCHERS ?? []) as VoucherEntry[];
   const listItems =
@@ -64,7 +59,7 @@ export default function VoucherDetails() {
 
   return (
     <View style={[styles.root, { paddingBottom: insets.bottom + 56 }]}>
-      {/* Figma BWOBillDetails: Header - Bill Details, back, share, notification */}
+      {/* Figma 3062-22885: Header - Bill Details, back, share, notification (dark blue) */}
       <StatusBarTopBar
         title="Bill Details"
         leftIcon="back"
@@ -74,7 +69,7 @@ export default function VoucherDetails() {
         compact
       />
 
-      {/* Figma: Info section bg #e6ecfd - Ledger, Ref No */}
+      {/* Figma: Bill info section - Lite Blue bg, Ledger + Ref No (Due On) */}
       <View style={styles.infoSection}>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Ledger: </Text>
@@ -82,11 +77,17 @@ export default function VoucherDetails() {
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Ref No: </Text>
-          <Text style={styles.infoValue}>{refNoDisplay}</Text>
+          <Text style={styles.infoValue}>{billRef}</Text>
+          {dueOn ? (
+            <Text style={styles.infoLabel}> (Due On: {dueOn})</Text>
+          ) : null}
         </View>
       </View>
 
-      {/* Figma: Voucher list - Date | VoucherType #ref, Amount Dr/Cr */}
+      {/* Figma: Thin separator below info */}
+      <View style={styles.infoSeparator} />
+
+      {/* Figma: Transaction list - Date | Description | Amount Dr/Cr, white bg */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -126,7 +127,6 @@ export default function VoucherDetails() {
         })}
       </ScrollView>
 
-      {/* Figma: empty footer gap */}
       <View style={styles.footerGap} />
     </View>
   );
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   infoSection: {
-    backgroundColor: '#e6ecfd',
+    backgroundColor: FIGMA.liteBlueColor,
     paddingHorizontal: 16,
     paddingVertical: 8,
     gap: 4,
@@ -146,19 +146,22 @@ const styles = StyleSheet.create({
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff1a',
     paddingVertical: 4,
-    paddingHorizontal: 2,
+    paddingHorizontal: 0,
   },
   infoLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#0e172b',
+    fontWeight: '400',
+    color: FIGMA.tableTitleColor,
   },
   infoValue: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#6a7282',
+    fontWeight: '700',
+    color: FIGMA.primaryFontColor,
+  },
+  infoSeparator: {
+    height: 1,
+    backgroundColor: FIGMA.tableGrayColor,
   },
   scroll: { flex: 1 },
   scrollContent: {
@@ -168,7 +171,7 @@ const styles = StyleSheet.create({
   },
   voucherRow: {
     borderBottomWidth: 1,
-    borderBottomColor: '#c4d4ff',
+    borderBottomColor: FIGMA.cardStrokeColor,
     paddingVertical: 6,
   },
   voucherRowInner: {
@@ -186,22 +189,22 @@ const styles = StyleSheet.create({
   voucherRowDate: {
     fontSize: 13,
     fontWeight: '400',
-    color: '#0e172b',
+    color: FIGMA.primaryFontColor,
     paddingRight: 10,
     marginRight: 10,
     borderRightWidth: 1,
-    borderRightColor: '#d3d3d3',
+    borderRightColor: FIGMA.tableGrayColor,
   },
   voucherRowType: {
     fontSize: 13,
     fontWeight: '400',
-    color: '#0e172b',
+    color: FIGMA.primaryFontColor,
     flex: 1,
   },
   voucherRowAmt: {
     fontSize: 13,
     fontWeight: '400',
-    color: '#0e172b',
+    color: FIGMA.primaryFontColor,
   },
   footerGap: {
     height: 10,

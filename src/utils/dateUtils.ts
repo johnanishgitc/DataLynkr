@@ -14,3 +14,15 @@ export function formatDate(ms: number): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${day}/${m}/${y}`;
 }
+
+/**
+ * Convert ms to DD-MM-YY string (e.g. 01-01-24).
+ * Used for Sales Order Outstanding API which expects this exact format.
+ */
+export function toDdMmYy(ms: number): string {
+  const d = new Date(ms);
+  const yy = String(d.getFullYear()).slice(-2);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${day}-${m}-${yy}`;
+}

@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
-import { cacheManager } from '../cache';
-import { apiService } from '../api';
-import type { LedgerListResponse } from '../api';
+import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { CustNamesDropdown, StatusBarTopBar } from '../components';
 import { colors } from '../constants/colors';
 
@@ -46,30 +44,10 @@ export default function LedgerMain() {
     }
     setLoading(true);
     try {
-      const { data } = await apiService.getLedgerList({
-        tallyloc_id: t,
-        company: c,
-        guid: g,
-      });
-      const res = data as LedgerListResponse;
-      if (res?.error) {
-        throw new Error(res.error);
-      }
-      // API returns { ledgers: [...] }; fallback to { data: [...] }
-      const list = res?.ledgers ?? res?.data ?? [];
-      setLedgerNames(list.map((i) => (i.NAME ?? '').trim()).filter(Boolean));
-    } catch (e: unknown) {
-      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Network error';
-      try {
-        const key = `ledgerlist-w-addrs_${t}_${c}`;
-        const cached = await cacheManager.readCache<LedgerListResponse>(key);
-        const raw = (cached as LedgerListResponse | null)?.ledgers ?? (cached as LedgerListResponse | null)?.data ?? (Array.isArray(cached) ? cached : []);
-        const list = Array.isArray(raw) ? raw : [];
-        setLedgerNames((list as { NAME?: string | null }[]).map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
-      } catch {
-        Alert.alert('', msg);
-        setLedgerNames([]);
-      }
+      const names = await getLedgerListNamesFromDataManagementCache();
+      setLedgerNames(names);
+    } catch {
+      setLedgerNames([]);
     } finally {
       setLoading(false);
     }
