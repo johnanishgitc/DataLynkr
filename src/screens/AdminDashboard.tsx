@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -14,11 +15,11 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/types';
 import type { UserConnection } from '../api';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import Logo from '../components/Logo';
 import { apiService } from '../api';
 import { useAuth } from '../store';
 import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
 import { strings, connections_available } from '../constants/strings';
+import { colors } from '../constants/colors';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'AdminDashboard'>;
 
@@ -154,17 +155,11 @@ export default function AdminDashboard() {
     );
   };
 
-  const ListFooter = () => (
-    <TouchableOpacity style={styles.logoutBtn} onPress={doLogout} activeOpacity={0.8}>
-      <Text style={styles.logoutBtnText}>{strings.logout}</Text>
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.root}>
+      <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
       <View style={[styles.header, { paddingTop: insets.top || 12 }]}>
         <View style={styles.headerLeft}>
-          <Logo width={28} height={18} style={styles.headerLogo} />
           <Text style={styles.title}>{strings.select_connection}</Text>
         </View>
         <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12}>
@@ -178,26 +173,29 @@ export default function AdminDashboard() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
+        <View style={styles.contentArea}>
           <ActivityIndicator size="large" color="#1e488f" />
         </View>
       ) : all.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <View style={styles.centered}>
-            <Text style={styles.empty}>{strings.no_connections_found}</Text>
-          </View>
-          <ListFooter />
+        <View style={styles.contentArea}>
+          <Text style={styles.empty}>{strings.no_connections_found}</Text>
         </View>
       ) : (
         <FlatList
           data={all}
           keyExtractor={(i) => String(i.tallyloc_id ?? '') + (i.company ?? '')}
           renderItem={renderItem}
-          ListFooterComponent={ListFooter}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: 80 }]}
           showsVerticalScrollIndicator={false}
+          style={styles.listContainer}
         />
       )}
+
+      <View style={[styles.logoutFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <TouchableOpacity style={styles.logoutBtn} onPress={doLogout} activeOpacity={0.8}>
+          <Text style={styles.logoutBtnText}>{strings.logout}</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -219,9 +217,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-  },
-  headerLogo: {
-    marginRight: 8,
   },
   title: {
     fontSize: 17,
@@ -251,10 +246,24 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#495565',
   },
+  contentArea: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listContainer: {
+    flex: 1,
+  },
   list: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 24,
+  },
+  logoutFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e6ecfd',
   },
   card: {
     backgroundColor: '#ffffff',
@@ -353,7 +362,6 @@ const styles = StyleSheet.create({
     color: '#354152',
   },
   logoutBtn: {
-    marginTop: 16,
     paddingVertical: 10,
     backgroundColor: '#ffffff',
     borderRadius: 4,
@@ -364,15 +372,6 @@ const styles = StyleSheet.create({
   logoutBtnText: {
     fontSize: 16,
     color: '#1e488f',
-  },
-  emptyWrap: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   empty: {
     color: '#697282',

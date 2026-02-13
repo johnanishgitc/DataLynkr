@@ -25,28 +25,35 @@ export default function FooterTabBar({
     0
   );
 
-  // Scroll-based collapse animation
-  const { scrollDirection } = useScroll();
+  // Scroll-based collapse: use shared value from VoucherDetailView when set, else own animation
+  const { scrollDirection, footerCollapseValue } = useScroll();
   const translateY = useRef(new Animated.Value(0)).current;
   const footerHeight = 100; // Height to hide footer completely (including safe area)
 
   useEffect(() => {
+    if (footerCollapseValue != null) return; // Driven by shared value, don't run local animation
     if (scrollDirection === 'down') {
-      // Scrolling down - hide footer
       Animated.timing(translateY, {
         toValue: footerHeight,
         duration: 300,
         useNativeDriver: true,
       }).start();
     } else if (scrollDirection === 'up' || scrollDirection === null) {
-      // Scrolling up or no scroll - show footer
       Animated.timing(translateY, {
         toValue: 0,
         duration: 300,
         useNativeDriver: true,
       }).start();
     }
-  }, [scrollDirection, translateY, footerHeight]);
+  }, [scrollDirection, footerCollapseValue, translateY, footerHeight]);
+
+  const tabBarTranslateY =
+    footerCollapseValue != null
+      ? footerCollapseValue.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, footerHeight],
+        })
+      : translateY;
 
   // Tab width and padding mapping from Figma
   const getTabStyle = (routeName: string) => {
@@ -79,7 +86,7 @@ export default function FooterTabBar({
         styles.container,
         {
           paddingBottom,
-          transform: [{ translateY }],
+          transform: [{ translateY: tabBarTranslateY }],
         },
       ]}
     >
@@ -219,6 +226,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: Platform.select({ ios: 'Roboto', android: 'Roboto' }),
     letterSpacing: 0, // tracking-[0]
-    marginTop: 10, // gap-2.5 = 2.5 * 4 = 10px (gap between icon and label)
+    marginTop: 2, // reduced gap between icon and label
+    paddingBottom: 8,
   },
 });

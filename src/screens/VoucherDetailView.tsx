@@ -1,16 +1,23 @@
 /**
- * Voucher Detail View - Figma VoucDetBWR (Receipt) / VoucDetBWS (Sales)
- * Receipt -> Accounting Entries + More Details
- * Sales -> Inventory Allocations + Item Total + Ledger Details + Grand Total
+ * Voucher Detail View - Figma 3045-58170 (Datalynkr Mobile)
+ * Layout: Header | Customer bar | Voucher summary | Inventory Allocations (n) | ITEM TOTAL | LEDGER DETAILS | Grand Total
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  TouchableOpacity,
+  Share,
+  useWindowDimensions,
+  Animated,
+  Easing,
 } from 'react-native';
+import WebView from 'react-native-webview';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,558 +28,768 @@ import type {
   LedgerEntryDetail,
   InventoryAllocation,
   BatchAllocationRow,
+  BillAllocation,
 } from '../api/models/ledger';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
+import {
+  toNum,
+  fmtNum,
+  getInventoryAmount,
+  getLedgerEntryAmount,
+  getBankDetailsFromEntry,
+  ledgerEntriesToDisplayRows,
+  VoucherCustomerBar,
+  VoucherSummaryCard,
+  ExpandableInventoryRow,
+  VoucherDetailsFooter,
+} from '../components/VoucherDetailsContent';
+import type { BankDetailRow } from '../components/VoucherDetailsContent';
+import { getTallylocId, getCompany, getGuid } from '../store/storage';
+import apiService from '../api/client';
+import { strings } from '../constants/strings';
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetailView'>;
-
-function toNum(x: unknown): number {
-  if (x == null) return 0;
-  if (typeof x === 'number' && !isNaN(x)) return x;
-  const n = parseFloat(String(x));
-  return isNaN(n) ? 0 : n;
-}
-
-function fmtNum(n: number): string {
-  return n.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function amt(x: unknown): string {
-  if (x == null) return '—';
-  if (typeof x === 'number') return String(x);
-  return String(x);
-}
-
-function parseQtyOrRate(val: unknown): number {
-  if (val == null) return 0;
-  const s = String(val).replace(/,/g, '').trim();
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
-}
-
-function getInventoryAmount(item: InventoryAllocation): number {
-  const raw = item as Record<string, unknown>;
-  const tried = [
-    item.AMOUNT,
-    item.VALUE,
-    item.BILLEDAMOUNT,
-    item.BILLEDVALUE,
-    item.ACTUALAMOUNT,
-    raw.amount,
-    raw.value,
-    raw.billedamount,
-    raw.billedvalue,
-    raw.actualamount,
-  ];
-  const qtyNum = parseQtyOrRate(item.ACTUALQTY ?? item.BILLEQTY);
-  const rateNum = parseQtyOrRate(item.RATE);
-  const discNum = toNum(item.DISCOUNT);
-  const calculated = qtyNum > 0 && rateNum > 0
-    ? Math.round((qtyNum * rateNum - discNum) * 100) / 100
-    : 0;
-  for (const x of tried) {
-    const n = toNum(x);
-    if (n > 0) {
-      if (calculated > 0 && rateNum > 0 && n < rateNum) {
-        return calculated;
-      }
-      return n;
-    }
-  }
-  return calculated;
-}
-
-function getLedgerEntryAmount(e: LedgerEntryDetail): { amount: number; isDebit: boolean } {
-  const raw = e as Record<string, unknown>;
-  const amtKeys = ['AMOUNT', 'amount', 'ENTRYAMOUNT', 'LEDGERAMOUNT', 'BILLEDAMOUNT', 'ACTUALAMOUNT', 'entryamount', 'ledgeramount', 'billedamount'];
-  for (const k of amtKeys) {
-    const n = toNum(raw[k]);
-    if (n > 0) return { amount: n, isDebit: true };
-  }
-  const accalloc = raw.ACCALLOC ?? raw.accalloc;
-  const accArr = Array.isArray(accalloc) ? accalloc : (accalloc && typeof accalloc === 'object' ? [accalloc] : []);
-  for (const a of accArr) {
-    const r = a as Record<string, unknown>;
-    const n = toNum(r.AMOUNT ?? r.amount);
-    if (n > 0) return { amount: n, isDebit: true };
-  }
-  const debKeys = ['DEBITAMT', 'debitamt', 'DEBIT', 'debit'];
-  const crKeys = ['CREDITAMT', 'creditamt', 'CREDIT', 'credit'];
-  const looksLikePercentage = (n: number) => n >= 1 && n <= 28 && n === Math.floor(n);
-  for (const k of debKeys) {
-    const n = toNum(raw[k]);
-    if (n > 0 && !looksLikePercentage(n)) return { amount: n, isDebit: true };
-  }
-  for (const k of crKeys) {
-    const n = toNum(raw[k]);
-    if (n > 0 && !looksLikePercentage(n)) return { amount: n, isDebit: false };
-  }
-  const amt = toNum(raw.AMOUNT ?? raw.amount ?? e.AMOUNT);
-  if (amt > 0) return { amount: amt, isDebit: true };
-  return { amount: 0, isDebit: false };
-}
-
-function isSalesVoucher(vchType: string, _hasInventory: boolean): boolean {
-  const t = (vchType || '').toLowerCase().trim();
-  return (
-    t.includes('sales') ||
-    t.startsWith('sale') ||
-    t === 'sales invoice' ||
-    t === 'sales new'
-  );
-}
-
-// Normalize nested allocations from various API field names
-function getChildAllocations(item: InventoryAllocation): InventoryAllocation[] {
-  const nested = normalizeToArray<InventoryAllocation>(item.INVENTORYALLOCATIONS);
-  if (nested.length > 0) return nested;
-  const batch = normalizeToArray<BatchAllocationRow>(item.BATCHALLOCATIONS ?? item.batchallocation);
-  return batch.map((b) => {
-    const raw = b as Record<string, unknown>;
-    return {
-      STOCKITEMNAME: (b.STOCKITEMNAME ?? raw.stockitemname ?? item.STOCKITEMNAME) as string,
-      ACTUALQTY: b.ACTUALQTY ?? b.BILLEQTY ?? raw.quantity,
-      BILLEQTY: b.BILLEQTY ?? b.ACTUALQTY ?? raw.quantity,
-      AMOUNT: b.AMOUNT ?? b.VALUE ?? raw.amount,
-      VALUE: b.VALUE ?? b.AMOUNT ?? raw.amount,
-      GODOWNNAME: (b.GODOWNNAME ?? b.GODOWN ?? raw.godownname ?? raw.godown) as string,
-      GODOWN: (b.GODOWN ?? b.GODOWNNAME ?? raw.godown ?? raw.godownname) as string,
-      BATCHNAME: (b.BATCHNAME ?? b.BATCH ?? raw.batchname ?? raw.batch) as string,
-      BATCH: (b.BATCH ?? b.BATCHNAME ?? raw.batch ?? raw.batchname) as string,
-      BATCHNO: (b.BATCH ?? b.BATCHNAME ?? raw.batchno ?? raw.batch ?? raw.batchname) as string,
-    } as InventoryAllocation;
-  });
-}
-
-// Inventory row (VoucDetBWS) - expandable; parent: Qty|Rate|Discount, children: Qty|Godown|Batch#
-function ExpandableInventoryRow({
-  item,
-  altBg,
-  index,
-}: {
-  item: InventoryAllocation;
-  altBg?: boolean;
-  index: number;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const children = getChildAllocations(item);
-  const hasChildren = children.length > 0;
-  const name = item.STOCKITEMNAME ?? '—';
-  const amount = getInventoryAmount(item);
-  const qty = item.ACTUALQTY ?? item.BILLEQTY ?? '—';
-  const rate = item.RATE != null ? amt(item.RATE) : '—';
-  const discount = item.DISCOUNT != null ? amt(item.DISCOUNT) : '0';
-
-  const parentContent = (
-    <View style={[styles.invRow, altBg && styles.invRowAltBg]}>
-      <View style={styles.invRowHead}>
-        <Text style={styles.invRowName} numberOfLines={1}>{name}</Text>
-        <Text style={styles.invRowAmt}>₹{fmtNum(amount)}</Text>
-      </View>
-      <View style={styles.invRowMeta}>
-        <View style={styles.invRowMetaItem}>
-          <Text style={styles.invRowMetaLabel}>Qty</Text>
-          <Text style={styles.invRowMetaLabel}>:</Text>
-          <Text style={styles.invRowMetaValQtyRate}>{String(qty)}</Text>
-        </View>
-        <View style={styles.invRowMetaItem}>
-          <Text style={styles.invRowMetaLabel}>Rate</Text>
-          <Text style={styles.invRowMetaLabel}>:</Text>
-          <Text style={styles.invRowMetaValQtyRate}>{rate}</Text>
-        </View>
-        <View style={styles.invRowMetaItem}>
-          <Text style={styles.invRowMetaLabel}>Discount</Text>
-          <Text style={styles.invRowMetaLabel}>:</Text>
-          <Text style={styles.invRowMetaValDiscount}>{discount}</Text>
-        </View>
-      </View>
-    </View>
-  );
-
-  const childRow = (child: InventoryAllocation, childIdx: number) => {
-    const cName = child.STOCKITEMNAME ?? '—';
-    const cAmt = getInventoryAmount(child);
-    const cQty = child.ACTUALQTY ?? child.BILLEQTY ?? '—';
-    const godown = (child.GODOWNNAME ?? child.GODOWN ?? '—') as string;
-    const batch = (child.BATCHNAME ?? child.BATCH ?? child.BATCHNO ?? '—') as string;
-    return (
-      <View key={childIdx} style={[styles.invChildRow, childIdx % 2 === 1 && styles.invChildRowAlt]}>
-        <View style={styles.invRowHead}>
-          <Text style={styles.invRowName} numberOfLines={1}>{cName}</Text>
-          <Text style={styles.invRowAmt}>₹{fmtNum(cAmt)}</Text>
-        </View>
-        <View style={styles.invRowMeta}>
-          <View style={styles.invRowMetaItem}>
-            <Text style={styles.invRowMetaLabel}>Qty</Text>
-            <Text style={styles.invRowMetaLabel}>:</Text>
-            <Text style={styles.invRowMetaValQtyRate}>{String(cQty)}</Text>
-          </View>
-          <View style={styles.invRowMetaItem}>
-            <Text style={styles.invRowMetaLabel}>Godown</Text>
-            <Text style={styles.invRowMetaLabel}>:</Text>
-            <Text style={styles.invRowMetaValDiscount}>{godown}</Text>
-          </View>
-          <View style={styles.invRowMetaItem}>
-            <Text style={styles.invRowMetaLabel}>Batch#</Text>
-            <Text style={styles.invRowMetaLabel}>:</Text>
-            <Text style={styles.invRowMetaValDiscount}>{batch}</Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  const renderExpandedContent = (): React.ReactNode[] | null => {
-    if (hasChildren) {
-      return children.map((child, i) => childRow(child, i));
-    }
-    if (item.GODOWNNAME || item.GODOWN || item.BATCHNAME || item.BATCH || item.BATCHNO) {
-      return [childRow({
-        ...item,
-        STOCKITEMNAME: item.STOCKITEMNAME ?? name,
-        GODOWNNAME: item.GODOWNNAME ?? item.GODOWN,
-        GODOWN: item.GODOWN ?? item.GODOWNNAME,
-        BATCHNAME: item.BATCHNAME ?? item.BATCH ?? item.BATCHNO,
-        BATCH: item.BATCH ?? item.BATCHNAME ?? item.BATCHNO,
-        BATCHNO: item.BATCHNO ?? item.BATCH ?? item.BATCHNAME,
-      } as InventoryAllocation, 0)];
-    }
-    return [(
-      <View key="empty" style={styles.invChildRow}>
-        <Text style={styles.invEmptyText}>No batch or godown details</Text>
-      </View>
-    )];
-  };
-
-  return (
-    <View>
-      <TouchableOpacity
-        onPress={() => setExpanded((e) => !e)}
-        activeOpacity={0.8}
-      >
-        {parentContent}
-      </TouchableOpacity>
-      {expanded && (
-        <View style={styles.invChildrenWrap}>
-          {renderExpandedContent()}
-        </View>
-      )}
-    </View>
-  );
-}
-
-function getLedgerEntryPercentage(e: LedgerEntryDetail): string {
-  const raw = e as Record<string, unknown>;
-  const keys = ['RATE', 'rate', 'PERCENTAGE', 'percentage', 'PERCENT', 'percent'];
-  for (const k of keys) {
-    const x = raw[k];
-    if (x == null) continue;
-    const n = toNum(x);
-    if (!isNaN(n) && n >= 0) return `${n}%`;
-  }
-  return '0%';
-}
-
-// Ledger Details expandable - Figma: Label | Percentage | Amount
-// - Do NOT show rows where amount is 0
-// - Do NOT show rows where LEDGERNAME matches voucher PARTICULARS
-function LedgerDetailsExpandable({
-  entries,
-  particulars,
-}: {
-  entries: LedgerEntryDetail[];
-  particulars?: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const normParticulars = (particulars ?? '').toString().trim().toLowerCase();
-
-  const visibleEntries = entries.filter((e) => {
-    const { amount: amountVal } = getLedgerEntryAmount(e);
-    if (amountVal <= 0) return false;
-    const ledgername = (e.LEDGERNAME ?? (e as Record<string, unknown>).ledgername ?? '') as string;
-    const normLedger = ledgername.toString().trim().toLowerCase();
-    if (normParticulars && normLedger === normParticulars) return false;
-    return true;
-  });
-
-  return (
-    <View style={styles.ledgerDetailsWrap}>
-      <TouchableOpacity
-        style={[styles.ledgerDetailsBar, !expanded && styles.ledgerDetailsBarBorder]}
-        onPress={() => setExpanded((e) => !e)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.ledgerDetailsTitle}>LEDGER DETAILS</Text>
-        <Icon
-          name="chevron-down"
-          size={20}
-          color={colors.white}
-          style={expanded ? { transform: [{ rotate: '180deg' }] } : { transform: [{ rotate: '-90deg' }] }}
-        />
-      </TouchableOpacity>
-      {expanded && (
-        <View style={styles.ledgerDetailsExpand}>
-          {visibleEntries.map((e, i) => {
-            const { amount: amountVal } = getLedgerEntryAmount(e);
-            const ledgername = (e.LEDGERNAME ?? (e as Record<string, unknown>).ledgername ?? '—') as string;
-            const pct = getLedgerEntryPercentage(e);
-            const amountDisplay = amountVal > 0 ? `₹${fmtNum(amountVal)}` : '—';
-            return (
-              <View key={i} style={styles.ledgerDetailsRow}>
-                <Text style={styles.ledgerDetailsRowLabel} numberOfLines={1}>{ledgername}</Text>
-                <View style={styles.ledgerDetailsRowRight}>
-                  <Text style={styles.ledgerDetailsRowPct}>{pct}</Text>
-                  <Text style={styles.ledgerDetailsRowVal}>{amountDisplay}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      )}
-    </View>
-  );
-}
 
 export default function VoucherDetailView() {
   const route = useRoute<Route>();
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
-  const { setScrollDirection } = useScroll();
-  const v = (route.params?.voucher ?? {}) as Record<string, unknown>;
+  const { setScrollDirection, setFooterCollapseValue } = useScroll();
+  const initialVoucher = (route.params?.voucher ?? {}) as Record<string, unknown>;
   const ledgerName = (route.params?.ledger_name ?? '') as string;
 
+  const [v, setV] = useState<Record<string, unknown>>(initialVoucher);
+  const [loading, setLoading] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [expandedEntryIndex, setExpandedEntryIndex] = useState<number | null>(null);
+  const accExpandAnimRef = useRef<Record<number, Animated.Value>>({});
+  const [htmlModalVisible, setHtmlModalVisible] = useState(false);
+  const [htmlContent, setHtmlContent] = useState('');
+  const [loadingHtml, setLoadingHtml] = useState(false);
+  const fetchDone = useRef(false);
+  const { width: winWidth, height: winHeight } = useWindowDimensions();
+
+  /** Header bar height (compact) ≈ 47 + padding */
+  const headerBarHeight = 47;
+  const dropdownTop = insets.top + headerBarHeight + 4;
+
+  /** Extract voucher id for getVoucherData – ledger/bill-wise APIs may use different keys */
+  const getMasterId = (obj: Record<string, unknown>): string => {
+    const raw =
+      obj.MASTERID ?? obj.masterid ?? obj.MSTID ?? obj.mstid ?? obj.GUID ?? obj.guid ?? obj.ALTERID ?? obj.alterid ?? obj.ID ?? obj.id ?? '';
+    return String(raw).trim();
+  };
+
+  // Always call getvoucherdata when the screen opens (API: getVoucherData)
+  useEffect(() => {
+    if (fetchDone.current) return;
+    const masterId = getMasterId(initialVoucher as Record<string, unknown>);
+    if (!masterId) {
+      fetchDone.current = true;
+      return;
+    }
+    fetchDone.current = true;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+        if (cancelled || !t || !c || !g) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        const res = await apiService.getVoucherData({
+          tallyloc_id: t,
+          company: c,
+          guid: g,
+          masterid: masterId,
+        });
+        const body = res?.data as Record<string, unknown> | undefined;
+        const full =
+          (Array.isArray(body?.vouchers) && (body.vouchers as unknown[])[0]) ??
+          (Array.isArray(body?.data) && (body.data as unknown[])[0]) ??
+          (Array.isArray(body) && body[0]) ??
+          body?.voucher ??
+          body?.data;
+        if (!cancelled && full && typeof full === 'object') setV(full as Record<string, unknown>);
+      } catch (err) {
+        if (__DEV__ && !cancelled) console.warn('[VoucherDetailView] getVoucherData failed', err);
+        if (!cancelled) {
+          Alert.alert('', 'Could not load full voucher details. Showing summary.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const typeRaw =
-    (v.VOUCHERTYPE ?? v.VCHTYPE ?? (v as Record<string, unknown>).VOUCHERTYPENAME ?? (v as Record<string, unknown>).vouchertype ?? (v as Record<string, unknown>).vchtype ?? '') as string;
+    (v.VOUCHERTYPE ?? v.VCHTYPE ?? v.vouchertypename ?? v.VOUCHERTYPENAME ?? v.vouchertype ?? v.vchtype ?? '') as string;
   const type = typeRaw && String(typeRaw).trim() ? typeRaw : '—';
-  const particularsStr = (v.PARTICULARS ?? '') as string;
-  const num = (v.VOUCHERNUMBER ?? v.VCHNO ?? '—') as string;
-  const part = (v.PARTICULARS ?? '—') as string;
-  const date = (v.DATE ?? '—') as string;
+  const particularsStr = (v.PARTICULARS ?? v.particulars ?? v.partyledgername ?? '') as string;
+  const num = (v.VOUCHERNUMBER ?? v.VCHNO ?? v.vouchernumber ?? v.vchno ?? '—') as string;
+  const part = (v.PARTICULARS ?? v.particulars ?? v.partyledgername ?? v.NARRATION ?? v.narration ?? '—') as string;
+  const date = (v.DATE ?? v.date ?? '—') as string;
+  const raw = v as Record<string, unknown>;
   const entries = normalizeToArray<LedgerEntryDetail>(
-    v.ALLLEDGERENTRIES ?? v.allledgerentries ?? v.LEDGERENTRIES ?? v.ledgerentries
+    raw.ALLLEDGERENTRIES ?? raw.allledgerentries ?? raw.LEDGERENTRIES ?? raw.ledgerentries ?? raw.LedgerEntries
   );
-  const invFromVoucher = normalizeToArray<InventoryAllocation>(v.INVENTORYALLOCATIONS);
-  const invFromEntries = entries.flatMap((e) =>
-    normalizeToArray<InventoryAllocation>(e.INVENTORYALLOCATIONS)
-  );
-  const invAlloc = invFromVoucher.length > 0 ? invFromVoucher : invFromEntries;
+  const invFromVoucherList = [
+    normalizeToArray<InventoryAllocation>(raw.INVENTORYALLOCATIONS),
+    normalizeToArray<InventoryAllocation>(raw.inventoryallocations),
+    normalizeToArray<InventoryAllocation>(raw.INVENTORYALLOCATION),
+    normalizeToArray<InventoryAllocation>(raw.inventoryallocation),
+    normalizeToArray<InventoryAllocation>(raw.allinventoryentries),
+    normalizeToArray<InventoryAllocation>(raw.ALLINVENTORYENTRIES),
+  ];
+  const invFromVoucher = invFromVoucherList.find((arr) => arr.length > 0) ?? [];
+  const invFromEntries = entries.flatMap((e) => {
+    const ent = e as Record<string, unknown>;
+    const a = normalizeToArray<InventoryAllocation>(ent.INVENTORYALLOCATIONS);
+    const b = normalizeToArray<InventoryAllocation>(ent.inventoryallocations);
+    const c = normalizeToArray<BatchAllocationRow>(ent.BATCHALLOCATIONS).map((bch) => ({
+      STOCKITEMNAME: (bch.STOCKITEMNAME ?? ent.STOCKITEMNAME) as string,
+      ACTUALQTY: bch.ACTUALQTY ?? bch.BILLEQTY,
+      BILLEQTY: bch.BILLEQTY ?? bch.ACTUALQTY,
+      AMOUNT: bch.AMOUNT ?? bch.VALUE,
+      VALUE: bch.VALUE ?? bch.AMOUNT,
+    } as InventoryAllocation));
+    return a.length > 0 ? a : b.length > 0 ? b : c;
+  });
+
+  // Detect persisted view type from voucher data
+  const persistedView = String(
+    raw.persistedview ?? raw.PERSISTEDVIEW ?? raw.PersistedView ?? ''
+  ).trim().toLowerCase();
+  const isAccountingView = persistedView === 'accounting voucher view';
 
   const voucherAmt = getLedgerEntryAmount(v as LedgerEntryDetail);
-  const isDebit = voucherAmt.isDebit;
+  let isDebit = voucherAmt.isDebit;
   const amount = voucherAmt.amount;
-  const drCr = isDebit ? 'Dr' : 'Cr';
-  const itemTotal = invAlloc.reduce((s, i) => s + getInventoryAmount(i), 0);
-  const displayLedger = ledgerName || (entries[0]?.LEDGERNAME as string) || '—';
 
-  const hasInventory = invAlloc.length > 0;
-  const typeOrParticulars = `${type} ${particularsStr}`.toLowerCase();
-  const isSales =
-    hasInventory ||
-    isSalesVoucher(type, false) ||
-    typeOrParticulars.includes('sales');
-
-  const get = (...keys: string[]) => {
-    for (const k of keys) {
-      const x = v[k];
-      if (x != null && String(x).trim() !== '') return String(x);
+  // For accounting view, derive overall Dr/Cr from the party ledger entry's isdeemedpositive
+  if (isAccountingView && entries.length > 0) {
+    const partyEntry = entries.find(e => {
+      const er = e as Record<string, unknown>;
+      return String(er.ispartyledger ?? er.ISPARTYLEDGER ?? '').toLowerCase() === 'yes';
+    });
+    if (partyEntry) {
+      const pe = partyEntry as Record<string, unknown>;
+      const deemed = String(pe.isdeemedpositive ?? pe.ISDEEMEDPOSITIVE ?? '').toLowerCase();
+      if (deemed === 'yes') isDebit = true;
+      else if (deemed === 'no') isDebit = false;
     }
-    return '—';
+  }
+
+  const drCr = isDebit ? 'Dr' : 'Cr';
+  const typeOrParticulars = `${type} ${particularsStr}`.toLowerCase();
+  const isSalesType = typeOrParticulars.includes('sales') || (type && String(type).toLowerCase().includes('sales'));
+
+  let invAlloc = invFromVoucher.length > 0 ? invFromVoucher : invFromEntries;
+  if (invAlloc.length === 0 && amount > 0 && isSalesType) {
+    invAlloc = [
+      {
+        STOCKITEMNAME: part || type || 'Order',
+        AMOUNT: amount,
+        VALUE: amount,
+        ACTUALQTY: undefined,
+        BILLEQTY: undefined,
+      } as InventoryAllocation,
+    ];
+  }
+  const itemTotal = invAlloc.reduce((s, i) => s + getInventoryAmount(i), 0);
+  const displayLedger = ledgerName ||
+    (entries[0]?.LEDGERNAME as string) ||
+    ((entries[0] as Record<string, unknown>)?.ledgername as string) ||
+    (raw.partyledgername as string) ||
+    (raw.PARTYLEDGERNAME as string) ||
+    '—';
+  const ledgerDisplayRows = ledgerEntriesToDisplayRows(entries, part);
+  const ledgerRows = ledgerDisplayRows.map((r) => ({
+    label: r.label,
+    percentage: r.percentage,
+    amount: r.amount,
+  }));
+
+  // Accounting Voucher View: More Details fields
+  // Created by: prefer enteredby (from API), then alteredby fallbacks
+  const createdByRaw = [
+    raw.enteredby, raw.ENTEREDBY,
+    raw.alteredby, raw.ALTEREDBY,
+    raw.vchalteredby, raw.VCHALTEREDBY,
+    raw.createdby, raw.CREATEDBY,
+  ].find(x => x != null && String(x).trim() !== '');
+  const createdBy = createdByRaw ? String(createdByRaw).trim() : '—';
+
+  // Name on receipt: prefer partyname (specific), then partyledgername, then basicbuyername
+  const nameOnReceiptRaw = [
+    raw.partyname, raw.PARTYNAME,
+    raw.partymailingname, raw.PARTYMAILINGNAME,
+    raw.partyledgername, raw.PARTYLEDGERNAME,
+    raw.basicbuyername, raw.BASICBUYERNAME,
+  ].find(x => x != null && String(x).trim() !== '');
+  const nameOnReceipt = nameOnReceiptRaw ? String(nameOnReceiptRaw).trim() : '—';
+
+  // Narration (multiple possible API keys)
+  const narrationRaw = [
+    raw.narration, raw.NARRATION, raw.Narration,
+    raw.vchnarration, raw.VCHNARRATION,
+  ].find(x => x != null && String(x).trim() !== '');
+  const narrationText = narrationRaw ? String(narrationRaw).trim() : '';
+
+  /** Bill allocation amount for collapsible sub-rows */
+  const getBillAllocAmt = (item: BillAllocation): number => {
+    const raw = item as Record<string, unknown>;
+    const debit = toNum(raw.DEBITAMT ?? raw.debitamt);
+    const credit = toNum(raw.CREDITAMT ?? raw.creditamt);
+    if (debit > 0) return debit;
+    if (credit > 0) return credit;
+    const amt = raw.amount;
+    if (amt != null) return toNum(amt);
+    return 0;
+  };
+  const getBillAllocDate = (item: BillAllocation): string => {
+    const raw = item as Record<string, unknown>;
+    const val = raw.date ?? raw.DATE ?? raw.duedate ?? raw.DUEON ?? raw.billdate ?? raw.BILLDATE ?? '';
+    if (val == null || String(val).trim() === '') return '—';
+    return String(val).trim();
+  };
+
+  // Footer collapse – one shared value so tab bar and voucher footer move together
+  const lastScrollY = useRef(0);
+  const localScrollDirection = useRef<'up' | 'down'>('up');
+  const programmaticScrollRef = useRef(false); // true while scroll is from item expand/collapse – don't drive footer
+  const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed
+  const scrollRef = useRef<ScrollView>(null);
+  const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
+  const SCROLL_UP_THRESHOLD = 0;
+  const COLLAPSE_DURATION = 1000;
+  const collapseEasing = Easing.out(Easing.cubic);
+
+  const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    if (programmaticScrollRef.current) {
+      lastScrollY.current = currentScrollY;
+      return;
+    }
+    const scrollDiff = currentScrollY - lastScrollY.current;
+
+    if (scrollDiff > 0 && currentScrollY > 50) {
+      if (localScrollDirection.current !== 'down') {
+        localScrollDirection.current = 'down';
+        setScrollDirection('down');
+        Animated.timing(collapseProgress, {
+          toValue: 1,
+          duration: COLLAPSE_DURATION,
+          easing: collapseEasing,
+          useNativeDriver: false,
+        }).start();
+      }
+    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+      if (localScrollDirection.current !== 'up') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        Animated.timing(collapseProgress, {
+          toValue: 0,
+          duration: COLLAPSE_DURATION,
+          easing: collapseEasing,
+          useNativeDriver: false,
+        }).start();
+      }
+    }
+
+    lastScrollY.current = currentScrollY;
   };
 
   useEffect(() => {
     setScrollDirection('up');
-    return () => setScrollDirection(null);
-  }, [setScrollDirection]);
+    collapseProgress.setValue(0);
+    setFooterCollapseValue(collapseProgress);
+    return () => {
+      setScrollDirection(null);
+      setFooterCollapseValue(null);
+    };
+  }, [setScrollDirection, setFooterCollapseValue, collapseProgress]);
+
+  const footerContentBottom = collapseProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [TAB_BAR_OFFSET, 0],
+  });
+
+  // Smooth expand/collapse for accounting entries (height animation)
+  useEffect(() => {
+    const anims = accExpandAnimRef.current;
+    const duration = 300;
+    Object.keys(anims).forEach((key) => {
+      const idx = Number(key);
+      const val = anims[idx];
+      if (!val) return;
+      Animated.timing(val, {
+        toValue: expandedEntryIndex === idx ? 1 : 0,
+        duration,
+        useNativeDriver: false,
+      }).start();
+    });
+  }, [expandedEntryIndex]);
+
+  const closeMenu = () => setMenuVisible(false);
+
+  const handleMenuOption = (action: 'bill_allocations' | 'more_details' | 'view_full_details') => {
+    closeMenu();
+    if (action === 'bill_allocations') {
+      (nav.navigate as (a: string, b: object) => void)('BillAllocations', {
+        voucher: v,
+        ledger_name: displayLedger,
+      });
+    } else if (action === 'more_details') {
+      (nav.navigate as (a: string, b: object) => void)('MoreDetails', {
+        voucher: v,
+        ledger_name: displayLedger,
+      });
+    } else if (action === 'view_full_details') {
+      (async () => {
+        const masterId = getMasterId(v);
+        if (!masterId) {
+          Alert.alert('', 'Voucher ID not available.');
+          return;
+        }
+        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+        if (!t || !c || !g) {
+          Alert.alert('', 'Session data missing. Please sign in again.');
+          return;
+        }
+        setLoadingHtml(true);
+        setHtmlModalVisible(true);
+        setHtmlContent('');
+        try {
+          const res = await apiService.getVoucherView({
+            tallyloc_id: t,
+            company: c,
+            guid: g,
+            masterid: String(masterId),
+          });
+          const html = typeof res?.data === 'string' ? res.data : '';
+          setHtmlContent(html || '<p>No content returned.</p>');
+        } catch (err) {
+          if (__DEV__) console.warn('[VoucherDetailView] getVoucherView failed', err);
+          Alert.alert('', 'Could not load voucher view.');
+          setHtmlModalVisible(false);
+        } finally {
+          setLoadingHtml(false);
+        }
+      })();
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      const message = [
+        `Voucher: ${type} #${num}`,
+        `Party: ${displayLedger}`,
+        `Date: ${date}`,
+        `Amount: ₹${fmtNum(amount)} ${drCr}`,
+      ].join('\n');
+      await Share.share({
+        message,
+        title: 'Voucher Details',
+      });
+    } catch {
+      // User cancelled or share failed
+    }
+  };
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom + 56 }]}>
+    <View style={[styles.root, { paddingBottom: 10 }]}>
       <StatusBarTopBar
         title="Voucher Details"
         leftIcon="back"
         onLeftPress={() => (nav as { goBack?: () => void }).goBack?.()}
-        rightIcons="kebab"
-        onRightIconsPress={() => {}}
+        rightIcons="share-kebab"
+        onSharePress={handleShare}
+        onRightIconsPress={() => setMenuVisible(true)}
         compact
       />
 
-      {/* Yellow bar - ledger name */}
-      <View style={styles.yellowBar}>
-        <Icon name="account" size={18} color="#131313" />
-        <Text style={styles.yellowBarText} numberOfLines={1}>{displayLedger}</Text>
-      </View>
-
-      {/* Voucher card */}
-      <View style={styles.voucherCard}>
-        <View style={styles.voucherRow1}>
-          <Text style={styles.voucherParticulars} numberOfLines={1}>{part}</Text>
-          <View style={styles.voucherAmtWrap}>
-            <Text style={[styles.voucherAmt, { color: isDebit ? '#ff4242' : '#131313' }]}>
-              {fmtNum(amount)}
-            </Text>
-            <Text style={styles.voucherDrCr}>{drCr}.</Text>
-          </View>
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeMenu}
+      >
+        <View style={styles.menuWrapper}>
+          <TouchableOpacity
+            style={styles.menuOverlay}
+            activeOpacity={1}
+            onPress={closeMenu}
+          />
+          <View style={[styles.menuDropdown, { top: dropdownTop }]}>
+          {!isAccountingView && (
+            <>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleMenuOption('bill_allocations')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.menuItemText}>{strings.bill_allocations}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleMenuOption('more_details')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.menuItemText}>{strings.more_details}</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => handleMenuOption('view_full_details')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.menuItemText}>{strings.view_full_details}</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.voucherMetaRow}>
-          <View style={styles.voucherMetaSeg}>
-            <Text style={styles.voucherMeta}>{date}</Text>
-          </View>
-          <View style={styles.voucherMetaSeg}>
-            <Text style={styles.voucherMeta}>{type}</Text>
-          </View>
-          <View style={styles.voucherMetaLast}>
-            <Text style={styles.voucherMetaHash}># </Text>
-            <Text style={styles.voucherMetaVch}>{num}</Text>
-          </View>
         </View>
-      </View>
+      </Modal>
 
+      <Modal
+        visible={htmlModalVisible}
+        animationType="slide"
+        onRequestClose={() => setHtmlModalVisible(false)}
+      >
+        <View style={[styles.htmlModalRoot, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={styles.htmlModalHeader}>
+            <Text style={styles.htmlModalTitle}>View details</Text>
+            <TouchableOpacity
+              onPress={() => setHtmlModalVisible(false)}
+              style={styles.htmlModalClose}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Icon name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          {loadingHtml ? (
+            <View style={styles.htmlLoadingWrap}>
+              <ActivityIndicator size="large" color="#1e488f" />
+              <Text style={styles.htmlLoadingText}>Loading…</Text>
+            </View>
+          ) : (
+            <WebView
+              source={{ html: htmlContent }}
+              style={[styles.htmlWebView, { width: winWidth, height: winHeight - 56 - insets.top - insets.bottom }]}
+              scrollEnabled
+              originWhitelist={['*']}
+            />
+          )}
+        </View>
+      </Modal>
+
+      <VoucherCustomerBar
+        displayLedger={displayLedger}
+        invoiceOrder={!isAccountingView}
+        accountingView={isAccountingView}
+      />
+
+      <VoucherSummaryCard
+        particulars={part}
+        amount={amount}
+        isDebit={isDebit}
+        date={date}
+        voucherType={type}
+        refNo={num}
+        invoiceOrder={!isAccountingView}
+      />
+
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color="#1e488f" />
+          <Text style={styles.loadingText}>Loading voucher details…</Text>
+        </View>
+      ) : isAccountingView ? (
+      /* ---- Accounting Voucher View: layout from figma_codes/VDAcc (Figma 3045:56026) ---- */
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
-        {isSales ? (
-          /* VoucDetBWS - Sales: Inventory Allocations - Figma layout */
-          <>
-            <View style={styles.sectionHead}>
-              <Icon name="package-variant" size={20} color="#1e488f" />
-              <Text style={styles.sectionTitle}>
-                Inventory Allocations ({invAlloc.length})
-              </Text>
-            </View>
-            <View style={styles.invListWrap}>
-              {invAlloc.map((item, i) => (
-                <ExpandableInventoryRow key={i} item={item} altBg={i % 2 === 1} index={i} />
-              ))}
-            </View>
-          </>
-        ) : (
-          /* VoucDetBWR - Receipt: Accounting Entries + More Details */
-          <>
-            <View style={styles.sectionHead}>
-              <Icon name="file-document-outline" size={20} color="#1e488f" />
-              <Text style={styles.sectionTitle}>Accounting Entries</Text>
-            </View>
-            {entries.map((e, i) => {
-              const { amount: amountVal, isDebit } = getLedgerEntryAmount(e);
-              const ledgername = (e.LEDGERNAME ?? (e as Record<string, unknown>).ledgername ?? '—') as string;
-              const drCrEntry = isDebit ? 'Dr' : 'Cr';
-              return (
-                <View key={i} style={styles.accountingRow}>
-                  <Text style={styles.accountingLabel} numberOfLines={1}>{ledgername}</Text>
-                  <Text style={styles.accountingAmt}>
-                    {amountVal > 0 ? `₹${fmtNum(amountVal)} ${drCrEntry}` : '—'}
+        {/* Accounting Entries (VDAcc: icon + title, then rows) */}
+        <View style={[styles.sectionHead, styles.accSectionHead]}>
+          <Icon name="earth" size={20} color="#1e488f" />
+          <Text style={styles.sectionTitle}>Accounting Entries</Text>
+        </View>
+        <View style={styles.accEntriesWrap}>
+          {entries.map((entry, i) => {
+            const entryRaw = entry as Record<string, unknown>;
+            const entryLedgerName = String(
+              entry.LEDGERNAME ?? entryRaw.ledgername ?? '—'
+            );
+            const deemed = String(entryRaw.isdeemedpositive ?? entryRaw.ISDEEMEDPOSITIVE ?? '').toLowerCase();
+            const entryAmt = toNum(entryRaw.amount ?? entryRaw.AMOUNT);
+            let entryDrCr: string;
+            if (deemed === 'yes') {
+              entryDrCr = 'Dr';
+            } else if (deemed === 'no') {
+              entryDrCr = 'Cr';
+            } else {
+              const fallback = getLedgerEntryAmount(entry);
+              entryDrCr = fallback.isDebit ? 'Dr' : 'Cr';
+            }
+            const displayAmt = entryAmt > 0 ? entryAmt : getLedgerEntryAmount(entry).amount;
+            const billAllocs = normalizeToArray<BillAllocation>(
+              entry.BILLALLOCATIONS ?? entryRaw.billallocations
+            );
+            const entryGroup = String(
+              entryRaw.group ?? entryRaw.GROUP ??
+              entryRaw.LEDGERGROUP ?? entryRaw.ledgergroup ??
+              entryRaw.ledgergroupidentify ?? entryRaw.LEDGERGROUPIDENTIFY ?? ''
+            ).trim();
+            const isBankGroup = /bank\s*accounts?/i.test(entryGroup);
+            const bankDetails = isBankGroup
+              ? getBankDetailsFromEntry(entryRaw, `₹${fmtNum(displayAmt)} ${entryDrCr}`)
+              : [];
+            const hasSubRows = billAllocs.length > 0 || bankDetails.length > 0;
+            const isExpanded = expandedEntryIndex === i;
+            if (hasSubRows && !accExpandAnimRef.current[i]) {
+              accExpandAnimRef.current[i] = new Animated.Value(isExpanded ? 1 : 0);
+            }
+            const onRowPress = hasSubRows
+              ? () => setExpandedEntryIndex(isExpanded ? null : i)
+              : undefined;
+            const RowWrapper = hasSubRows ? TouchableOpacity : View;
+            const rowProps = hasSubRows ? { onPress: onRowPress, activeOpacity: 0.7 } : {};
+            const rowStyle = hasSubRows && isExpanded ? styles.accEntryRowExpanded : styles.accEntryRow;
+            const animVal = hasSubRows ? accExpandAnimRef.current[i] : null;
+            return (
+              <View key={i}>
+                <RowWrapper style={rowStyle} {...rowProps}>
+                  <Text style={styles.accEntryName} numberOfLines={1}>
+                    {entryLedgerName}
                   </Text>
-                </View>
-              );
-            })}
-            <View style={styles.sectionHead}>
-              <Icon name="file-document-outline" size={20} color="#1e488f" />
-              <Text style={styles.sectionTitle}>More Details</Text>
-            </View>
-            <View style={styles.moreDetailsRow}>
-              <Text style={styles.moreDetailsLabel}>Created by</Text>
-              <Text style={styles.moreDetailsVal}>{get('CREATEDBY', 'CREATED_BY')}</Text>
-            </View>
-            <View style={styles.moreDetailsRow}>
-              <Text style={styles.moreDetailsLabel}>Name on receipt</Text>
-              <Text style={styles.moreDetailsVal}>{get('NAMEONRECEIPT', 'RECEIPTNAME', 'BUYERNAME')}</Text>
-            </View>
-            <View style={styles.moreDetailsNarration}>
-              <Text style={styles.moreDetailsLabel}>Narration</Text>
-              <View style={styles.narrationBox}>
-                <Text style={styles.narrationText}>{get('NARRATION', 'NARRATION1')}</Text>
+                  <Text style={styles.accEntryAmt}>
+                    ₹{fmtNum(displayAmt)} {entryDrCr}
+                  </Text>
+                </RowWrapper>
+                {hasSubRows && animVal ? (
+                  <Animated.View
+                    style={[
+                      {
+                        maxHeight: animVal.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 3000],
+                        }),
+                        overflow: 'hidden',
+                        opacity: animVal.interpolate({
+                          inputRange: [0, 0.01, 1],
+                          outputRange: [0, 1, 1],
+                        }),
+                      },
+                    ]}
+                  >
+                    <View style={styles.accEntrySubBlock}>
+                    {bankDetails.length > 0
+                      ? bankDetails.map((row: BankDetailRow, j: number) => (
+                          <View
+                            key={`bank-${j}`}
+                            style={[
+                              styles.accSubRow,
+                              styles.accSubRowAlt,
+                              j === bankDetails.length - 1 && billAllocs.length === 0 && styles.accSubRowLast,
+                            ]}
+                          >
+                            <View style={styles.accSubRowLeftBorder} />
+                            <View style={styles.accSubRowContent}>
+                              <View style={styles.accSubRowBottom}>
+                                <Text style={styles.accSubRowLabel} numberOfLines={1}>{row.label}</Text>
+                                <Text style={styles.accSubRowAmount} numberOfLines={1}>{row.value}</Text>
+                              </View>
+                            </View>
+                          </View>
+                        ))
+                      : null}
+                    {billAllocs.map((alloc, j) => {
+                      const refNo = (alloc.BILLNAME ?? alloc.billname ?? '—') as string;
+                      const label = (alloc.BILLTYPE ?? alloc.billtype ?? '') as string;
+                      const amount = getBillAllocAmt(alloc);
+                      const dateStr = getBillAllocDate(alloc) || date || '—';
+                      const isAlt = j % 2 === 0;
+                      const isLast = j === billAllocs.length - 1;
+                      return (
+                        <View key={j} style={[styles.accSubRow, isAlt && styles.accSubRowAlt, isLast && styles.accSubRowLast]}>
+                          <View style={styles.accSubRowLeftBorder} />
+                          <View style={styles.accSubRowContent}>
+                            <View style={styles.accSubRowTop}>
+                              <Text style={styles.accSubRowRef} numberOfLines={1}>{refNo}</Text>
+                              <Text style={styles.accSubRowDate}>{dateStr}</Text>
+                            </View>
+                            <View style={styles.accSubRowBottom}>
+                              <Text style={styles.accSubRowLabel} numberOfLines={1}>{label || '—'}</Text>
+                              <Text style={styles.accSubRowAmount}>₹{fmtNum(amount)}</Text>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })}
+                    </View>
+                  </Animated.View>
+                ) : null}
               </View>
+            );
+          })}
+        </View>
+
+        {/* More Details (VDAcc: Created by, Name on receipt, Narration) */}
+        <View style={[styles.sectionHead, styles.accSectionHeadSpaced]}>
+          <Icon name="earth" size={20} color="#1e488f" />
+          <Text style={styles.sectionTitle}>More Details</Text>
+        </View>
+        <View style={styles.accEntriesWrap}>
+          <View style={styles.accEntryRow}>
+            <Text style={styles.accEntryName}>Created by</Text>
+            <Text style={styles.accEntryAmt}>{createdBy}</Text>
+          </View>
+          <View style={styles.accEntryRow}>
+            <Text style={styles.accEntryName}>Name on receipt</Text>
+            <Text style={styles.accEntryAmt}>{nameOnReceipt}</Text>
+          </View>
+          <View style={styles.narrationWrap}>
+            <Text style={styles.narrationLabel}>Narration</Text>
+            <View style={styles.narrationBox}>
+              <Text style={styles.narrationText}>{narrationText || '—'}</Text>
             </View>
-          </>
-        )}
+          </View>
+        </View>
+      </ScrollView>
+      ) : (
+      /* ---- Order / Invoice Voucher View (Figma 3045-55819) – footer like LedgerVoucher ---- */
+      <>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, styles.scrollContentWithFooter]}
+        showsVerticalScrollIndicator={true}
+        onScroll={handleScroll}
+        onMomentumScrollEnd={() => { programmaticScrollRef.current = false; }}
+        onScrollEndDrag={() => { programmaticScrollRef.current = false; }}
+        scrollEventThrottle={16}
+      >
+        <View style={styles.invSectionWrap}>
+          <View style={[styles.sectionHead, styles.sectionHeadInv]}>
+            <Icon name="cube-outline" size={20} color="#1e488f" />
+            <Text style={styles.sectionTitle}>
+              Inventory Allocations ({invAlloc.length})
+            </Text>
+          </View>
+        </View>
+        <View style={styles.invListWrap}>
+          {invAlloc.map((item, i) => (
+            <ExpandableInventoryRow
+              key={i}
+              item={item}
+              invoiceOrder={true}
+              onExpandChange={
+                i === invAlloc.length - 1
+                  ? (expanded) => {
+                      if (expanded) {
+                        programmaticScrollRef.current = true;
+                        setTimeout(() => {
+                          scrollRef.current?.scrollToEnd({ animated: true });
+                        }, 350);
+                      }
+                    }
+                  : undefined
+              }
+            />
+          ))}
+          <View style={styles.invListEmptySlot} />
+        </View>
       </ScrollView>
 
-      {/* Footer */}
-      {isSales ? (
-        <>
-          <View style={styles.itemTotalBar}>
-            <Text style={styles.itemTotalLabel}>ITEM TOTAL</Text>
-            <Text style={styles.itemTotalVal}>
-              {fmtNum(itemTotal)} {drCr}
-            </Text>
-          </View>
-          <LedgerDetailsExpandable entries={entries} particulars={part} />
-          <View style={styles.grandTotalBar}>
-            <Text style={styles.grandTotalLabel}>Grand Total</Text>
-            <Text style={styles.grandTotalVal}>
-              {fmtNum(amount)} {drCr}
-            </Text>
-          </View>
-        </>
-      ) : null}
+      <Animated.View
+        style={[styles.voucherDetailFooterFixed, { bottom: footerContentBottom }]}
+      >
+        <VoucherDetailsFooter
+          itemTotal={itemTotal}
+          grandTotal={amount}
+          drCr={drCr}
+          ledgerRows={ledgerRows}
+          invoiceOrder={true}
+        />
+      </Animated.View>
+      </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
-  yellowBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 16,
-    backgroundColor: '#e6ecfd',
-    borderBottomWidth: 1,
-    borderBottomColor: '#c4d4ff',
-  },
-  yellowBarText: { fontSize: 13, fontWeight: '500', color: '#131313' },
-  voucherCard: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e6ecfd',
-  },
-  voucherRow1: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  voucherParticulars: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0e172b',
+  menuWrapper: {
     flex: 1,
-    marginRight: 8,
   },
-  voucherAmtWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
-  voucherAmt: { fontSize: 15, fontWeight: '600' },
-  voucherDrCr: { fontSize: 12, fontWeight: '400', color: '#0e172b' },
-  voucherMetaRow: {
-    flexDirection: 'row',
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  menuDropdown: {
+    position: 'absolute',
+    right: 16,
+    minWidth: 200,
+    backgroundColor: colors.white,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+    paddingVertical: 4,
+  },
+  menuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  menuItemText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#0e172b',
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    marginTop: 8,
+    gap: 12,
+    paddingVertical: 24,
   },
-  voucherMetaSeg: {
-    paddingRight: 10,
-    marginRight: 10,
-    borderRightWidth: 1,
-    borderRightColor: '#d3d3d3',
-  },
-  voucherMetaLast: { flexDirection: 'row' },
-  voucherMeta: { fontSize: 13, fontWeight: '500', color: '#6a7282' },
-  voucherMetaHash: { fontSize: 13, fontWeight: '400', color: '#6a7282' },
-  voucherMetaVch: { fontSize: 13, fontWeight: '600', color: '#6a7282' },
+  loadingText: { fontSize: 14, color: '#6a7282' },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingVertical: 16, paddingBottom: 24 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 0 },
+  scrollContentWithFooter: { paddingBottom: 68 },
+  voucherDetailFooterFixed: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 999,
+    elevation: 10,
+  },
+  invSectionWrap: {
+    marginHorizontal: -16,
+    marginBottom: 8,
+  },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    paddingHorizontal: 0,
   },
+  sectionHeadInv: {
+    paddingLeft: 16,
+  },
+  accSectionHead: { paddingVertical: 8 },
+  accSectionHeadSpaced: { marginTop: 8, paddingVertical: 8 },
   sectionTitle: {
     fontSize: 17,
     fontWeight: '600',
@@ -581,146 +798,182 @@ const styles = StyleSheet.create({
   invListWrap: {
     marginHorizontal: -16,
   },
-  invRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#e6ecfd',
-    paddingVertical: 8,
+  invListEmptySlot: {
+    minHeight: 56,
+    paddingVertical: 10,
     paddingHorizontal: 16,
+    backgroundColor: 'transparent',
+  },
+  /* Accounting Voucher View – figma_codes/VDAcc (3045:56026) */
+  accEntriesWrap: {
+    marginHorizontal: -16,
+  },
+  accEntryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 48,
     backgroundColor: colors.white,
-  },
-  invRowAltBg: {
-    backgroundColor: '#e6ecfd',
-  },
-  invChildrenWrap: {
-    paddingLeft: 24,
     borderBottomWidth: 1,
     borderBottomColor: '#e6ecfd',
   },
-  invChildRow: {
-    paddingVertical: 8,
+  accEntryRowExpanded: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    backgroundColor: '#fef9e7',
+    paddingVertical: 12,
+    minHeight: 48,
+    backgroundColor: '#E6ECFD',
     borderBottomWidth: 1,
-    borderBottomColor: '#f5f0dc',
+    borderBottomColor: '#c4d4ff',
   },
-  invChildRowAlt: {
-    backgroundColor: '#faf6e8',
+  accEntryName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
+    lineHeight: 22,
+    flex: 1,
+    marginRight: 8,
+    minHeight: 22,
   },
-  invEmptyText: {
-    fontSize: 13,
+  accEntryAmt: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0e172b',
+    lineHeight: 22,
+    minHeight: 22,
+  },
+  /* Collapsible bill allocation sub-rows – TdsReceivable / inventory-card */
+  accEntrySubBlock: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 12,
+  },
+  accSubRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: '#FCF4DB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2eaf2',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 4,
+  },
+  accSubRowAlt: {
+    backgroundColor: '#FCF4DB',
+  },
+  accSubRowLast: {
+    marginBottom: 0,
+  },
+  accSubRowLeftBorder: {
+    width: 0,
+    marginRight: 0,
+  },
+  accSubRowContent: {
+    flex: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
+  },
+  accSubRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  accSubRowRef: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#0e172b',
+    flex: 1,
+    marginRight: 8,
+  },
+  accSubRowDate: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#0e172b',
+    marginRight: 20,
+  },
+  accSubRowBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  accSubRowLabel: {
+    fontSize: 12,
+    fontWeight: '400',
     color: '#6a7282',
-    fontStyle: 'italic',
+    flex: 1,
+    marginRight: 8,
   },
-  invRowHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  accSubRowAmount: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#0e172b',
   },
-  invRowName: { fontSize: 14, fontWeight: '600', color: '#0e172b', flex: 1, marginRight: 8 },
-  invRowAmt: { fontSize: 15, fontWeight: '600', color: '#0e172b' },
-  invRowMeta: {
-    flexDirection: 'row',
-    marginTop: 6,
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  invRowMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  invRowMetaLabel: { fontSize: 13, color: '#6a7282', fontWeight: '400' },
-  invRowMetaValQtyRate: { fontSize: 13, color: '#1e488f', fontWeight: '400', textDecorationLine: 'underline' },
-  invRowMetaValDiscount: { fontSize: 13, color: '#0e172b', fontWeight: '400' },
-  accountingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
+  narrationWrap: {
     paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: '#e6ecfd',
+    gap: 8,
   },
-  accountingLabel: { fontSize: 14, fontWeight: '600', color: '#0e172b', flex: 1 },
-  accountingAmt: { fontSize: 15, fontWeight: '600', color: '#0e172b' },
-  moreDetailsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e6ecfd',
-  },
-  moreDetailsLabel: { fontSize: 14, fontWeight: '600', color: '#0e172b' },
-  moreDetailsVal: { fontSize: 15, fontWeight: '600', color: '#0e172b' },
-  moreDetailsNarration: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+  narrationLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
+    lineHeight: 24,
   },
   narrationBox: {
     backgroundColor: '#e6ecfd',
     borderWidth: 1,
     borderColor: '#c4d4ff',
-    padding: 10,
-    marginTop: 4,
-  },
-  narrationText: { fontSize: 13, fontWeight: '400', color: '#0e172b' },
-  itemTotalBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    backgroundColor: colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-  },
-  itemTotalLabel: { fontSize: 13, fontWeight: '600', color: '#0e172b' },
-  itemTotalVal: { fontSize: 13, fontWeight: '600', color: '#0e172b' },
-  ledgerDetailsWrap: { width: '100%' },
-  ledgerDetailsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#1e488f',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  ledgerDetailsBarBorder: { borderTopWidth: 1, borderTopColor: '#c4d4ff' },
-  ledgerDetailsTitle: { fontSize: 13, fontWeight: '600', color: colors.white },
-  ledgerDetailsExpand: {
-    backgroundColor: '#e6ecfd',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  ledgerDetailsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  ledgerDetailsRowLabel: { fontSize: 14, color: '#0e172b', fontWeight: '400', flex: 1, marginRight: 12 },
-  ledgerDetailsRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 40,
-    minWidth: 120,
+  narrationText: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#0e172b',
   },
-  ledgerDetailsRowPct: { fontSize: 14, color: '#0e172b', fontWeight: '400' },
-  ledgerDetailsRowVal: { fontSize: 14, color: '#0e172b', fontWeight: '400', minWidth: 70, textAlign: 'right' },
-  grandTotalBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+  /* HTML voucher view modal */
+  htmlModalRoot: {
+    flex: 1,
     backgroundColor: colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
   },
-  grandTotalLabel: { fontSize: 17, fontWeight: '600', color: '#0e172b' },
-  grandTotalVal: { fontSize: 17, fontWeight: '600', color: '#0e172b' },
+  htmlModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#1e488f',
+    minHeight: 56,
+  },
+  htmlModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  htmlModalClose: {
+    padding: 4,
+  },
+  htmlLoadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  htmlLoadingText: {
+    fontSize: 16,
+    color: '#0e172b',
+  },
+  htmlWebView: {
+    flex: 1,
+    backgroundColor: colors.white,
+  },
 });

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
-import Logo from './Logo';
+import { ShareIcon } from '../assets/ShareIcon';
 
 export interface StatusBarTopBarProps {
   title?: string;
@@ -11,10 +11,12 @@ export interface StatusBarTopBarProps {
   /** When leftIcon='back', called on back press (e.g. goBack). */
   onLeftPress?: () => void;
   onRightIconsPress?: () => void;
-  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'kebab' = single kebab in white circle (Voucher Details) */
-  rightIcons?: 'default' | 'share-bell' | 'kebab';
-  /** 'menu' = hamburger (default), 'back' = back arrow for sub-screens (LedgerBook2). */
-  leftIcon?: 'menu' | 'back';
+  /** Called when share button is pressed (used when rightIcons='share-kebab'). */
+  onSharePress?: () => void;
+  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'kebab' = single kebab in white circle, 'share-kebab' = share (VDInv vector-14) + kebab (Voucher Details), 'none' = no right buttons */
+  rightIcons?: 'default' | 'share-bell' | 'kebab' | 'share-kebab' | 'none';
+  /** 'menu' = hamburger (default), 'back' = back arrow for sub-screens (LedgerBook2), 'none' = no left button */
+  leftIcon?: 'menu' | 'back' | 'none';
   /** LedgerBook2 Figma: bar paddingVertical 3px (py-[3px]). */
   compact?: boolean;
 }
@@ -28,6 +30,7 @@ export function StatusBarTopBar({
   onMenuPress,
   onLeftPress,
   onRightIconsPress,
+  onSharePress,
   rightIcons = 'default',
   leftIcon = 'menu',
   compact = false,
@@ -35,7 +38,57 @@ export function StatusBarTopBar({
   const insets = useSafeAreaInsets();
   const isShareBell = rightIcons === 'share-bell';
   const isKebab = rightIcons === 'kebab';
+  const isShareKebab = rightIcons === 'share-kebab';
+  const showRight = rightIcons !== 'none';
   const isBack = leftIcon === 'back';
+  const showLeft = leftIcon !== 'none';
+
+  const renderRightContent = () => {
+    if (isShareKebab) {
+      return (
+        <>
+          <TouchableOpacity
+            onPress={onSharePress}
+            style={styles.shareBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Share"
+          >
+            <ShareIcon width={16} height={16} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onRightIconsPress}
+            style={styles.rightKebabCircle}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="More options"
+          >
+            <Icon name="dots-horizontal" size={16} color="#0E172B" />
+          </TouchableOpacity>
+        </>
+      );
+    }
+    return (
+      <TouchableOpacity
+        onPress={onRightIconsPress}
+        style={[styles.right, isKebab && styles.rightKebabCircle]}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityLabel={isKebab ? 'More options' : isShareBell ? 'Share' : 'Options'}
+      >
+        {isKebab ? (
+          <Icon name="dots-horizontal" size={16} color="#0E172B" />
+        ) : isShareBell ? (
+          <>
+            <Icon name="share-variant" size={22} color={colors.white} style={styles.rightIcon} />
+            <Icon name="bell" size={22} color={colors.white} />
+          </>
+        ) : (
+          <>
+            <Icon name="tune" size={22} color={colors.white} style={styles.rightIcon} />
+            <Icon name="account" size={22} color={colors.white} />
+          </>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <>
@@ -43,39 +96,25 @@ export function StatusBarTopBar({
       <View style={[styles.wrapper, { paddingTop: insets.top }]}>
         <View style={[styles.bar, compact && styles.barCompact]}>
         <View style={styles.left}>
-          <TouchableOpacity
-            onPress={isBack ? onLeftPress : onMenuPress}
-            style={styles.menuBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityLabel={isBack ? 'Back' : 'Menu'}
-          >
-            <Icon name={isBack ? 'chevron-left' : 'menu'} size={24} color={colors.white} />
-          </TouchableOpacity>
-          <Logo width={24} height={16} style={styles.barLogo} />
+          {showLeft && (
+            <TouchableOpacity
+              onPress={isBack ? onLeftPress : onMenuPress}
+              style={styles.menuBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityLabel={isBack ? 'Back' : 'Menu'}
+            >
+              <Icon name={isBack ? 'chevron-left' : 'menu'} size={24} color={colors.white} />
+            </TouchableOpacity>
+          )}
           <Text style={styles.title} numberOfLines={1}>
             {title}
           </Text>
         </View>
-        <TouchableOpacity
-          onPress={onRightIconsPress}
-          style={[styles.right, isKebab && styles.rightKebabCircle]}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          accessibilityLabel={isKebab ? 'More options' : isShareBell ? 'Share' : 'Options'}
-        >
-          {isKebab ? (
-            <Icon name="dots-horizontal" size={16} color="#0E172B" />
-          ) : isShareBell ? (
-            <>
-              <Icon name="share-variant" size={22} color={colors.white} style={styles.rightIcon} />
-              <Icon name="bell" size={22} color={colors.white} />
-            </>
-          ) : (
-            <>
-              <Icon name="tune" size={22} color={colors.white} style={styles.rightIcon} />
-              <Icon name="account" size={22} color={colors.white} />
-            </>
-          )}
-        </TouchableOpacity>
+        {showRight && (
+          <View style={styles.right}>
+            {renderRightContent()}
+          </View>
+        )}
       </View>
     </View>
     </>
@@ -105,9 +144,6 @@ const styles = StyleSheet.create({
   menuBtn: {
     marginRight: 8,
   },
-  barLogo: {
-    marginRight: 8,
-  },
   title: {
     fontFamily: 'System',
     fontSize: 17,
@@ -117,6 +153,12 @@ const styles = StyleSheet.create({
   right: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  shareBtn: {
+    padding: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rightIcon: {
     marginRight: 12,

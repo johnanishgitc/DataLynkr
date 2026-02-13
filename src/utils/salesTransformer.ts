@@ -745,6 +745,7 @@ export interface AllDashboardAggregations {
     byLedgerGroup: AggregatedData[];
     byRegion: AggregatedData[];
     byCountry: AggregatedData[];
+    bySalesperson: AggregatedData[];
     byItemProfit: AggregatedData[];
     // Monthly aggregations
     byMonth: AggregatedData[];
@@ -787,6 +788,7 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
     const ledgerGroupMap = new Map<string, Bucket>();
     const regionMap = new Map<string, Bucket>();
     const countryMap = new Map<string, Bucket>();
+    const salespersonMap = new Map<string, Bucket>();
     const monthAmountMap = new Map<string, { amount: number; count: number }>();
     const monthProfitMap = new Map<string, { profit: number; count: number }>();
     const monthQuantityMap = new Map<string, { quantity: number }>();
@@ -863,6 +865,12 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
         countryData.amount = (countryData.amount ?? 0) + record.amount;
         countryData.count += 1;
         countryMap.set(countryNorm, countryData);
+
+        const { norm: salespersonNorm, original: salespersonOrig } = normKey(record.salesperson, 'Unassigned');
+        const salespersonData = salespersonMap.get(salespersonNorm) || { originalKey: salespersonOrig, amount: 0, count: 0 };
+        salespersonData.amount = (salespersonData.amount ?? 0) + record.amount;
+        salespersonData.count += 1;
+        salespersonMap.set(salespersonNorm, salespersonData);
 
         if (record.date) {
             // Normalize date first to handle legacy cached data with raw date formats (e.g. "4-Apr-25")
@@ -965,6 +973,7 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
     const byLedgerGroup = bucketMapToSorted(ledgerGroupMap, 'amount');
     const byRegion = bucketMapToSorted(regionMap, 'amount');
     const byCountry = bucketMapToSorted(countryMap, 'amount');
+    const bySalesperson = bucketMapToSorted(salespersonMap, 'amount');
 
     const allItemProfits = bucketMapToSorted(itemProfitMap, 'profit');
     const topProfitableItems = allItemProfits.filter(d => d.value > 0).slice(0, 10);
@@ -1049,6 +1058,7 @@ export function computeAllDashboardAggregations(records: SaleRecord[]): AllDashb
         byLedgerGroup,
         byRegion,
         byCountry,
+        bySalesperson,
         byItemProfit: allItemProfits.slice(0, 10),
         byMonth,
         profitByMonth,
@@ -1260,5 +1270,340 @@ export function computeDashboardDataSinglePass(records: SaleRecord[]): Dashboard
         topLossItems,
         revenueTrendData: salesByPeriod.map(d => d.value),
         profitTrendData: profitByMonthRaw.map(d => d.value),
+    };
+}
+
+/**
+ * Helper to yield to the event loop to prevent UI blocking.
+ * A small delay (e.g. 5-10ms) ensures the RN bridge has time to flush UI updates (Paint).
+ */
+function yieldToEventLoop(delayMs = 5): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, delayMs));
+}
+
+/**
+ * Async version of transformVouchersToSaleRecords
+ * Processes in chunks to avoid blocking the JS thread, allowing UI events to process.
+ */
+export async function transformVouchersToSaleRecordsAsync(
+    vouchers: SalesVoucher[],
+    chunkSize = 100 // Smaller default (approx 16ms work)
+): Promise<SaleRecord[]> {
+    if (!Array.isArray(vouchers)) return [];
+
+    // First filter - usually fast enough to do synchronously, but if huge we could chunk this too.
+    // For now we'll do filter sync and chunk the transform.
+    const salesVouchers = vouchers.filter(isSalesVoucher);
+    const results: SaleRecord[] = [];
+
+    for (let i = 0; i < salesVouchers.length; i += chunkSize) {
+        const chunk = salesVouchers.slice(i, i + chunkSize);
+        // Map chunk
+        for (const voucher of chunk) {
+            results.push(...transformVoucher(voucher));
+        }
+        // Yield to event loop every chunk
+        if (i + chunkSize < salesVouchers.length) {
+            await yieldToEventLoop();
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Async version of computeAllDashboardAggregations
+ * Processes in chunks to avoid blocking the JS thread.
+ */
+export async function computeAllDashboardAggregationsAsync(
+    records: SaleRecord[],
+    chunkSize = 100 // Smaller default (approx 16ms work)
+): Promise<AllDashboardAggregations> {
+    // Initialize exactly as synchronous version
+    type Bucket = { originalKey: string; amount?: number; quantity?: number; profit?: number; count: number };
+    const customerMap = new Map<string, Bucket>();
+    const categoryMap = new Map<string, Bucket>();
+    const itemAmountMap = new Map<string, Bucket>();
+    const itemQuantityMap = new Map<string, Bucket>();
+    const itemProfitMap = new Map<string, Bucket>();
+    const ledgerGroupMap = new Map<string, Bucket>();
+    const regionMap = new Map<string, Bucket>();
+    const countryMap = new Map<string, Bucket>();
+    const salespersonMap = new Map<string, Bucket>();
+    const monthAmountMap = new Map<string, { amount: number; count: number }>();
+    const monthProfitMap = new Map<string, { profit: number; count: number }>();
+    const monthQuantityMap = new Map<string, { quantity: number }>();
+    const monthInvoicesMap = new Map<string, Set<string>>();
+
+    const dailyAmountMap = new Map<string, number>();
+    const dailyProfitMap = new Map<string, number>();
+    const dailyQuantityMap = new Map<string, number>();
+    const dailyInvoicesMap = new Map<string, Set<string>>();
+    let minDate = '9999-99-99';
+    let maxDate = '0000-00-00';
+
+    let totalRevenue = 0;
+    let totalQuantity = 0;
+    let totalProfit = 0;
+    const useOrdersOnlyForInvoices = hasExplicitSalesFlag(records);
+    const uniqueInvoices = new Set<string>();
+    const uniqueCustomers = new Set<string>();
+
+    // Process records in chunks
+    for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize);
+
+        for (const record of chunk) {
+            totalRevenue += record.amount;
+            totalQuantity += record.quantity;
+            totalProfit += record.profit ?? 0;
+            if (record.masterid && (!useOrdersOnlyForInvoices || isOrderRecord(record)))
+                uniqueInvoices.add(record.masterid);
+            const custTrim = (record.customer != null ? String(record.customer).trim() : '');
+            if (custTrim !== '') uniqueCustomers.add(custTrim.toLowerCase());
+
+            const { norm: custNorm, original: custOrig } = normKey(record.customer, 'Unknown');
+            const custData = customerMap.get(custNorm) || { originalKey: custOrig, amount: 0, count: 0 };
+            custData.amount = (custData.amount ?? 0) + record.amount;
+            custData.count += 1;
+            customerMap.set(custNorm, custData);
+
+            const { norm: catNorm, original: catOrig } = normKey(record.category, 'Other');
+            const categoryData = categoryMap.get(catNorm) || { originalKey: catOrig, amount: 0, count: 0 };
+            categoryData.amount = (categoryData.amount ?? 0) + record.amount;
+            categoryData.count += 1;
+            categoryMap.set(catNorm, categoryData);
+
+            const { norm: itemNorm, original: itemOrig } = normKey(record.item, 'Unknown');
+            const itemAmountData = itemAmountMap.get(itemNorm) || { originalKey: itemOrig, amount: 0, count: 0 };
+            itemAmountData.amount = (itemAmountData.amount ?? 0) + record.amount;
+            itemAmountData.count += 1;
+            itemAmountMap.set(itemNorm, itemAmountData);
+
+            const itemQtyData = itemQuantityMap.get(itemNorm) || { originalKey: itemOrig, quantity: 0, count: 0 };
+            itemQtyData.quantity = (itemQtyData.quantity ?? 0) + record.quantity;
+            itemQtyData.count += 1;
+            itemQuantityMap.set(itemNorm, itemQtyData);
+
+            const itemProfitData = itemProfitMap.get(itemNorm) || { originalKey: itemOrig, profit: 0, count: 0 };
+            itemProfitData.profit = (itemProfitData.profit ?? 0) + (record.profit ?? 0);
+            itemProfitData.count += 1;
+            itemProfitMap.set(itemNorm, itemProfitData);
+
+            const { norm: ledgerNorm, original: ledgerOrig } = normKey(record.ledgerGroup, 'Unknown');
+            const ledgerData = ledgerGroupMap.get(ledgerNorm) || { originalKey: ledgerOrig, amount: 0, count: 0 };
+            ledgerData.amount = (ledgerData.amount ?? 0) + record.amount;
+            ledgerData.count += 1;
+            ledgerGroupMap.set(ledgerNorm, ledgerData);
+
+            const { norm: regionNorm, original: regionOrig } = normKey(record.region, 'Unknown');
+            const regionData = regionMap.get(regionNorm) || { originalKey: regionOrig, amount: 0, count: 0 };
+            regionData.amount = (regionData.amount ?? 0) + record.amount;
+            regionData.count += 1;
+            regionMap.set(regionNorm, regionData);
+
+            const { norm: countryNorm, original: countryOrig } = normKey(record.country, 'Unknown');
+            const countryData = countryMap.get(countryNorm) || { originalKey: countryOrig, amount: 0, count: 0 };
+            countryData.amount = (countryData.amount ?? 0) + record.amount;
+            countryData.count += 1;
+            countryMap.set(countryNorm, countryData);
+
+            const { norm: salespersonNorm, original: salespersonOrig } = normKey(record.salesperson, 'Unassigned');
+            const salespersonData = salespersonMap.get(salespersonNorm) || { originalKey: salespersonOrig, amount: 0, count: 0 };
+            salespersonData.amount = (salespersonData.amount ?? 0) + record.amount;
+            salespersonData.count += 1;
+            salespersonMap.set(salespersonNorm, salespersonData);
+
+            if (record.date) {
+                const normalizedDate = normalizeDate(record.date);
+                if (normalizedDate.length >= 10) {
+                    const monthKey = normalizedDate.slice(0, 7);
+                    const monthAmountData = monthAmountMap.get(monthKey) || { amount: 0, count: 0 };
+                    monthAmountData.amount += record.amount;
+                    monthAmountData.count += 1;
+                    monthAmountMap.set(monthKey, monthAmountData);
+                    const monthProfitData = monthProfitMap.get(monthKey) || { profit: 0, count: 0 };
+                    monthProfitData.profit += record.profit ?? 0;
+                    monthProfitData.count += 1;
+                    monthProfitMap.set(monthKey, monthProfitData);
+                    const monthQty = monthQuantityMap.get(monthKey) || { quantity: 0 };
+                    monthQty.quantity += record.quantity;
+                    monthQuantityMap.set(monthKey, monthQty);
+                    if (record.masterid && (!useOrdersOnlyForInvoices || isOrderRecord(record))) {
+                        let invSet = monthInvoicesMap.get(monthKey);
+                        if (!invSet) {
+                            invSet = new Set<string>();
+                            monthInvoicesMap.set(monthKey, invSet);
+                        }
+                        invSet.add(record.masterid);
+                    }
+
+                    const dayKey = normalizedDate.slice(0, 10);
+                    if (dayKey < minDate) minDate = dayKey;
+                    if (dayKey > maxDate) maxDate = dayKey;
+
+                    dailyAmountMap.set(dayKey, (dailyAmountMap.get(dayKey) ?? 0) + record.amount);
+                    dailyProfitMap.set(dayKey, (dailyProfitMap.get(dayKey) ?? 0) + (record.profit ?? 0));
+                    dailyQuantityMap.set(dayKey, (dailyQuantityMap.get(dayKey) ?? 0) + record.quantity);
+
+                    if (record.masterid && (!useOrdersOnlyForInvoices || isOrderRecord(record))) {
+                        let dayInvSet = dailyInvoicesMap.get(dayKey);
+                        if (!dayInvSet) {
+                            dayInvSet = new Set<string>();
+                            dailyInvoicesMap.set(dayKey, dayInvSet);
+                        }
+                        dayInvSet.add(record.masterid);
+                    }
+                }
+            }
+        }
+
+        // Yield to event loop
+        if (i + chunkSize < records.length) {
+            await yieldToEventLoop();
+        }
+    }
+
+    // Convert to result (re-use the same helpers logic essentially, but code is duplicated inside computeAllDashboardAggregations...
+    // ideally we'd refactor to share the "finish" logic, but to minimize risk I'll duplicate the finish block here)
+    const bucketMapToSorted = (
+        map: Map<string, Bucket>,
+        valueKey: 'amount' | 'quantity' | 'profit',
+        limit?: number
+    ): AggregatedData[] => {
+        const arr = Array.from(map.values())
+            .map(data => ({
+                label: data.originalKey,
+                value: (data[valueKey] ?? 0) as number,
+                count: data.count,
+            }))
+            .sort((a, b) => b.value - a.value);
+        return limit != null && limit > 0 ? arr.slice(0, limit) : arr;
+    };
+
+    const monthMapToSortedArray = (
+        map: Map<string, { amount?: number; profit?: number; count: number }>,
+        valueKey: 'amount' | 'profit'
+    ): AggregatedData[] => {
+        return Array.from(map.entries())
+            .map(([label, data]) => ({
+                label,
+                value: (data[valueKey] ?? 0) as number,
+                count: data.count,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    };
+
+    const totalInvoices = uniqueInvoices.size;
+    const avgInvoiceValue = totalInvoices > 0 ? totalRevenue / totalInvoices : 0;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    const avgProfitPerOrder = totalInvoices > 0 ? totalProfit / totalInvoices : 0;
+
+    const metrics: SalesMetrics = {
+        totalRevenue,
+        totalQuantity,
+        totalProfit,
+        totalInvoices,
+        uniqueCustomers: uniqueCustomers.size,
+        avgInvoiceValue,
+        profitMargin,
+        avgProfitPerOrder,
+    };
+
+    const byCustomer = bucketMapToSorted(customerMap, 'amount', 10);
+    const byCategory = bucketMapToSorted(categoryMap, 'amount');
+    const byItem = bucketMapToSorted(itemAmountMap, 'amount', 10);
+    const byItemQuantity = bucketMapToSorted(itemQuantityMap, 'quantity', 10);
+    const byLedgerGroup = bucketMapToSorted(ledgerGroupMap, 'amount');
+    const byRegion = bucketMapToSorted(regionMap, 'amount');
+    const byCountry = bucketMapToSorted(countryMap, 'amount');
+    const bySalesperson = bucketMapToSorted(salespersonMap, 'amount');
+
+    const allItemProfits = bucketMapToSorted(itemProfitMap, 'profit');
+    const topProfitableItems = allItemProfits.filter(d => d.value > 0).slice(0, 10);
+    const topLossItems = allItemProfits
+        .filter(d => d.value < 0)
+        .sort((a, b) => a.value - b.value)
+        .slice(0, 10);
+
+    const byMonth = monthMapToSortedArray(monthAmountMap, 'amount');
+    const profitByMonth = monthMapToSortedArray(monthProfitMap, 'profit');
+
+    let allDates: string[] = [];
+    if (minDate !== '9999-99-99' && maxDate !== '0000-00-00') {
+        allDates = getKeysBetweenDates(minDate, maxDate);
+    }
+    if (allDates.length === 0) allDates = [];
+
+    const revenueTrendData = allDates.map(d => dailyAmountMap.get(d) ?? 0);
+    const profitTrendData = allDates.map(d => dailyProfitMap.get(d) ?? 0);
+    const invoicesTrendData = allDates.map(d => dailyInvoicesMap.get(d)?.size ?? 0);
+    const quantityTrendData = allDates.map(d => dailyQuantityMap.get(d) ?? 0);
+
+    const cumulativeCustomersByDay = new Map<string, number>();
+    const seenCustomersForTrends = new Set<string>();
+
+    const sortedByDate = [...records]
+        .filter(r => r.date && (r.customer != null ? String(r.customer).trim() : '') !== '')
+        .map(r => ({ ...r, normalizedDate: normalizeDate(r.date) }))
+        .filter(r => r.normalizedDate.length >= 10)
+        .sort((a, b) => a.normalizedDate.localeCompare(b.normalizedDate));
+
+    for (const r of sortedByDate) {
+        if (r.normalizedDate.length < 10) continue;
+        const dayKey = r.normalizedDate.slice(0, 10);
+        const custNorm = (r.customer != null ? String(r.customer).trim() : '').toLowerCase();
+        seenCustomersForTrends.add(custNorm);
+        cumulativeCustomersByDay.set(dayKey, seenCustomersForTrends.size);
+    }
+
+    let lastDailyCumulative = 0;
+    const uniqueCustomersTrendData = allDates.map(d => {
+        const v = cumulativeCustomersByDay.get(d);
+        if (v !== undefined) lastDailyCumulative = v;
+        return lastDailyCumulative;
+    });
+
+    const avgInvoiceValueTrendData = allDates.map(d => {
+        const inv = dailyInvoicesMap.get(d)?.size ?? 0;
+        const rev = dailyAmountMap.get(d) ?? 0;
+        return inv > 0 ? rev / inv : 0;
+    });
+
+    const profitMarginTrendData = allDates.map(d => {
+        const rev = dailyAmountMap.get(d) ?? 0;
+        const prof = dailyProfitMap.get(d) ?? 0;
+        return rev > 0 ? (prof / rev) * 100 : 0;
+    });
+
+    const avgProfitPerOrderTrendData = allDates.map(d => {
+        const inv = dailyInvoicesMap.get(d)?.size ?? 0;
+        const prof = dailyProfitMap.get(d) ?? 0;
+        return inv > 0 ? prof / inv : 0;
+    });
+
+    return {
+        metrics,
+        byCustomer,
+        byCategory,
+        byItem,
+        byItemQuantity,
+        byLedgerGroup,
+        byRegion,
+        byCountry,
+        bySalesperson,
+        byItemProfit: allItemProfits.slice(0, 10),
+        byMonth,
+        profitByMonth,
+        topProfitableItems,
+        topLossItems,
+        revenueTrendData,
+        profitTrendData,
+        invoicesTrendData,
+        quantityTrendData,
+        uniqueCustomersTrendData,
+        avgInvoiceValueTrendData,
+        profitMarginTrendData,
+        avgProfitPerOrderTrendData,
     };
 }

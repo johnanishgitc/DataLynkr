@@ -52,6 +52,7 @@ export const strings = {
   bill_allocations: 'Bill Allocations',
   more_details: 'More Details',
   no_additional_details: 'No additional details',
+  view_full_details: 'View full details',
   order_details: 'Order Details',
   buyer_details: 'Buyer Details',
   consignee_details: 'Consignee Details',

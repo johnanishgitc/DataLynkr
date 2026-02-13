@@ -11,13 +11,24 @@ import {
   ScrollView,
   TextInput,
   InteractionManager,
+  StatusBar,
+  Animated,
+  Dimensions,
+  Pressable,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { CommonActions } from '@react-navigation/native';
+import type { HomeStackParamList } from '../navigation/types';
+import { navigationRef } from '../navigation/navigationRef';
 import RNFS from 'react-native-fs';
 import JSONTree from 'react-native-json-tree';
 import SQLite from 'react-native-sqlite-storage';
 import KeepAwake from 'react-native-keep-awake';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import { colors } from '../constants/colors';
-import Logo from '../components/Logo';
+import { strings } from '../constants/strings';
 import { apiService } from '../api/client';
 import {
   getUserEmail,
@@ -26,15 +37,27 @@ import {
   getGuid,
 } from '../store/storage';
 import {
-  transformVouchersToSaleRecords,
-  computeAllDashboardAggregations,
+  transformVouchersToSaleRecordsAsync,
+  computeAllDashboardAggregationsAsync,
 } from '../utils/salesTransformer';
+
+// Sidebar menu - same as Sales Dashboard
+const SIDEBAR_MENU = [
+  { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard' as const, params: undefined },
+  { id: 'orders', label: strings.place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.place_orders } },
+  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.b_commerce_place_orders } },
+  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' as const, params: undefined },
+  { id: 'approvals', label: strings.voucher_approvals, target: 'ComingSoon' as const, params: { tab_name: strings.voucher_approvals } },
+  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' as const, params: undefined },
+];
+const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.78, 320);
 
 // Enable SQLite promises
 SQLite.enablePromise(true);
 
 // Dashboard aggregations cache - same as in SalesDashboard
 const DASHBOARD_CACHE_TABLE = 'dashboard_aggregations_cache';
+const SALE_RECORDS_TABLE = 'sale_records';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let dashboardCacheDb: any | null = null;
@@ -47,6 +70,7 @@ async function getDashboardCacheDatabase(): Promise<any> {
         location: 'default',
     });
     
+    // Table for pre-computed dashboard aggregations (KPI + chart data)
     await dashboardCacheDb.executeSql(`
         CREATE TABLE IF NOT EXISTS ${DASHBOARD_CACHE_TABLE} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,6 +82,61 @@ async function getDashboardCacheDatabase(): Promise<any> {
             file_timestamp TEXT
         )
     `);
+
+    // Table for normalized item-level sale records (used for fast filtering)
+    await dashboardCacheDb.executeSql(`
+        CREATE TABLE IF NOT EXISTS ${SALE_RECORDS_TABLE} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cache_key TEXT NOT NULL,
+            date TEXT NOT NULL,
+            masterid TEXT,
+            vouchernumber TEXT,
+            vouchertype TEXT,
+            customer TEXT,
+            customerid TEXT,
+            gstin TEXT,
+            item TEXT,
+            itemid TEXT,
+            category TEXT,
+            uom TEXT,
+            quantity REAL,
+            amount REAL,
+            profit REAL,
+            cgst REAL,
+            sgst REAL,
+            igst REAL,
+            ledgerGroup TEXT,
+            region TEXT,
+            country TEXT,
+            pincode TEXT,
+            salesperson TEXT,
+            issales INTEGER,
+            sourceCompany TEXT
+        )
+    `);
+
+    // Indexes to speed up typical dashboard filters (date + dimensions)
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_key ON ${SALE_RECORDS_TABLE} (cache_key)`
+    );
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_date ON ${SALE_RECORDS_TABLE} (cache_key, date)`
+    );
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_customer ON ${SALE_RECORDS_TABLE} (cache_key, customer)`
+    );
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_item ON ${SALE_RECORDS_TABLE} (cache_key, item)`
+    );
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_ledger ON ${SALE_RECORDS_TABLE} (cache_key, ledgerGroup)`
+    );
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_region ON ${SALE_RECORDS_TABLE} (cache_key, region)`
+    );
+    await dashboardCacheDb.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_country ON ${SALE_RECORDS_TABLE} (cache_key, country)`
+    );
     
     return dashboardCacheDb;
 }
@@ -74,8 +153,8 @@ const yieldToUI = (): Promise<void> => {
     });
 };
 
-// Process vouchers in batches to keep UI responsive for large datasets
-const BATCH_SIZE = 1000; // Process 1000 vouchers at a time
+// Chunk size for indexed transform/aggregation (yields to UI, keeps loading fast)
+const INDEX_CHUNK_SIZE = 1000;
 
 async function saveDashboardAggregationsCache(
     cacheKey: string,
@@ -83,47 +162,18 @@ async function saveDashboardAggregationsCache(
     vouchers: any[]
 ): Promise<void> {
     try {
-        console.log('[CacheManagement2] Pre-computing dashboard aggregations...');
+        console.log('[CacheManagement2] Indexing dashboard aggregations...');
         console.log('[CacheManagement2] Cache key:', cacheKey);
         console.log('[CacheManagement2] Input vouchers count:', vouchers.length);
         const startTime = Date.now();
-        
-        // For very large datasets (>10k vouchers), process in batches
-        const isLargeDataset = vouchers.length > 10000;
-        
-        let records: ReturnType<typeof transformVouchersToSaleRecords> = [];
-        
-        if (isLargeDataset) {
-            console.log('[CacheManagement2] Large dataset detected, processing in batches of', BATCH_SIZE);
-            const transformStart = Date.now();
-            
-            // Process vouchers in batches with yield points
-            for (let i = 0; i < vouchers.length; i += BATCH_SIZE) {
-                const batch = vouchers.slice(i, i + BATCH_SIZE);
-                const batchRecords = transformVouchersToSaleRecords(batch);
-                records.push(...batchRecords);
-                
-                // Yield to UI every batch to keep it responsive
-                if (i + BATCH_SIZE < vouchers.length) {
-                    await yieldToUI();
-                }
-                
-                if ((i / BATCH_SIZE) % 10 === 0) {
-                    console.log('[CacheManagement2] Processed', i + batch.length, '/', vouchers.length, 'vouchers...');
-                }
-            }
-            
-            console.log('[CacheManagement2] Transformed to', records.length, 'records in', Date.now() - transformStart, 'ms');
-        } else {
-            // For smaller datasets, process all at once (faster)
-            const transformStart = Date.now();
-            records = transformVouchersToSaleRecords(vouchers);
-            console.log('[CacheManagement2] Transformed to', records.length, 'records in', Date.now() - transformStart, 'ms');
-        }
-        
-        // Compute all aggregations (this is already optimized single-pass)
+
+        // Always use async transform/aggregation so UI stays responsive (indexing path)
+        const transformStart = Date.now();
+        const records = await transformVouchersToSaleRecordsAsync(vouchers, INDEX_CHUNK_SIZE);
+        console.log('[CacheManagement2] Transformed to', records.length, 'records in', Date.now() - transformStart, 'ms');
+
         const aggStart = Date.now();
-        const aggregations = computeAllDashboardAggregations(records);
+        const aggregations = await computeAllDashboardAggregationsAsync(records, INDEX_CHUNK_SIZE);
         console.log('[CacheManagement2] Computed aggregations in', Date.now() - aggStart, 'ms');
         
         // Save to SQLite
@@ -139,7 +189,65 @@ async function saveDashboardAggregationsCache(
              VALUES (?, ?, ?, ?, ?, ?)`,
             [cacheKey, aggregationsJson, vouchers.length, records.length, createdAt, null],
         );
-        
+
+        // Persist normalized sale records for this cache key into SQLite (used for fast dashboard loading/filtering)
+        console.log('[CacheManagement2] Saving sale records to SQLite for cache key:', cacheKey);
+        const recordsStart = Date.now();
+
+        // Remove any existing records for this cache (fresh snapshot)
+        await db.executeSql(`DELETE FROM ${SALE_RECORDS_TABLE} WHERE cache_key = ?`, [cacheKey]);
+
+        // Batch insert: multiple rows per INSERT to reduce round-trips (SQLite limit 999 params; 25 cols => 39 rows max)
+        await db.executeSql('BEGIN TRANSACTION');
+        const COLS = 25;
+        const ROWS_PER_BATCH = 39; // 39 * 25 = 975 < 999
+        const oneRowPlaceholders = '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)';
+        const insertColumns = `(cache_key,date,masterid,vouchernumber,vouchertype,customer,customerid,gstin,item,itemid,category,uom,quantity,amount,profit,cgst,sgst,igst,ledgerGroup,region,country,pincode,salesperson,issales,sourceCompany)`;
+
+        for (let i = 0; i < records.length; i += ROWS_PER_BATCH) {
+            const batch = records.slice(i, i + ROWS_PER_BATCH);
+            const valuesPlaceholders = batch.map(() => oneRowPlaceholders).join(',');
+            const batchSql = `INSERT INTO ${SALE_RECORDS_TABLE} ${insertColumns} VALUES ${valuesPlaceholders}`;
+            const flatValues: (string | number | null)[] = [];
+            for (const r of batch) {
+                flatValues.push(
+                    cacheKey,
+                    r.date ?? '',
+                    r.masterid ?? null,
+                    r.vouchernumber ?? null,
+                    r.vouchertype ?? null,
+                    r.customer ?? null,
+                    r.customerid ?? null,
+                    r.gstin ?? null,
+                    r.item ?? null,
+                    r.itemid ?? null,
+                    r.category ?? null,
+                    r.uom ?? null,
+                    r.quantity ?? 0,
+                    r.amount ?? 0,
+                    r.profit ?? 0,
+                    r.cgst ?? 0,
+                    r.sgst ?? 0,
+                    r.igst ?? 0,
+                    r.ledgerGroup ?? null,
+                    r.region ?? null,
+                    r.country ?? null,
+                    r.pincode ?? null,
+                    r.salesperson ?? null,
+                    r.issales ? 1 : 0,
+                    r.sourceCompany ?? null,
+                );
+            }
+            await db.executeSql(batchSql, flatValues);
+
+            if (i > 0 && i % (ROWS_PER_BATCH * 10) === 0) {
+                await yieldToUI();
+                console.log('[CacheManagement2] Saved', Math.min(i + ROWS_PER_BATCH, records.length), '/', records.length, 'sale records...');
+            }
+        }
+        await db.executeSql('COMMIT');
+
+        console.log('[CacheManagement2] Saved', records.length, 'sale records in', Date.now() - recordsStart, 'ms');
         console.log('[CacheManagement2] Dashboard cache saved! Total time:', Date.now() - startTime, 'ms');
         console.log('[CacheManagement2] Metrics - Vouchers:', vouchers.length, 'Records:', records.length, 'Revenue:', aggregations.metrics?.totalRevenue);
     } catch (error) {
@@ -167,6 +275,8 @@ interface DateChunk {
 // Database name (independent from existing cache)
 const DB_NAME = 'cache2.db';
 const TABLE_NAME = 'cache2_entries';
+const STOCK_ITEMS_TABLE = 'cache2_stock_items';
+const CUSTOMERS_TABLE = 'cache2_customers';
 const PAGE_SIZE_CHARS = 50000; // characters per page for paginated viewing
 const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB - files larger than this use chunked-reading / no in-memory cache
 const MAX_SAFE_FILE_MB = 64; // Above this, skip in-memory view for View Raw / Tree only (update and download have no limit)
@@ -216,11 +326,15 @@ function createDateChunks(fromDate: Date, toDate: Date): DateChunk[] {
   return chunks;
 }
 
-// Helper: generate cache key from user info
-function generateCacheKey(email: string, guid: string, tallylocId: number): string {
-  // Replace @ and . and spaces with _ to get user id part
+// Helper: generate cache key from user info (suffix: complete_sales | ledger_list | stock_items)
+function generateCacheKey(
+  email: string,
+  guid: string,
+  tallylocId: number,
+  suffix: 'complete_sales' | 'ledger_list' | 'stock_items' = 'complete_sales'
+): string {
   const userIdPart = email.replace(/@/g, '_').replace(/\./g, '_').replace(/\s/g, '_');
-  return `${userIdPart}_${guid}_${tallylocId}_complete_sales`;
+  return `${userIdPart}_${guid}_${tallylocId}_${suffix}`;
 }
 
 // Database helper functions
@@ -230,7 +344,25 @@ let db: any = null;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getDatabase(): Promise<any> {
-  if (db) return db;
+  if (db) {
+    await db.executeSql(`
+      CREATE TABLE IF NOT EXISTS ${STOCK_ITEMS_TABLE} (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        data TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await db.executeSql(`
+      CREATE TABLE IF NOT EXISTS ${CUSTOMERS_TABLE} (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        data TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    try { await db.executeSql(`ALTER TABLE ${STOCK_ITEMS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
+    try { await db.executeSql(`ALTER TABLE ${CUSTOMERS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
+    return db;
+  }
 
   db = await SQLite.openDatabase({
     name: DB_NAME,
@@ -248,6 +380,25 @@ async function getDatabase(): Promise<any> {
       json_path TEXT NOT NULL
     )
   `);
+
+  await db.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${STOCK_ITEMS_TABLE} (
+      cache_key TEXT PRIMARY KEY NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  await db.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${CUSTOMERS_TABLE} (
+      cache_key TEXT PRIMARY KEY NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  try { await db.executeSql(`ALTER TABLE ${STOCK_ITEMS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
+  try { await db.executeSql(`ALTER TABLE ${CUSTOMERS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
 
   return db;
 }
@@ -303,6 +454,87 @@ async function deleteCacheEntry(id: number): Promise<void> {
   await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE id = ?`, [id]);
 }
 
+// Extract display names from stock items payload for fast dropdown load
+function stockItemNamesFromPayload(data: unknown): string[] {
+  if (data == null || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  const list = (obj.stockItems as unknown[] | undefined) ?? (obj.data as unknown[] | undefined);
+  const arr = Array.isArray(list) ? list : [];
+  return arr
+    .map((i) => String((i as Record<string, unknown>)?.NAME ?? (i as Record<string, unknown>)?.name ?? '').trim())
+    .filter(Boolean);
+}
+
+// Extract display names from ledger list payload for fast dropdown load
+function ledgerNamesFromPayload(data: unknown): string[] {
+  if (data == null || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  const inner = (obj.data as Record<string, unknown> | undefined) ?? obj;
+  const list = (inner.ledgers as unknown[] | undefined) ?? (inner.data as unknown[] | undefined);
+  const arr = Array.isArray(list) ? list : [];
+  return arr
+    .map((i) => String((i as Record<string, unknown>)?.NAME ?? (i as Record<string, unknown>)?.name ?? '').trim())
+    .filter(Boolean);
+}
+
+async function saveStockItemsForCacheKey(cacheKey: string, data: unknown): Promise<void> {
+  const database = await getDatabase();
+  const createdAt = new Date().toISOString();
+  const dataJson = JSON.stringify(data);
+  const namesJson = JSON.stringify(stockItemNamesFromPayload(data));
+  await database.executeSql(
+    `INSERT OR REPLACE INTO ${STOCK_ITEMS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
+    [cacheKey, dataJson, createdAt, namesJson]
+  );
+}
+
+async function saveCustomersForCacheKey(cacheKey: string, data: unknown): Promise<void> {
+  const database = await getDatabase();
+  const createdAt = new Date().toISOString();
+  const dataJson = JSON.stringify(data);
+  const namesJson = JSON.stringify(ledgerNamesFromPayload(data));
+  await database.executeSql(
+    `INSERT OR REPLACE INTO ${CUSTOMERS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
+    [cacheKey, dataJson, createdAt, namesJson]
+  );
+}
+
+async function loadStockItemsDataForCacheKey(cacheKey: string): Promise<unknown | null> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
+      [cacheKey]
+    );
+    if (results.rows.length === 0) return null;
+    const row = results.rows.item(0) as { data?: string };
+    const dataStr = row?.data;
+    if (typeof dataStr !== 'string') return null;
+    return JSON.parse(dataStr) as unknown;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadStockItemsDataForCacheKey failed:', e);
+    return null;
+  }
+}
+
+async function loadCustomersDataForCacheKey(cacheKey: string): Promise<unknown | null> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT data FROM ${CUSTOMERS_TABLE} WHERE cache_key = ? LIMIT 1`,
+      [cacheKey]
+    );
+    if (results.rows.length === 0) return null;
+    const row = results.rows.item(0) as { data?: string };
+    const dataStr = row?.data;
+    if (typeof dataStr !== 'string') return null;
+    return JSON.parse(dataStr) as unknown;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadCustomersDataForCacheKey failed:', e);
+    return null;
+  }
+}
+
 // Delete dashboard aggregations cache for a specific key
 async function deleteDashboardCacheEntry(cacheKey: string): Promise<void> {
   try {
@@ -343,7 +575,11 @@ function getCurrentFinancialYearStart(): Date {
   return new Date(fyStartYear, 3, 1); // April 1st of current FY
 }
 
+// Approximate tab bar height so scroll content can clear the footer
+const FOOTER_TAB_BAR_HEIGHT = 100;
+
 export default function DataManagement() {
+  const insets = useSafeAreaInsets();
   // State - default from date is start of current financial year, to date is today
   const [fromDate, setFromDate] = useState<Date>(() => getCurrentFinancialYearStart());
   const [toDate, setToDate] = useState<Date>(() => new Date());
@@ -370,6 +606,12 @@ export default function DataManagement() {
   const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
   const [calendarViewMode, setCalendarViewMode] = useState<'day' | 'monthYear'>('day');
 
+  // Sidebar (hamburger menu)
+  const nav = useNavigation<NativeStackNavigationProp<HomeStackParamList, 'DataManagement'>>();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [company, setCompany] = useState('');
+  const sidebarAnim = useRef(new Animated.Value(0)).current;
+
   // State for interrupted download resume
   const [interruptedDownload, setInterruptedDownload] = useState<InterruptedDownloadState | null>(null);
   
@@ -390,6 +632,46 @@ export default function DataManagement() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    getCompany().then(setCompany);
+  }, []);
+
+  // Sidebar open/close animation
+  useEffect(() => {
+    Animated.timing(sidebarAnim, {
+      toValue: sidebarOpen ? 1 : 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [sidebarOpen, sidebarAnim]);
+
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  const goToAdminDashboard = useCallback(() => {
+    closeSidebar();
+    if (navigationRef.isReady()) {
+      navigationRef.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'AdminDashboard' }] }));
+    }
+  }, [closeSidebar]);
+
+  const onSidebarItemPress = useCallback(
+    (item: (typeof SIDEBAR_MENU)[0]) => {
+      closeSidebar();
+      if (item.target === 'LedgerTab') {
+        const tab = nav.getParent() as { navigate?: (name: string) => void } | undefined;
+        tab?.navigate?.('LedgerTab');
+      } else if (item.target === 'DataManagement') {
+        // Already here
+      } else if (item.params) {
+        nav.navigate(item.target, item.params);
+      } else {
+        (nav.navigate as (name: string) => void)(item.target);
+      }
+    },
+    [closeSidebar, nav],
+  );
 
   const refreshEntries = useCallback(async () => {
     try {
@@ -979,6 +1261,35 @@ export default function DataManagement() {
       // Generate cache key
       const cacheKey = generateCacheKey(email, guid, tallylocId);
 
+      // Download and store Stock Items and Customers (ledger list with addrs) when Download is clicked (separate cache keys)
+      try {
+        setStatusMessage('Fetching stock items and customers...');
+        const ledgerListCacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+        const stockItemsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+        const payload = { tallyloc_id: Number(tallylocId), company, guid };
+        const [stockResult, customersResult] = await Promise.allSettled([
+          apiService.getStockItems(payload),
+          apiService.getLedgerList(payload),
+        ]);
+        if (stockResult.status === 'fulfilled') {
+          const stockBody = (stockResult.value as { data?: unknown })?.data ?? stockResult.value;
+          await saveStockItemsForCacheKey(stockItemsCacheKey, stockBody);
+          console.log('[CacheManagement2] Stock items saved for cache key:', stockItemsCacheKey);
+        } else {
+          console.warn('[CacheManagement2] Stock items fetch failed:', stockResult.reason);
+        }
+        if (customersResult.status === 'fulfilled') {
+          const customersBody = (customersResult.value as { data?: unknown })?.data ?? customersResult.value;
+          await saveCustomersForCacheKey(ledgerListCacheKey, customersBody);
+          console.log('[CacheManagement2] Customers (ledgerlist-w-addrs) saved for cache key:', ledgerListCacheKey);
+        } else {
+          console.warn('[CacheManagement2] Customers fetch failed:', customersResult.reason);
+        }
+      } catch (stockLedgerError) {
+        console.error('[CacheManagement2] Stock items / customers fetch or save failed:', stockLedgerError);
+        // Continue with sales download; do not block
+      }
+
       // Check if there's already cached data for this key
       const cachedRanges = await getCachedDateRanges(cacheKey);
       
@@ -1094,6 +1405,35 @@ export default function DataManagement() {
 
       // Generate cache key
       const cacheKey = generateCacheKey(email, guid, tallylocId);
+
+      // Refresh Stock Items and Customers (ledger list) on Update – call APIs and replace stored data
+      try {
+        setStatusMessage('Refreshing stock items and customers...');
+        const ledgerListCacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+        const stockItemsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+        const payload = { tallyloc_id: Number(tallylocId), company, guid };
+        const [stockResult, customersResult] = await Promise.allSettled([
+          apiService.getStockItems(payload),
+          apiService.getLedgerList(payload),
+        ]);
+        if (stockResult.status === 'fulfilled') {
+          const stockBody = (stockResult.value as { data?: unknown })?.data ?? stockResult.value;
+          await saveStockItemsForCacheKey(stockItemsCacheKey, stockBody);
+          console.log('[CacheManagement2] Stock items refreshed for cache key:', stockItemsCacheKey);
+        } else {
+          console.warn('[CacheManagement2] Stock items refresh failed:', stockResult.reason);
+        }
+        if (customersResult.status === 'fulfilled') {
+          const customersBody = (customersResult.value as { data?: unknown })?.data ?? customersResult.value;
+          await saveCustomersForCacheKey(ledgerListCacheKey, customersBody);
+          console.log('[CacheManagement2] Customers (ledgerlist-w-addrs) refreshed for cache key:', ledgerListCacheKey);
+        } else {
+          console.warn('[CacheManagement2] Customers refresh failed:', customersResult.reason);
+        }
+      } catch (stockLedgerError) {
+        console.error('[CacheManagement2] Stock items / customers refresh or save failed:', stockLedgerError);
+        // Continue with voucher sync; do not block
+      }
 
       // Find existing cache entry with this key
       setStatusMessage('Looking for existing cache...');
@@ -1743,6 +2083,78 @@ export default function DataManagement() {
     goToPage(pageNum);
   };
 
+  const handleViewStockItems = async () => {
+    try {
+      const [email, tallylocId, company, guid] = await Promise.all([
+        getUserEmail(),
+        getTallylocId(),
+        getCompany(),
+        getGuid(),
+      ]);
+      if (!email || !guid || tallylocId == null) {
+        Alert.alert('Not available', 'Please ensure you are logged in and have selected a company.');
+        return;
+      }
+      const cacheKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+      const data = await loadStockItemsDataForCacheKey(cacheKey);
+      if (data == null) {
+        Alert.alert('No data', 'Stock items cache is empty. Use Download or Update first.');
+        return;
+      }
+      const rawStr = JSON.stringify(data, null, 2);
+      setPreviewTitle('Stock Items');
+      setPreviewContent(data);
+      setPreviewRaw(rawStr);
+      setPreviewMode('tree');
+      setPreviewTooLarge(false);
+      setCurrentPage(1);
+      setTotalPages(1);
+      setCurrentFilePath('');
+      setPageInputText('1');
+      setPreviewLoading(false);
+      setPreviewVisible(true);
+    } catch (e) {
+      console.error('View stock items failed:', e);
+      Alert.alert('Error', 'Failed to load stock items.');
+    }
+  };
+
+  const handleViewCustomers = async () => {
+    try {
+      const [email, tallylocId, company, guid] = await Promise.all([
+        getUserEmail(),
+        getTallylocId(),
+        getCompany(),
+        getGuid(),
+      ]);
+      if (!email || !guid || tallylocId == null) {
+        Alert.alert('Not available', 'Please ensure you are logged in and have selected a company.');
+        return;
+      }
+      const cacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+      const data = await loadCustomersDataForCacheKey(cacheKey);
+      if (data == null) {
+        Alert.alert('No data', 'Customers (ledger list) cache is empty. Use Download or Update first.');
+        return;
+      }
+      const rawStr = JSON.stringify(data, null, 2);
+      setPreviewTitle('Customers (Ledger List)');
+      setPreviewContent(data);
+      setPreviewRaw(rawStr);
+      setPreviewMode('tree');
+      setPreviewTooLarge(false);
+      setCurrentPage(1);
+      setTotalPages(1);
+      setCurrentFilePath('');
+      setPageInputText('1');
+      setPreviewLoading(false);
+      setPreviewVisible(true);
+    } catch (e) {
+      console.error('View customers failed:', e);
+      Alert.alert('Error', 'Failed to load customers.');
+    }
+  };
+
   const handleClearAllCache = () => {
     if (!entries.length) {
       Alert.alert('No cache', 'There is no cached data to clear.');
@@ -1773,8 +2185,10 @@ export default function DataManagement() {
                 }
               }
 
-              // Delete all rows
+              // Delete all rows (main cache, stock items, customers)
               await database.executeSql(`DELETE FROM ${TABLE_NAME}`);
+              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
+              await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
 
               // Delete files on disk (ignore individual errors)
               await Promise.all(
@@ -2233,20 +2647,73 @@ export default function DataManagement() {
     );
   };
 
+  const overlayOpacity = sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] });
+  const panelTranslateX = sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [-SIDEBAR_WIDTH, 0] });
+
   return (
     <View style={styles.root}>
+      <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
       {/* Keep screen awake during downloads/updates */}
       {(isDownloading || isUpdating) && <KeepAwake />}
       
-      {/* Header Section */}
-      <View style={styles.headerSection}>
-        <Logo width={40} height={26} style={styles.headerLogo} />
-        <Text style={styles.title}>Cache Management 2</Text>
-        <Text style={styles.subtitle}>
-          Independent sales data cache - downloads and stores data separately from the main cache.
-        </Text>
-      </View>
+      {/* Header - same style as Sales Dashboard */}
+      <SafeAreaView edges={['top']} style={styles.headerWrapper}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={openSidebar} style={styles.headerMenuButton}>
+            <Icon name="menu" size={24} color={colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Data Management</Text>
+        </View>
+      </SafeAreaView>
 
+      {/* Sidebar */}
+      <Modal visible={sidebarOpen} transparent animationType="none" statusBarTranslucent>
+        <Pressable style={StyleSheet.absoluteFill} onPress={closeSidebar}>
+          <Animated.View style={[styles.sidebarOverlay, { opacity: overlayOpacity }]} />
+        </Pressable>
+        <Animated.View
+          style={[
+            styles.sidebarPanel,
+            { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] },
+          ]}>
+          <View style={styles.sidebarHeader}>
+            <Text style={styles.sidebarTitle} numberOfLines={1}>{company || 'DataLynkr'}</Text>
+            <TouchableOpacity onPress={closeSidebar} style={styles.sidebarClose}>
+              <Icon name="close" size={24} color="#1e293b" />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.sidebarConnectionsBtn} onPress={goToAdminDashboard} activeOpacity={0.7}>
+            <Icon name="business" size={20} color={colors.primary_blue} />
+            <Text style={styles.sidebarConnectionsText}>{strings.list_of_connections}</Text>
+          </TouchableOpacity>
+          <FlatList
+            data={SIDEBAR_MENU}
+            keyExtractor={(i) => i.id}
+            style={styles.sidebarList}
+            contentContainerStyle={styles.sidebarListContent}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[styles.sidebarRow, item.target === 'DataManagement' && styles.sidebarRowActive]}
+                onPress={() => onSidebarItemPress(item)}
+                activeOpacity={0.7}>
+                <Text style={[styles.sidebarRowLabel, item.target === 'DataManagement' && styles.sidebarRowLabelActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+        </Animated.View>
+      </Modal>
+
+      <ScrollView
+        style={styles.mainScroll}
+        contentContainerStyle={[
+          styles.mainScrollContent,
+          { paddingBottom: FOOTER_TAB_BAR_HEIGHT + insets.bottom },
+        ]}
+        showsVerticalScrollIndicator={true}
+        keyboardShouldPersistTaps="handled"
+      >
       {/* Date Range Section */}
       <View style={styles.dateSection}>
         <Text style={styles.sectionTitle}>Select Date Range</Text>
@@ -2362,15 +2829,40 @@ export default function DataManagement() {
         {entries.length === 0 ? (
           <Text style={styles.emptyText}>No cached data yet. Download some data to see it here.</Text>
         ) : (
-          <FlatList
-            data={entries}
-            keyExtractor={(item) => String(item.id)}
-            renderItem={renderCacheEntry}
-            contentContainerStyle={styles.entriesList}
-            showsVerticalScrollIndicator={false}
-          />
+          <View style={styles.entriesList}>
+            {entries.map((item) => (
+              <View key={String(item.id)}>{renderCacheEntry({ item })}</View>
+            ))}
+          </View>
         )}
+
+        {/* Reference data: Stock Items & Customers (Ledger List) */}
+        <View style={styles.referenceDataSection}>
+          <Text style={styles.referenceDataTitle}>Reference data</Text>
+          <View style={styles.referenceDataRow}>
+            <Text style={styles.referenceDataLabel}>Stock Items</Text>
+            <TouchableOpacity
+              style={styles.viewRawButton}
+              onPress={handleViewStockItems}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewRawButtonText}>View</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.referenceDataRow}>
+            <Text style={styles.referenceDataLabel}>Customers (Ledger List)</Text>
+            <TouchableOpacity
+              style={styles.viewRawButton}
+              onPress={handleViewCustomers}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewRawButtonText}>View</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
+
+      </ScrollView>
       {renderCalendar()}
       {renderPreviewModal()}
     </View>
@@ -2382,13 +2874,108 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.white,
   },
-  headerSection: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border_gray,
+  mainScroll: {
+    flex: 1,
   },
-  headerLogo: {
-    marginBottom: 8,
+  mainScrollContent: {
+    paddingBottom: 24, // base; overridden with footer + safe area in JSX
+  },
+  headerWrapper: {
+    backgroundColor: colors.primary_blue,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: colors.primary_blue,
+  },
+  headerMenuButton: {
+    padding: 4,
+    marginRight: 4,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.white,
+  },
+  sidebarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+  },
+  sidebarPanel: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: colors.white,
+    borderRightWidth: 1,
+    borderRightColor: colors.border_light,
+    paddingTop: 48,
+  },
+  sidebarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border_light,
+  },
+  sidebarTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text_primary,
+    flex: 1,
+  },
+  sidebarClose: {
+    padding: 4,
+  },
+  sidebarConnectionsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary_blue,
+    backgroundColor: colors.card_bg_light,
+  },
+  sidebarConnectionsText: {
+    fontSize: 14,
+    color: colors.primary_blue,
+    fontWeight: '500',
+  },
+  sidebarList: {
+    flex: 1,
+    marginTop: 16,
+  },
+  sidebarListContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  sidebarRow: {
+    backgroundColor: colors.card_bg_light,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+  sidebarRowActive: {
+    borderWidth: 1,
+    borderColor: colors.primary_blue,
+    backgroundColor: colors.bg_light_blue2,
+  },
+  sidebarRowLabel: {
+    fontSize: 16,
+    color: colors.text_primary,
+  },
+  sidebarRowLabelActive: {
+    color: colors.primary_blue,
+    fontWeight: '600',
   },
   title: {
     fontSize: 20,
@@ -2521,7 +3108,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cacheSection: {
-    flex: 1,
     padding: 16,
   },
   cacheHeaderRow: {
@@ -2538,6 +3124,32 @@ const styles = StyleSheet.create({
   },
   entriesList: {
     paddingBottom: 16,
+  },
+  referenceDataSection: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border_light,
+  },
+  referenceDataTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text_primary,
+    marginBottom: 10,
+  },
+  referenceDataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border_light,
+  },
+  referenceDataLabel: {
+    fontSize: 14,
+    color: colors.text_secondary,
+    flex: 1,
   },
   entryRow: {
     backgroundColor: colors.card_bg_light,

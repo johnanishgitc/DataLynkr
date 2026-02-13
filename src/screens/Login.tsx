@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
 } from 'react-native';
 import Logo from '../components/Logo';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -82,6 +83,7 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
+      <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
       <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}

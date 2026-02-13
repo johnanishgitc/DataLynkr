@@ -7,3 +7,26 @@ export { default as CalendarPicker } from './CalendarPicker';
 export { default as PeriodSelection } from './PeriodSelection';
 export { default as ExportMenu } from './ExportMenu';
 export { default as VoucherTypeDropdown } from './VoucherTypeDropdown';
+export {
+  toNum,
+  fmtNum,
+  amt,
+  getInventoryAmount,
+  getLedgerEntryAmount,
+  getLedgerEntryPercentage,
+  ledgerEntriesToDisplayRows,
+  VoucherCustomerBar,
+  VoucherSummaryCard,
+  InventoryRow,
+  AllocationRow,
+  LedgerDetailsExpandable,
+  VoucherDetailsFooter,
+} from './VoucherDetailsContent';
+export type {
+  VoucherCustomerBarProps,
+  VoucherSummaryCardProps,
+  AllocationRowItem,
+  LedgerDetailsRow,
+  LedgerDetailsExpandableProps,
+  VoucherDetailsFooterProps,
+} from './VoucherDetailsContent';

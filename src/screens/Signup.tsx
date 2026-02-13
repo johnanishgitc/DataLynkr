@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Logo from '../components/Logo';
@@ -79,6 +80,7 @@ export default function Signup() {
   if (success) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
+        <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
         <View style={styles.successWrap}>
           <View style={styles.card}>
             <View style={styles.topSection}>
@@ -100,6 +102,7 @@ export default function Signup() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
+      <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
       <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}

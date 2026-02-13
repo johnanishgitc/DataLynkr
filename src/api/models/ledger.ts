@@ -31,6 +31,19 @@ export interface LedgerReportRequest {
   todate: number;
 }
 
+/** Sales Order Ledger Outstandings request (orders outstanding API) */
+export interface SalesOrderOutstandingRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  fromdate: string;
+  todate: string;
+  type: string;
+  ledger: string;
+  /** When "Yes", returns cleared orders only */
+  cleared?: string;
+}
+
 export interface Balance {
   DEBITAMT?: unknown;
   CREDITAMT?: unknown;
@@ -38,8 +51,14 @@ export interface Balance {
 
 export interface BillAllocation {
   BILLNAME?: string | null;
+  BILLTYPE?: string | null;
   DEBITAMT?: unknown;
   CREDITAMT?: unknown;
+  // New lowercase format fields
+  billname?: string | null;
+  billtype?: string | null;
+  amount?: string | null;
+  billcreditperiod?: string | null;
 }
 
 export interface InventoryAllocation {
@@ -53,6 +72,14 @@ export interface InventoryAllocation {
   BILLEDAMOUNT?: unknown;
   BILLEDVALUE?: unknown;
   ACTUALAMOUNT?: unknown;
+  /** getvoucherdata API: allinventoryentries uses lowercase keys */
+  stockitemname?: string | null;
+  actualqty?: string | null;
+  billedqty?: string | null;
+  rate?: unknown;
+  discount?: unknown;
+  amount?: unknown;
+  value?: unknown;
   /** Nested sub-allocations (batch/godown wise) */
   INVENTORYALLOCATIONS?: InventoryAllocation[] | InventoryAllocation | null;
   /** Batch allocations (Tally/sales API) */
@@ -115,6 +142,38 @@ export interface VoucherEntry {
   VOUCHERS?: VoucherEntry[] | null;
 }
 
+/** Single voucher row inside a sales order outstanding entry */
+export interface SalesOrderOutstandingVoucher {
+  MASTERID?: string | null;
+  DATE?: string | null;
+  VOUCHERTYPE?: string | null;
+  VOUCHERNUMBER?: string | null;
+  QUANTITY?: string | null;
+  NARRATION?: string | null;
+}
+
+/** Row of DATA from sales order outstanding API */
+export interface SalesOrderOutstandingRow {
+  DATE?: string | null;
+  NAME?: string | null;
+  STOCKITEM?: string | null;
+  GODOWN?: string | null;
+  BATCHNAME?: string | null;
+  LEDGER?: string | null;
+  OPENINGBALANCE?: string | null;
+  CLOSINGBALANCE?: string | null;
+  PRECLOSEQTY?: string | null;
+  PRECLOSEREASON?: string | null;
+  DUEON?: string | null;
+  RATE?: string | null;
+  DISCOUNT?: string | null;
+  AMOUNT?: string | null;
+  STOCKGROUP?: string | null;
+  STOCKCATEGORY?: string | null;
+  LEDGERGROUP?: string | null;
+  VOUCHERS?: SalesOrderOutstandingVoucher[] | null;
+}
+
 export interface OnAccount {
   DEBITOPENBAL?: unknown;
   CREDITOPENBAL?: unknown;
@@ -133,6 +192,15 @@ export interface LedgerReportData {
   opening?: Balance | null;
   closing?: Balance | null;
   onacc?: OnAccount | null;
+}
+
+/** Sales Order Ledger Outstandings API response */
+export interface SalesOrderOutstandingResponse {
+  DATA?: SalesOrderOutstandingRow[] | null;
+  success?: boolean;
+  message?: string | null;
+  error?: string | null;
+  [key: string]: unknown;
 }
 
 export interface LedgerReportResponse {

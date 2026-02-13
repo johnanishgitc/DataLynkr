@@ -31,6 +31,47 @@ export type LedgerStackParamList = {
     voucher: object;
     ledger_name?: string;
   };
+  /** Bill Allocations - Figma 3045-58856 */
+  BillAllocations: {
+    voucher: object;
+    ledger_name?: string;
+  };
+  /** More Details - Figma 3045-59118, 3045-59311, 3045-59471 (Buyer/Consignee/Order Details tabs) */
+  MoreDetails: {
+    voucher?: object;
+    ledger_name?: string;
+  };
+  SalesOrderVoucherDetails: {
+    row: object;
+    ledger_name?: string;
+    from_date?: number;
+    to_date?: number;
+    report_name?: string;
+    /** Multiple rows when stock items are grouped */
+    groupedRows?: object[];
+  };
+  SalesOrderLineDetail: {
+    row: object;
+    voucher: object;
+    ledger_name?: string;
+  };
+  /** SOLO4: Voucher Details with Ledger, voucher summary, Inventory Allocations */
+  SalesOrderVoucherLineDetail: {
+    row: object;
+    voucher: object;
+    ledger_name?: string;
+  };
+  /** Cleared Order Details - Figma 3045-62731: Ledger, Order No, voucher list */
+  ClearedOrderDetails: {
+    ledger_name?: string;
+    order_no?: string;
+    rows?: object[];
+  };
+  /** Order Details - Figma 3062-25213: third screen after Sales Order Outstandings; Ledger, Stock Item, Order No + entries */
+  SalesOrderOrderDetails: {
+    row: object;
+    ledger_name?: string;
+  };
 };
 
 export type OrdersStackParamList = {

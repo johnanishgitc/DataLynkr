@@ -33,7 +33,6 @@ import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 
 import { KPICard, BarChart, PieChart, LineChart } from '../components/charts';
-import Logo from '../components/Logo';
 import PeriodSelection from '../components/PeriodSelection';
 import { cacheManager, getCorruptedCacheKeys } from '../cache';
 import { getGuid, getTallylocId, getCompany, getUserEmail } from '../store/storage';
@@ -48,7 +47,9 @@ import {
 } from '../utils/formatters';
 import {
     transformVouchersToSaleRecords,
+    transformVouchersToSaleRecordsAsync,
     computeAllDashboardAggregations,
+    computeAllDashboardAggregationsAsync,
     filterSaleRecordsByFilters,
     SaleRecord,
     AllDashboardAggregations,
@@ -370,6 +371,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                     setLoading(false);
                     setChartsLoading(false);
                     // Background: load full data from cache2 file so filters work (indexing in background)
+                    // Uses async chunked processing to avoid blocking UI thread
                     const keyForBackground = cacheKey2;
                     InteractionManager.runAfterInteractions(() => {
                         (async () => {
@@ -387,7 +389,11 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                                 }
                                 console.log('[SalesDashboard] Background: loading full data for filters...');
                                 const contentStr = await RNFS.readFile(entry.json_path, 'utf8');
+                                // Yield before heavy JSON parse so pending UI events can flush
+                                await new Promise<void>(r => setTimeout(r, 0));
                                 const parsed: unknown = JSON.parse(contentStr);
+                                // Yield after parse so UI stays responsive
+                                await new Promise<void>(r => setTimeout(r, 0));
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 let vouchers: any[] = [];
                                 if (Array.isArray(parsed)) {
@@ -412,8 +418,9 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                                 }
                                 if (vouchers.length === 0) return;
                                 const data = vouchers as SalesVoucher[];
-                                const records = transformVouchersToSaleRecords(data);
-                                const allAggregations = computeAllDashboardAggregations(records);
+                                // Use async chunked versions to avoid blocking UI
+                                const records = await transformVouchersToSaleRecordsAsync(data);
+                                const allAggregations = await computeAllDashboardAggregationsAsync(records);
                                 setSales(data);
                                 setSaleRecords(records);
                                 setAggregations(allAggregations);
@@ -483,6 +490,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
 
             // Use InteractionManager to defer ALL heavy operations (file read, parse, transform)
             // This ensures the UI is visible and responsive before we do any heavy work
+            // All heavy operations use async chunked versions to yield to event loop regularly
             interactionTaskRef.current = InteractionManager.runAfterInteractions(async () => {
                 console.log('[SalesDashboard] Starting deferred data loading...');
                 const totalStartTime = Date.now();
@@ -497,6 +505,8 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         const contentStr = await RNFS.readFile(cache2Path, 'utf8');
                         console.log('[SalesDashboard] File read completed in', Date.now() - readStartTime, 'ms');
 
+                        // Yield before heavy JSON parse so pending UI events can flush
+                        await new Promise<void>(r => setTimeout(r, 0));
                         const parseStartTime = Date.now();
                         let parsed: unknown;
                         try {
@@ -506,6 +516,8 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                             console.warn('[SalesDashboard] Failed to parse cache2 JSON:', parseError);
                             parsed = null;
                         }
+                        // Yield after parse so UI stays responsive
+                        await new Promise<void>(r => setTimeout(r, 0));
 
                         if (parsed) {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -590,10 +602,10 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 if (data && Array.isArray(data) && data.length > 0) {
                     setSales(data);
 
-                    // Heavy operation 2: Transform vouchers to sale records
-                    console.log('[SalesDashboard] Starting data transformation...');
+                    // Heavy operation 2: Transform vouchers to sale records (async chunked - yields to UI)
+                    console.log('[SalesDashboard] Starting data transformation (async)...');
                     const transformStartTime = Date.now();
-                    const records = transformVouchersToSaleRecords(data);
+                    const records = await transformVouchersToSaleRecordsAsync(data);
                     setSaleRecords(records);
                     console.log('[SalesDashboard] Transformed to', records.length, 'sale records in', Date.now() - transformStartTime, 'ms');
 
@@ -613,9 +625,9 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         });
                     }
 
-                    // Heavy operation 3: Compute all aggregations in single pass
+                    // Heavy operation 3: Compute all aggregations (async chunked - yields to UI)
                     const aggStartTime = Date.now();
-                    const allAggregations = computeAllDashboardAggregations(records);
+                    const allAggregations = await computeAllDashboardAggregationsAsync(records);
                     setAggregations(allAggregations);
                     console.log('[SalesDashboard] Computed all aggregations in', Date.now() - aggStartTime, 'ms');
 
@@ -769,9 +781,30 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     }, [saleRecords, deferredFilters, filteredRecords, hasActiveDrillDowns]);
 
     // Aggregations from records for display (date + drill-downs, or drill-downs only when date had no matches)
-    const filteredAggregations = useMemo((): AllDashboardAggregations | null => {
-        if (recordsForDisplay.length === 0) return null;
-        return computeAllDashboardAggregations(recordsForDisplay);
+    // Uses async chunked computation to avoid blocking the UI thread when filters change
+    const [filteredAggregations, setFilteredAggregations] = useState<AllDashboardAggregations | null>(null);
+    const filteredAggregationsVersionRef = useRef(0);
+    useEffect(() => {
+        if (recordsForDisplay.length === 0) {
+            setFilteredAggregations(null);
+            return;
+        }
+        // For small datasets (<500 records), compute synchronously for instant feedback
+        if (recordsForDisplay.length < 500) {
+            setFilteredAggregations(computeAllDashboardAggregations(recordsForDisplay));
+            return;
+        }
+        // For large datasets, compute asynchronously with chunked yielding
+        const version = ++filteredAggregationsVersionRef.current;
+        let cancelled = false;
+        (async () => {
+            const result = await computeAllDashboardAggregationsAsync(recordsForDisplay);
+            // Only apply if this is still the latest computation (prevents stale updates)
+            if (!cancelled && filteredAggregationsVersionRef.current === version) {
+                setFilteredAggregations(result);
+            }
+        })();
+        return () => { cancelled = true; };
     }, [recordsForDisplay]);
 
     // Use only data that falls within the selected date range (and drill-downs).
@@ -1046,7 +1079,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                     <TouchableOpacity onPress={openSidebar} style={styles.backButton}>
                         <Icon name="menu" size={24} color={colors.white} />
                     </TouchableOpacity>
-                    <Logo width={28} height={18} style={styles.headerLogo} />
                     <Text style={styles.headerTitle}>Sales Dashboard</Text>
                     <View style={styles.headerRight} />
                 </View>
@@ -1066,7 +1098,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                     <TouchableOpacity onPress={openSidebar} style={styles.backButton}>
                         <Icon name="menu" size={24} color={colors.white} />
                     </TouchableOpacity>
-                    <Logo width={28} height={18} style={styles.headerLogo} />
                     <Text style={styles.headerTitle}>Sales Dashboard</Text>
                     <View style={styles.headerRight} />
                 </View>
@@ -1091,7 +1122,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 <TouchableOpacity onPress={openSidebar} style={styles.backButton}>
                     <Icon name="menu" size={24} color={colors.white} />
                 </TouchableOpacity>
-                <Logo width={28} height={18} style={styles.headerLogo} />
                 <Text style={styles.headerTitle}>Sales Dashboard</Text>
                 <TouchableOpacity
                     onPress={() => setShowPeriodPicker(true)}
@@ -1116,7 +1146,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] },
                     ]}>
                     <View style={styles.sidebarHeader}>
-                        <Logo width={32} height={21} style={styles.sidebarLogo} />
                         <Text style={styles.sidebarTitle} numberOfLines={1}>{company || 'DataLynkr'}</Text>
                         <TouchableOpacity onPress={closeSidebar} style={styles.sidebarClose}>
                             <Icon name="close" size={24} color="#1e293b" />
@@ -1642,9 +1671,6 @@ const styles = StyleSheet.create({
     backButton: {
         padding: 4,
     },
-    headerLogo: {
-        marginLeft: 4,
-    },
     headerTitle: {
         fontSize: 18,
         fontWeight: '700',
@@ -1911,9 +1937,6 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         borderBottomWidth: 1,
         borderBottomColor: colors.border_light,
-    },
-    sidebarLogo: {
-        marginRight: 8,
     },
     sidebarTitle: {
         fontSize: 16,
