@@ -111,45 +111,20 @@ export default function AdminDashboard() {
 
   const renderItem = ({ item }: { item: UserConnection }) => {
     const isConnected = (item.status ?? '').toLowerCase() === 'connected';
-    const siteId = item.conn_name || item.guid || '—';
-    const accessType = item.access_type || '—';
-    const sharedBy = item.shared_email || item.email || '—';
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => onSelect(item)} activeOpacity={0.7}>
-        <View style={styles.cardHeader}>
+        <View style={styles.cardRow}>
           <View style={styles.iconWrap}>
-            <Icon name="domain" size={18} color="#ffffff" />
+            <Text style={styles.iconLetter}>D</Text>
           </View>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.company} numberOfLines={1}>{item.company || '—'}</Text>
-            {isConnected && (
-              <View style={styles.connectedBadge}>
-                <View style={styles.connectedDot} />
-                <Text style={styles.connectedText}>{strings.connected}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.cardMeta}>
-          <View style={styles.metaBlock}>
-            <Text style={styles.metaLabel}>{strings.site_id}</Text>
-            <View style={styles.pillBlue}>
-              <Text style={styles.pillBlueText} numberOfLines={1}>{siteId}</Text>
+          <Text style={styles.company} numberOfLines={1}>{item.company || '—'}</Text>
+          {isConnected && (
+            <View style={styles.connectedBadge}>
+              <View style={styles.connectedDot} />
+              <Text style={styles.connectedText}>{strings.connected}</Text>
             </View>
-          </View>
-          <View style={styles.metaBlock}>
-            <Text style={styles.metaLabel}>{strings.access_type}</Text>
-            <View style={styles.pillTeal}>
-              <Text style={styles.pillTealText} numberOfLines={1}>{accessType}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.sharedBlock}>
-          <Text style={styles.metaLabel}>{strings.shared_by_owner}</Text>
-          <Text style={styles.sharedValue} numberOfLines={1}>{sharedBy}</Text>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -162,9 +137,14 @@ export default function AdminDashboard() {
         <View style={styles.headerLeft}>
           <Text style={styles.title}>{strings.select_connection}</Text>
         </View>
-        <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12}>
-          <Icon name="refresh" size={24} color="#ffffff" />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => {}} hitSlop={12} style={styles.headerIconBtn}>
+            <Icon name="dots-vertical" size={24} color="#ffffff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12} style={styles.headerIconBtn}>
+            <Icon name="refresh" size={24} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.countBar}>
@@ -218,9 +198,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerIconBtn: {
+    padding: 4,
+  },
   title: {
     fontSize: 17,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#ffffff',
   },
   countBar: {
@@ -228,13 +216,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     marginHorizontal: 16,
     marginTop: 12,
-    backgroundColor: '#e6ecfd',
+    backgroundColor: '#f3f4f6',
     borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#e6ecfd',
   },
   countDot: {
     width: 8,
@@ -243,8 +229,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#00c950',
   },
   countText: {
-    fontSize: 11,
-    color: '#495565',
+    fontSize: 13,
+    color: '#374151',
   },
   contentArea: {
     flex: 1,
@@ -262,50 +248,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     backgroundColor: '#ffffff',
-    borderTopWidth: 1,
-    borderTopColor: '#e6ecfd',
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 4,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e6ecfd',
-    padding: 16,
+    borderColor: '#e5e7eb',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
-  cardHeader: {
+  cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
+    gap: 12,
   },
   iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1e488f',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1e498f',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardTitleRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+  iconLetter: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
   },
   company: {
-    fontSize: 18,
-    fontWeight: '400',
-    color: '#101727',
     flex: 1,
+    fontSize: 16,
+    fontWeight: '400',
+    color: '#374151',
   },
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     backgroundColor: '#dcfce7',
     borderRadius: 9999,
   },
@@ -313,65 +295,23 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#00c950',
+    backgroundColor: '#22c55e',
   },
   connectedText: {
     fontSize: 12,
-    color: '#008235',
-  },
-  cardMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 12,
-  },
-  metaBlock: {
-    gap: 4,
-  },
-  metaLabel: {
-    fontSize: 12,
-    color: '#697282',
-  },
-  pillBlue: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#dbeafe',
-    borderRadius: 9999,
-  },
-  pillBlueText: {
-    fontSize: 12,
-    color: '#1347e5',
-  },
-  pillTeal: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#cefafe',
-    borderRadius: 9999,
-  },
-  pillTealText: {
-    fontSize: 12,
-    color: '#007594',
-  },
-  sharedBlock: {
-    gap: 4,
-  },
-  sharedValue: {
-    fontSize: 13,
-    color: '#354152',
+    color: '#16a34a',
   },
   logoutBtn: {
     paddingVertical: 10,
     backgroundColor: '#ffffff',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#1e488f',
+    borderColor: '#dc2626',
     alignItems: 'center',
   },
   logoutBtnText: {
     fontSize: 16,
-    color: '#1e488f',
+    color: '#dc2626',
   },
   empty: {
     color: '#697282',

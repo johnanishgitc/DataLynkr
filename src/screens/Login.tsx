@@ -92,8 +92,7 @@ export default function Login() {
         >
           <View style={styles.topSection}>
             <Logo width={74} height={48} style={styles.logo} />
-            <Text style={styles.brand}>{strings.app_name}</Text>
-            <Text style={styles.welcome}>{strings.welcome_back}</Text>
+            <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
           </View>
 
           <View style={styles.form}>
@@ -196,18 +195,16 @@ const styles = StyleSheet.create({
   },
   brand: {
     fontFamily: fonts.brand,
-    fontWeight: '500',
+    fontWeight: '600',
     fontSize: 30,
-    color: '#f4c74d',
     marginTop: 8,
     letterSpacing: 0,
   },
-  welcome: {
-    fontWeight: '400',
-    fontSize: 24,
-    color: '#0e172b',
-    marginTop: 12,
-    letterSpacing: 0,
+  brandData: {
+    color: '#000000',
+  },
+  brandLynkr: {
+    color: '#000000',
   },
   form: {
     gap: 20,

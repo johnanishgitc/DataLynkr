@@ -11,8 +11,8 @@ import {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
 
-// Figma CustNamesDropDown (node 3007-9283): trigger #e6ecfd, border #d3d3d3, text #0e172b
-const DROPDOWN_BG = '#e6ecfd';
+// Figma CustNamesDropDown (node 3007-9283): trigger white, border #d3d3d3, text #0e172b
+const DROPDOWN_BG = colors.white;
 const DROPDOWN_BORDER = '#d3d3d3';
 const DROPDOWN_TEXT = '#0e172b';
 const PLACEHOLDER_COLOR = '#6a7282';

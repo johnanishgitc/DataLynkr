@@ -8,7 +8,6 @@ import BillAllocations from '../screens/BillAllocations';
 import MoreDetails from '../screens/MoreDetails';
 import SalesOrderVoucherDetails from '../screens/SalesOrderVoucherDetails';
 import SalesOrderLineDetail from '../screens/SalesOrderLineDetail';
-import SalesOrderVoucherLineDetail from '../screens/SalesOrderVoucherLineDetail';
 import SalesOrderOrderDetails from '../screens/SalesOrderOrderDetails';
 import ClearedOrderDetails from '../screens/ClearedOrderDetails';
 
@@ -25,7 +24,6 @@ export default function LedgerStack() {
       <Stack.Screen name="MoreDetails" component={MoreDetails} options={{ headerShown: false }} />
       <Stack.Screen name="SalesOrderVoucherDetails" component={SalesOrderVoucherDetails} options={{ headerShown: false }} />
       <Stack.Screen name="SalesOrderLineDetail" component={SalesOrderLineDetail} options={{ headerShown: false }} />
-      <Stack.Screen name="SalesOrderVoucherLineDetail" component={SalesOrderVoucherLineDetail} options={{ headerShown: false }} />
       <Stack.Screen name="SalesOrderOrderDetails" component={SalesOrderOrderDetails} options={{ headerShown: false }} />
       <Stack.Screen name="ClearedOrderDetails" component={ClearedOrderDetails} options={{ headerShown: false }} />
     </Stack.Navigator>

@@ -32,9 +32,8 @@ import { strings } from '../constants/strings';
 
 type Route = RouteProp<LedgerStackParamList, 'MoreDetails'>;
 
-const STRIP_BG = '#E9EDF6';
-const STRIP_BORDER = '#C4D4FF';
-const STRIP_ACCENT = '#F1C74B';
+const STRIP_BG = '#e6ecfd';
+const STRIP_BORDER = '#c4d4ff';
 const TAB_SELECTED = '#1e488f';
 const TAB_NORMAL = '#000000de';
 
@@ -476,11 +475,11 @@ export default function MoreDetails() {
         compact
       />
 
-      {/* Customer name only (no reference line or amount) */}
+      {/* Company name header – same format as voucher details: lavender bar, icon + bold name */}
       <View style={styles.strip}>
         <View style={styles.stripInner}>
           <View style={styles.stripIconWrap}>
-            <IconAccountVector4 width={18} height={18} color="#6A7282" />
+            <IconAccountVector4 width={18} height={18} color="#131313" />
           </View>
           <Text style={styles.stripName} numberOfLines={1}>
             {displayLedger}
@@ -577,31 +576,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.white,
   },
+  /* Company name header – same format as voucher details (#e6ecfd bar, #c4d4ff border, icon + bold name) */
   strip: {
     backgroundColor: STRIP_BG,
     borderBottomWidth: 1,
     borderBottomColor: STRIP_BORDER,
-    borderLeftWidth: 2,
-    borderLeftColor: STRIP_ACCENT,
-    borderRightWidth: 2,
-    borderRightColor: STRIP_ACCENT,
-    paddingVertical: 8,
+    paddingTop: 4,
+    paddingBottom: 6,
     paddingHorizontal: 16,
   },
   stripInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
   },
   stripIconWrap: {
     width: 18,
     height: 18,
-    marginRight: 8,
+    marginRight: 0,
   },
   stripName: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#0E172B',
+    color: '#131313',
   },
   tabsRow: {
     flexDirection: 'row',

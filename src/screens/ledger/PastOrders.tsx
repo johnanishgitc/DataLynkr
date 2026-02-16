@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,19 +13,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
 import { apiService } from '../../api';
-import type { SalesOrderOutstandingRow, SalesOrderOutstandingResponse } from '../../api';
+import type { SalesOrderReportItem, SalesOrderReportResponse } from '../../api';
 import { StatusBarTopBar } from '../../components';
 import { strings } from '../../constants/strings';
 import { colors } from '../../constants/colors';
-import { toDdMmYy } from '../../utils/dateUtils';
+import { toYyyyMmDdStr, formatDateFromYyyyMmDd } from '../../utils/dateUtils';
 import { useScroll } from '../../store/ScrollContext';
-import {
-  sharedStyles,
-  fmtNum,
-  parseQtyStr,
-  parseQtyUnit,
-  parseRateStr,
-} from './LedgerShared';
+import { sharedStyles } from './LedgerShared';
 
 interface PastOrdersProps {
   ledger_name: string;
@@ -38,17 +32,6 @@ interface PastOrdersProps {
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
   onNavigateHome: () => void;
-}
-
-interface PastOrderGroup {
-  date: string;
-  orderNo: string;
-  orderedQty: number;
-  unit: string;
-  rate: string;
-  discount: string;
-  totalValue: number;
-  rows: SalesOrderOutstandingRow[];
 }
 
 export default function PastOrders({
@@ -67,20 +50,19 @@ export default function PastOrders({
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
-  const [salesOrderRows, setSalesOrderRows] = useState<SalesOrderOutstandingRow[] | null>(null);
+  const [orders, setOrders] = useState<SalesOrderReportItem[] | null>(null);
   const [footerExpanded, setFooterExpanded] = useState(false);
 
-  // Scroll-based header (blue bar) + footer collapse
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const headerTranslateY = useRef(new Animated.Value(0)).current;
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
 
-  const topContainerHeight = 110; // 4 rows including User
+  const topContainerHeight = 110;
   const headerHeight = insets.top + 47 + topContainerHeight;
   const footerHeight = 60;
-  const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
+  const SCROLL_UP_THRESHOLD = 10;
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -133,36 +115,26 @@ export default function PastOrders({
 
   useEffect(() => {
     let cancel = false;
-    if (!ledger_name) {
-      setLoading(false);
-      setSalesOrderRows(null);
-      return;
-    }
     setLoading(true);
     (async () => {
       const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-      if (t === 0 || !c || !g) {
-        if (!cancel) setSalesOrderRows(null);
+      if (!t || !c || !g) {
+        if (!cancel) setOrders(null);
         setLoading(false);
         return;
       }
       try {
-        // Past Orders: Uses same API as sales order outstanding but fetches historical data
-        const pastOrdersRequest = {
+        const body = {
           tallyloc_id: t,
           company: c,
           guid: g,
-          fromdate: toDdMmYy(from_date),
-          todate: toDdMmYy(to_date),
-          type: 'Sales Order',
-          ledger: ledger_name || '',
-          // Note: The API may require specific parameters for past orders
-          // This implementation mirrors cleared orders structure
+          fromdate: toYyyyMmDdStr(from_date),
+          todate: toYyyyMmDdStr(to_date),
         };
-        const { data: res } = await apiService.getSalesOrderOutstanding(pastOrdersRequest);
+        const { data: res } = await apiService.getSalesOrderReport(body);
         if (cancel) return;
-        const soRes = res as SalesOrderOutstandingResponse;
-        setSalesOrderRows(soRes.DATA ?? []);
+        const typed = res as SalesOrderReportResponse;
+        setOrders(typed.orders ?? []);
       } catch (e: unknown) {
         let msg = 'Network error';
         if (e && typeof e === 'object') {
@@ -174,102 +146,56 @@ export default function PastOrders({
           }
         }
         Alert.alert(strings.error, msg);
-        setSalesOrderRows(null);
+        setOrders(null);
       } finally {
         if (!cancel) setLoading(false);
       }
     })();
     return () => { cancel = true; };
-  }, [ledger_name, from_date, to_date]);
+  }, [from_date, to_date]);
 
-  /** Past Orders: group API DATA by order (NAME) for display */
-  const pastOrderGroups = useMemo(() => {
-    if (!salesOrderRows || salesOrderRows.length === 0) return [];
-    const byName = new Map<string, SalesOrderOutstandingRow[]>();
-    for (const row of salesOrderRows) {
-      const key = row.NAME ?? '';
-      if (!byName.has(key)) byName.set(key, []);
-      byName.get(key)!.push(row);
-    }
-    const result: PastOrderGroup[] = [];
-    byName.forEach((rows, name) => {
-      const first = rows[0];
-      let totalValue = 0;
-      let totalQty = 0;
-      let unit = '';
-      let rate = '';
-      let discount = '';
-      for (const r of rows) {
-        const amtStr = (r.AMOUNT || '').toString().trim().replace(/,/g, '');
-        const amtNum = amtStr ? parseFloat(amtStr) : NaN;
-        if (!isNaN(amtNum)) {
-          totalValue += amtNum;
-        } else {
-          const qty = parseQtyStr(r.OPENINGBALANCE || r.CLOSINGBALANCE);
-          const rateNum = parseRateStr(r.RATE);
-          totalValue += rateNum * Math.abs(qty);
-        }
-        const q = parseQtyStr(r.OPENINGBALANCE || r.CLOSINGBALANCE);
-        totalQty += Math.abs(q);
-        if (!unit) unit = parseQtyUnit(r.OPENINGBALANCE || r.CLOSINGBALANCE);
-        if (!rate && r.RATE) rate = String(r.RATE).trim();
-        if (!discount && r.DISCOUNT != null) discount = String(r.DISCOUNT).trim();
-      }
-      const orderNo =
-        first?.VOUCHERS?.find((v) => String(v.VOUCHERTYPE || '').toLowerCase().includes('sales order'))?.VOUCHERNUMBER ??
-        name;
-      result.push({
-        date: first?.DATE ?? '—',
-        orderNo: orderNo || '—',
-        orderedQty: totalQty,
-        unit: unit || 'User',
-        rate: rate || '—',
-        discount: discount || '0',
-        totalValue,
-        rows,
-      });
-    });
-    return result;
-  }, [salesOrderRows]);
-
-  const pastOrdersGrandTotal = useMemo(() => {
-    return pastOrderGroups.reduce((sum, g) => sum + g.totalValue, 0);
-  }, [pastOrderGroups]);
-
-  const pastOrdersTotalQty = useMemo(() => {
-    return pastOrderGroups.reduce((sum, g) => sum + g.orderedQty, 0);
-  }, [pastOrderGroups]);
-
-  const onPastOrderCard = (g: PastOrderGroup) => {
-    (nav.navigate as (a: string, b: object) => void)('ClearedOrderDetails', {
-      ledger_name: ledger_name || '',
-      order_no: g.orderNo,
-      rows: g.rows,
+  const onOrderCard = (order: SalesOrderReportItem) => {
+    (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
+      voucher: {
+        MASTERID: order.masterid,
+        DATE: order.date,
+        VOUCHERTYPE: order.vouchertypename,
+        VOUCHERNUMBER: order.vouchernumber,
+        PARTICULARS: order.partyledgername,
+      },
+      ledger_name: ledger_name || order.partyledgername,
     });
   };
 
-  const renderCardPastOrder = (g: PastOrderGroup, i: number) => (
-    <TouchableOpacity
-      key={i}
-      style={sharedStyles.cardClearedOrder}
-      onPress={() => onPastOrderCard(g)}
-      activeOpacity={0.7}
-    >
-      <View style={sharedStyles.cardClearedOrderRow1}>
-        <Text style={sharedStyles.cardClearedOrderDate}>{g.date}</Text>
-        <Text style={sharedStyles.cardClearedOrderPipe}> | </Text>
-        <Text style={sharedStyles.cardClearedOrderOrderNo}>Order No: #{g.orderNo}</Text>
-      </View>
-      <View style={sharedStyles.cardClearedOrderRow2}>
-        <Text style={sharedStyles.cardClearedOrderMeta}>Rate (Disc%) : {g.rate}</Text>
-        <Text style={sharedStyles.cardClearedOrderMetaRight}>Ordered Qty : {g.orderedQty} {g.unit}</Text>
-      </View>
-      <View style={sharedStyles.cardClearedOrderRow3}>
-        <Text style={sharedStyles.cardClearedOrderMeta}>Discount : {g.discount}</Text>
-        <Text style={sharedStyles.cardClearedOrderMetaRight}>Total Value : {fmtNum(g.totalValue)}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderCard = (order: SalesOrderReportItem, index: number) => {
+    const dateStr = formatDateFromYyyyMmDd(order.date);
+    const typeStr = order.vouchertypename || '—';
+    const refStr = order.vouchernumber ? `#${order.vouchernumber}` : order.orderno ? `#${order.orderno}` : '—';
+    const metaLine = [dateStr, typeStr, refStr].filter(Boolean).join(' | ');
+
+    return (
+      <TouchableOpacity
+        key={order.masterid ?? index}
+        style={sharedStyles.card}
+        onPress={() => onOrderCard(order)}
+        activeOpacity={0.7}
+      >
+        <View style={sharedStyles.cardRow1}>
+          <Text style={sharedStyles.cardParticulars} numberOfLines={1}>
+            {order.partyledgername || '—'}
+          </Text>
+          <View style={sharedStyles.cardAmtWrap}>
+            <Text style={[sharedStyles.cardAmt, sharedStyles.cardDrCr]}>
+              {order.status || '—'}
+            </Text>
+          </View>
+        </View>
+        <View style={sharedStyles.cardRow2}>
+          <Text style={sharedStyles.cardMeta}>{metaLine}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={sharedStyles.root}>
@@ -311,7 +237,6 @@ export default function PastOrders({
             <Icon name="magnify" size={20} color={colors.text_primary} />
           </TouchableOpacity>
 
-          {/* User row - disabled */}
           <View style={[sharedStyles.topRow, sharedStyles.topRowBorder]}>
             <Icon name="account" size={18} color={colors.text_secondary} />
             <Text style={sharedStyles.topTxtDisabled} numberOfLines={1}>
@@ -335,7 +260,7 @@ export default function PastOrders({
           <ActivityIndicator size="large" color={colors.primary_blue} />
           <Text style={sharedStyles.loadingTxt}>{strings.loading}</Text>
         </View>
-      ) : !salesOrderRows ? (
+      ) : orders === null ? (
         <View style={sharedStyles.centered}>
           <Text style={sharedStyles.empty}>{strings.no_data}</Text>
         </View>
@@ -350,9 +275,10 @@ export default function PastOrders({
             onScroll={handleScroll}
             scrollEventThrottle={16}
           >
-            {pastOrderGroups.map((g, i) => renderCardPastOrder(g, i))}
-            {pastOrderGroups.length === 0 && (
+            {orders.length === 0 ? (
               <Text style={[sharedStyles.empty, sharedStyles.emptyInList]}>{strings.table_data_will_appear}</Text>
+            ) : (
+              orders.map((order, i) => renderCard(order, i))
             )}
           </ScrollView>
 
@@ -374,14 +300,10 @@ export default function PastOrders({
             {footerExpanded && (
               <View style={sharedStyles.footerExpand}>
                 <View style={sharedStyles.footerRow}>
-                  <Text style={sharedStyles.footerLabel}>Total Order Qty</Text>
+                  <Text style={sharedStyles.footerLabel}>Total Orders</Text>
                   <Text style={sharedStyles.footerVal}>
-                    {pastOrdersTotalQty === 0 ? ' - - - - -' : String(pastOrdersTotalQty)}
+                    {orders.length === 0 ? ' - - - - -' : String(orders.length)}
                   </Text>
-                </View>
-                <View style={sharedStyles.footerRow}>
-                  <Text style={sharedStyles.footerLabel}>Total Order Value</Text>
-                  <Text style={sharedStyles.footerVal}>{fmtNum(pastOrdersGrandTotal)}</Text>
                 </View>
               </View>
             )}

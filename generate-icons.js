@@ -2,7 +2,8 @@ const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
-const logoPath = path.join(__dirname, 'src', 'assets', 'logo.png');
+// Use DataLynkr logo SVG (square output with transparent padding via fit: 'contain')
+const logoPath = path.join(__dirname, 'DataLynkrLogo.svg');
 
 // Android icon sizes (in pixels)
 const androidSizes = {

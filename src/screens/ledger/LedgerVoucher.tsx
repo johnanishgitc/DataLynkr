@@ -8,7 +8,7 @@ import {
   ScrollView,
   Animated,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
@@ -74,7 +74,7 @@ export default function LedgerVoucher({
   const { setScrollDirection } = useScroll();
 
   const topContainerHeight = 80; // 3 rows
-  const headerHeight = insets.top + 47 + topContainerHeight;
+  const headerHeight = insets.top + 55 + topContainerHeight;
   const footerHeight = 60;
   const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
 
@@ -112,6 +112,21 @@ export default function LedgerVoucher({
       setScrollDirection(null);
     };
   }, [setScrollDirection]);
+
+  // When returning from voucher details (or any child screen), show footer and grand total so they're not stuck collapsed
+  useFocusEffect(
+    React.useCallback(() => {
+      if (localScrollDirection.current === 'down') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        Animated.timing(footerTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, [footerTranslateY, setScrollDirection])
+  );
 
   useEffect(() => {
     let cancel = false;

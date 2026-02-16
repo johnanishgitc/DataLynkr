@@ -1,11 +1,12 @@
 /**
  * Shared voucher details UI and utilities used across
- * VoucherDetailView, SalesOrderVoucherLineDetail, and other voucher screens.
+ * VoucherDetailView and other voucher screens.
  */
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, Pressable, Switch, ActivityIndicator, LayoutAnimation, Platform, UIManager } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
+import { IconAccountVector4 } from '../assets/bill-allocations';
 import type { InventoryAllocation, LedgerEntryDetail, BatchAllocationRow } from '../api/models/ledger';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import apiService from '../api/client';
@@ -318,15 +319,21 @@ export function getBankDetailsFromEntry(entry: Record<string, unknown>, entryAmo
   const rows: BankDetailRow[] = [];
   const paymentMode = get('paymentmode', 'payment_mode', 'PaymentMode', 'PAYMENTMODE');
   if (paymentMode) rows.push({ label: 'Payment Mode', value: paymentMode });
-  const bank = get('bank', 'Bank', 'BANK', 'bankname', 'bank_name');
+  // Bank group: use ledgername for bank
+  const bank = get('ledgername', 'LEDGERNAME', 'bank', 'Bank', 'BANK', 'bankname', 'bank_name');
   if (bank) rows.push({ label: 'Bank', value: bank });
-  const amountReceived = get('amountreceived', 'amount_received', 'AmountReceived', 'AMOUNTRECEIVED');
-  if (amountReceived) rows.push({ label: 'Amount Received', value: amountReceived });
-  else if (entryAmountFormatted) rows.push({ label: 'Amount Received', value: entryAmountFormatted });
+  // Bank group: use amount for payment received
+  const amountVal = entry.amount ?? entry.AMOUNT;
+  if (amountVal != null && String(amountVal).trim() !== '') {
+    rows.push({ label: 'Payment Received', value: `₹${fmtNum(toNum(amountVal))}` });
+  } else if (entryAmountFormatted) {
+    rows.push({ label: 'Payment Received', value: entryAmountFormatted });
+  }
   const instrumentNo = get('instrumentno', 'instrument_no', 'InstrumentNo', 'INSTRUMENTNO', 'instrumentnumber', 'instrument_number');
   if (instrumentNo) rows.push({ label: 'Instrument No', value: instrumentNo });
   const instrumentDate = get('instrumentdate', 'instrument_date', 'InstrumentDate', 'INSTRUMENTDATE');
   if (instrumentDate) rows.push({ label: 'Instrument Date', value: instrumentDate });
+  // Bank group: use placeofsupply for place of supply
   const placeOfSupply = get('placeofsupply', 'place_of_supply', 'PlaceOfSupply', 'PLACEOFSUPPLY');
   if (placeOfSupply) rows.push({ label: 'Place of Supply', value: placeOfSupply });
   return rows;
@@ -367,13 +374,10 @@ export interface VoucherCustomerBarProps {
 
 export function VoucherCustomerBar({ displayLedger, invoiceOrder, accountingView }: VoucherCustomerBarProps) {
   const useLedgerBarStyle = invoiceOrder || accountingView;
+  const iconSize = useLedgerBarStyle ? 18 : 20;
   return (
     <View style={[styles.customerBar, useLedgerBarStyle && styles.customerBarInvoiceOrder]}>
-      <Icon
-        name="account-outline"
-        size={useLedgerBarStyle ? 18 : 20}
-        color="#131313"
-      />
+      <IconAccountVector4 width={iconSize} height={iconSize} color="#131313" />
       <Text style={[styles.customerBarText, useLedgerBarStyle && styles.customerBarTextInvoiceOrder]} numberOfLines={1}>
         {displayLedger}
       </Text>
@@ -680,11 +684,13 @@ export function InventoryRow({
   const rate = rateVal != null ? amt(rateVal) : '—';
   const discountVal = item.DISCOUNT ?? raw.discount;
   const discount = discountVal != null ? amt(discountVal) : '0';
+  const popupOpen = qtyPopupBody != null || ratePopup != null;
   return (
     <View style={[
       styles.invRow,
       altBg && styles.invRowAltBg,
       invoiceOrder && styles.invRowInvoiceOrder,
+      popupOpen && styles.invRowHighlight,
     ]}>
       <View style={styles.invRowHead}>
         <Text style={styles.invRowName} numberOfLines={2}>
@@ -751,11 +757,27 @@ export function ExpandableInventoryRow({
   const [expanded, setExpanded] = useState(false);
   const [qtyPopupBody, setQtyPopupBody] = useState<string | null>(null);
   const [ratePopup, setRatePopup] = useState<string | null>(null);
+  /** 'main' when qty/rate popup opened from main row, number = sub-row index, null when popup closed */
+  const [popupSource, setPopupSource] = useState<null | 'main' | number>(null);
   const subAllocs = getSubAllocations(item);
   const itemRaw = item as Record<string, unknown>;
   const rateVal = itemRaw.rate ?? item.RATE;
   const rateDisplay = rateVal != null ? amt(rateVal) : '—';
   const qtyDisplay = getQtyDisplay(itemRaw);
+
+  const openQtyFromMain = () => {
+    setQtyPopupBody(getQtyPopupBody(itemRaw));
+    setPopupSource('main');
+  };
+  const openRateFromMain = () => {
+    setRatePopup(rateDisplay);
+    setPopupSource('main');
+  };
+  const closePopups = () => {
+    setQtyPopupBody(null);
+    setRatePopup(null);
+    setPopupSource(null);
+  };
 
   const mainRow = (
     <View style={[
@@ -763,6 +785,7 @@ export function ExpandableInventoryRow({
       altBg && styles.invRowAltBg,
       invoiceOrder && styles.invRowInvoiceOrder,
       expanded && subAllocs.length > 0 && { borderBottomWidth: 0 },
+      popupSource === 'main' && styles.invRowHighlight,
     ]}>
       <View style={styles.invRowHead}>
         <View style={styles.invRowHeadLeft}>
@@ -777,7 +800,7 @@ export function ExpandableInventoryRow({
           <View style={[styles.invRowMetaItem, invoiceOrder && styles.invRowMetaItemInvoiceOrder]}>
             <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Qty: </Text>
             <TouchableOpacity
-              onPress={() => setQtyPopupBody(getQtyPopupBody(itemRaw))}
+              onPress={openQtyFromMain}
               activeOpacity={0.7}
             >
               <Text style={styles.invRowMetaValQtyRate}>{normalizeQtyDisplay(qtyDisplay)}</Text>
@@ -786,7 +809,7 @@ export function ExpandableInventoryRow({
           <View style={[styles.invRowMetaItem, invoiceOrder && styles.invRowMetaItemInvoiceOrder, invoiceOrder && styles.invRowMetaItemRateInvoiceOrder]}>
             <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Rate: </Text>
             <TouchableOpacity
-              onPress={() => setRatePopup(rateDisplay)}
+              onPress={openRateFromMain}
               activeOpacity={0.7}
             >
               <Text style={styles.invRowMetaValRate}>{normalizeRateDisplay(rateDisplay)}</Text>
@@ -813,13 +836,13 @@ export function ExpandableInventoryRow({
           visible={qtyPopupBody != null}
           title="Qty"
           body={qtyPopupBody ?? ''}
-          onClose={() => setQtyPopupBody(null)}
+          onClose={closePopups}
         />
         <DetailPopup
           visible={ratePopup != null}
           title="Rate"
           body={ratePopup ?? ''}
-          onClose={() => setRatePopup(null)}
+          onClose={closePopups}
         />
       </>
     );
@@ -863,6 +886,7 @@ export function ExpandableInventoryRow({
                 style={[
                   styles.invSubAllocRow,
                   isLastRow && styles.invSubAllocRowLast,
+                  popupSource === idx && styles.invSubAllocRowHighlight,
                 ]}
               >
                 <View style={styles.invSubAllocHead}>
@@ -879,7 +903,10 @@ export function ExpandableInventoryRow({
                           <Text style={styles.invSubAllocDetailLabel}>Qty</Text>
                           <Text style={styles.invSubAllocDetailLabel}> : </Text>
                           <TouchableOpacity
-                            onPress={() => setQtyPopupBody(`Actual Qty: ${sub.actualQty ?? '—'}\nBilled Qty: ${sub.billedQty ?? '—'}`)}
+                            onPress={() => {
+                              setQtyPopupBody(`Actual Qty: ${sub.actualQty ?? '—'}\nBilled Qty: ${sub.billedQty ?? '—'}`);
+                              setPopupSource(idx);
+                            }}
                             activeOpacity={0.7}
                           >
                             <Text style={[styles.invSubAllocDetailVal, styles.invSubAllocQtyLink]}>{sub.qty}</Text>
@@ -935,19 +962,19 @@ export function ExpandableInventoryRow({
         visible={qtyPopupBody != null}
         title="Qty"
         body={qtyPopupBody ?? ''}
-        onClose={() => setQtyPopupBody(null)}
+        onClose={closePopups}
       />
       <DetailPopup
         visible={ratePopup != null}
         title="Rate"
         body={ratePopup ?? ''}
-        onClose={() => setRatePopup(null)}
+        onClose={closePopups}
       />
     </View>
   );
 }
 
-/** Simple allocation row (e.g. SalesOrderVoucherLineDetail) */
+/** Simple allocation row for voucher detail layouts */
 export interface AllocationRowItem {
   name: string;
   amount: number;
@@ -1204,7 +1231,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e6ecfd',
   },
   invRowHighlight: {
-    backgroundColor: '#f1c74b',
+    backgroundColor: '#F1C74B',
   },
   invRowAltBg: {
     backgroundColor: '#f0f4fc',
@@ -1291,6 +1318,9 @@ const styles = StyleSheet.create({
   },
   invSubAllocRowLast: {
     marginBottom: 0,
+  },
+  invSubAllocRowHighlight: {
+    backgroundColor: '#F1C74B',
   },
   invSubAllocHead: {
     flexDirection: 'row',

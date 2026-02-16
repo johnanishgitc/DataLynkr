@@ -29,6 +29,8 @@ import type {
   GodownStockResponse,
   CompanyStockRequest,
   CompanyStockResponse,
+  SalesOrderReportRequest,
+  SalesOrderReportResponse,
 } from './models';
 
 const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
@@ -218,6 +220,10 @@ export const apiService = {
   /** Company-wise stock breakdown for an item */
   getCompanyStock: (body: CompanyStockRequest) =>
     getApi().post<CompanyStockResponse>('api/tally/companystock', body),
+
+  /** Past Orders: sales order list by date range */
+  getSalesOrderReport: (body: SalesOrderReportRequest) =>
+    getApi().post<SalesOrderReportResponse>('api/reports/salesorder', body),
 };
 
 export default apiService;
