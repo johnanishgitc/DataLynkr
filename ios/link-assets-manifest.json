@@ -1,0 +1,13 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/README.txt",
+      "sha1": "0f2aa373e896d38a269da0717d86ba17e6bedc86"
+    },
+    {
+      "path": "assets/fonts/WixMadeforDisplay-VariableFont_wght.ttf",
+      "sha1": "fcad4d9b77b9c122fd8e8859f093cf4dc8342964"
+    }
+  ]
+}

@@ -11,8 +11,8 @@ import { colors } from '../../constants/colors';
 export const TOP_BG = '#e6ecfd';
 export const TOP_BORDER = '#c4d4ff';
 export const CARD_BORDER = '#e6ecfd';
-export const AMT_DEBIT = '#ff4242';
-export const AMT_CREDIT = '#39b57c';
+export const AMT_DEBIT = '#000000';
+export const AMT_CREDIT = '#000000';
 
 export const REPORT_OPTIONS = [
   'Ledger Voucher',
@@ -180,8 +180,8 @@ export const sharedStyles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 4,
-    paddingBottom: 6,
+    minHeight: 10,
+    paddingVertical: 5,
     paddingHorizontal: 2,
     gap: 6,
   },
@@ -190,12 +190,13 @@ export const sharedStyles = StyleSheet.create({
     borderBottomColor: TOP_BORDER,
   },
   topRowDate: {
-    paddingTop: 4,
-    paddingBottom: 4,
+    minHeight: 10,
+    paddingVertical: 7,
     paddingHorizontal: 2,
     gap: 6,
     backgroundColor: '#ffffff1a',
-    borderBottomWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: TOP_BORDER,
   },
   topTxt: { flex: 1, fontSize: 13, fontWeight: '500', color: '#131313' },
   topTxtDisabled: { flex: 1, fontSize: 13, fontWeight: '500', color: colors.text_secondary },
@@ -209,7 +210,7 @@ export const sharedStyles = StyleSheet.create({
     borderBottomColor: CARD_BORDER,
     paddingVertical: 8,
     paddingHorizontal: 0,
-    marginBottom: 1,
+    marginBottom: 4,
   },
   cardRow1: {
     flexDirection: 'row',
@@ -237,6 +238,7 @@ export const sharedStyles = StyleSheet.create({
   },
   cardMetaLast: { flexDirection: 'row' },
   // Bill Wise styles
+  // Bill Wise — from figma_codes/BillWiseOutstandings (node 3062:22255)
   billWiseTableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -245,7 +247,7 @@ export const sharedStyles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  billWiseTableHeaderCell: {
+  billWiseTableHeaderLeft: {
     fontSize: 14,
     fontWeight: '600',
     color: '#0e172b',
@@ -253,8 +255,27 @@ export const sharedStyles = StyleSheet.create({
   billWiseTableHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: 1,
+    minWidth: 220,
     gap: 20,
-    width: 191,
+  },
+  billWiseTableHeaderCell: {
+    flex: 1,
+    minWidth: 100,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
+    textAlign: 'right',
+    marginLeft: 90,
+  },
+  billWiseTableHeaderCellLast: {
+    flex: 1,
+    minWidth: 100,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
+    textAlign: 'right',
   },
   cardBillWise: {
     backgroundColor: colors.white,
@@ -274,27 +295,39 @@ export const sharedStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#0e172b',
+    marginRight: 8,
   },
   cardBillWiseAmounts: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    width: 191,
+    flex: 1,
+    minWidth: 220,
+    gap: 20,
   },
   cardBillWiseAmt: {
     flex: 1,
+    minWidth: 100,
     fontSize: 13,
     fontWeight: '600',
     color: '#0e172b',
     textAlign: 'right',
   },
+  cardBillWiseAmtOpening: {
+    flex: 1,
+    minWidth: 100,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0e172b',
+    textAlign: 'right',
+    marginLeft: 90,
+  },
   cardBillWiseSubRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 8,
+    gap: 5,
   },
   cardBillWiseDateRef: {
-    flex: 1,
     fontSize: 13,
     fontWeight: '400',
     color: '#6a7282',
@@ -452,7 +485,7 @@ export const sharedStyles = StyleSheet.create({
   // Modal styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start', paddingTop: 40, paddingHorizontal: 0 },
   modalContent: {
-    backgroundColor: TOP_BG,
+    backgroundColor: colors.white,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#d3d3d3',
@@ -460,7 +493,7 @@ export const sharedStyles = StyleSheet.create({
     overflow: 'hidden',
   },
   modalContentFullWidth: {
-    backgroundColor: TOP_BG,
+    backgroundColor: colors.white,
     borderRadius: 0,
     borderWidth: 0,
     borderTopWidth: 1,
@@ -475,7 +508,7 @@ export const sharedStyles = StyleSheet.create({
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#d3d3d3',
-    backgroundColor: TOP_BG,
+    backgroundColor: colors.white,
     paddingHorizontal: 12,
   },
   modalSearchInput: { flex: 1, paddingVertical: 12, fontSize: 16, color: '#0e172b', paddingRight: 8 },
@@ -485,7 +518,7 @@ export const sharedStyles = StyleSheet.create({
   modalOpt: {
     paddingHorizontal: 16,
     paddingVertical: 6,
-    backgroundColor: TOP_BG,
+    backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(211,211,211,0.6)',
   },

@@ -126,6 +126,7 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
       }
     }
     setSelectedPreset(null);
+    setPickerWhich(null); // collapse calendar only; user taps Apply to submit
   };
 
   const handlePreset = (id: string) => {

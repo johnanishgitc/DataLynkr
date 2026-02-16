@@ -1,3 +1,6 @@
+/**
+ * Bill Wise Outstanding — layout from figma_codes/BillWiseOutstandings (Figma 3062:22255).
+ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
@@ -67,9 +70,9 @@ export default function BillWiseOutstanding({
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
 
-  const topContainerHeight = 110; // 4 rows including User
+  const topContainerHeight = 120; // 4 rows including User
   const headerHeight = insets.top + 47 + topContainerHeight + 40; // +40 for table header
-  const footerHeight = 60;
+  const footerHeight = 80;
   const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -209,9 +212,20 @@ export default function BillWiseOutstanding({
     return { openingFormatted: openFormatted, pendingFormatted: pendFormatted };
   }, [rows]);
 
+  /** Use only date part for Due Date display (strip refs, newlines) */
+  const sanitizeDueForDisplay = (raw: string | null | undefined): string => {
+    if (raw == null || raw === '') return '—';
+    const lines = String(raw).trim().split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+    const s = lines[lines.length - 1] ?? lines[0] ?? '';
+    const dateLike = s.match(/\d{1,2}[-/][A-Za-z]{3,}[-/]\d{2,4}|\d{2,4}[-/]\d{1,2}[-/]\d{1,2}/);
+    if (dateLike) return dateLike[0];
+    if (/^\d/.test(s)) return s;
+    return s || '—';
+  };
+
   const renderCardBillWise = (v: VoucherEntry, i: number) => {
     const billRef = v.REFNO || v.BILLNAME || '—';
-    const dueOn = v.DUEON ?? '—';
+    const dueOn = sanitizeDueForDisplay(v.DUEON);
     const od = v.OVERDUEDAYS;
     const overdueStr = od != null ? `${od} Days` : '—';
     const openingBalance = formatBalance(v.DEBITOPENBAL, v.CREDITOPENBAL);
@@ -222,15 +236,21 @@ export default function BillWiseOutstanding({
     return (
       <TouchableOpacity key={i} style={sharedStyles.cardBillWise} onPress={() => onRow(v)} activeOpacity={0.7}>
         <View style={sharedStyles.cardBillWiseContent}>
+          {/* Line 1: Overdue | Opening Amt | Pending Amt */}
           <View style={sharedStyles.cardBillWiseMainRow}>
             <Text style={sharedStyles.cardBillWiseOverdue}>{overdueStr}</Text>
             <View style={sharedStyles.cardBillWiseAmounts}>
-              <Text style={sharedStyles.cardBillWiseAmt}>{openingBalance}</Text>
-              <Text style={sharedStyles.cardBillWiseAmt}>{pendingBalance}</Text>
+              <Text style={sharedStyles.cardBillWiseAmtOpening} numberOfLines={1} ellipsizeMode="clip">
+                {openingBalance}
+              </Text>
+              <Text style={sharedStyles.cardBillWiseAmt} numberOfLines={1} ellipsizeMode="clip">
+                {pendingBalance}
+              </Text>
             </View>
           </View>
+          {/* Line 2: Date (with right border) | #ref — per figma_codes/BillWiseOutstandings */}
           <View style={sharedStyles.cardBillWiseSubRow}>
-            <Text style={sharedStyles.cardBillWiseDateRef} numberOfLines={1}>{dateDueStr}</Text>
+            <Text style={sharedStyles.cardBillWiseDateRef}>{dateDueStr}</Text>
             <Text style={sharedStyles.cardBillWiseRefNo}>#{billRef}</Text>
           </View>
         </View>
@@ -296,12 +316,12 @@ export default function BillWiseOutstanding({
           </TouchableOpacity>
         </View>
 
-        {/* BWO table header */}
+        {/* BWO table header — figma_codes/BillWiseOutstandings: Overdue left, 191px block with Opening/Pending right */}
         <View style={sharedStyles.billWiseTableHeader}>
-          <Text style={sharedStyles.billWiseTableHeaderCell}>Overdue</Text>
+          <Text style={sharedStyles.billWiseTableHeaderLeft}>Overdue</Text>
           <View style={sharedStyles.billWiseTableHeaderRight}>
-            <Text style={[sharedStyles.billWiseTableHeaderCell, { flex: 1, textAlign: 'right' }]}>Opening Amt</Text>
-            <Text style={[sharedStyles.billWiseTableHeaderCell, { flex: 1, textAlign: 'right' }]}>Pending Amt</Text>
+            <Text style={sharedStyles.billWiseTableHeaderCell}>Opening Amt</Text>
+            <Text style={sharedStyles.billWiseTableHeaderCellLast}>Pending Amt</Text>
           </View>
         </View>
       </Animated.View>

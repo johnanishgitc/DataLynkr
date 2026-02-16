@@ -55,12 +55,6 @@ export type LedgerStackParamList = {
     voucher: object;
     ledger_name?: string;
   };
-  /** SOLO4: Voucher Details with Ledger, voucher summary, Inventory Allocations */
-  SalesOrderVoucherLineDetail: {
-    row: object;
-    voucher: object;
-    ledger_name?: string;
-  };
   /** Cleared Order Details - Figma 3045-62731: Ledger, Order No, voucher list */
   ClearedOrderDetails: {
     ledger_name?: string;

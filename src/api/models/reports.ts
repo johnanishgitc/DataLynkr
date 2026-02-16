@@ -62,3 +62,33 @@ export interface DeletedVouchersResponse {
   success?: boolean;
   [key: string]: unknown;
 }
+
+/** Past Orders: api/reports/salesorder request */
+export interface SalesOrderReportRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  fromdate: string;
+  todate: string;
+}
+
+/** Single order from api/reports/salesorder */
+export interface SalesOrderReportItem {
+  masterid: string;
+  vouchertypename: string;
+  vouchernumber: string;
+  date: string;
+  orderno: string;
+  partyledgername: string;
+  status: string;
+  generated_by_name: string;
+  generated_by_email: string;
+}
+
+/** Past Orders: api/reports/salesorder response */
+export interface SalesOrderReportResponse {
+  success: boolean;
+  message: string;
+  orders: SalesOrderReportItem[];
+  total: number;
+}

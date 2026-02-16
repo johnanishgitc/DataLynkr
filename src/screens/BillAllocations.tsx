@@ -53,6 +53,8 @@ interface NewFormatBillAllocation {
   billname?: string;
   amount?: string;
   billcreditperiod?: string;
+  date?: string;
+  billdate?: string;
 }
 
 /** New format voucher */
@@ -88,11 +90,13 @@ function collectBillAllocations(voucher: Record<string, unknown>): BillAllocatio
             BILLTYPE: alloc.billtype || '',
             DEBITAMT: alloc.amount ? amount : 0,
             CREDITAMT: 0,
-            // Include original fields for compatibility
+            // Include original fields for compatibility (including date for display)
             billname: alloc.billname,
             billtype: alloc.billtype,
             amount: alloc.amount,
             billcreditperiod: alloc.billcreditperiod,
+            date: alloc.date ?? alloc.billdate,
+            billdate: alloc.billdate ?? alloc.date,
           } as BillAllocation);
         }
       }
@@ -155,11 +159,20 @@ function getVoucherDisplayInfo(voucher: Record<string, unknown>): { ledgerName: 
   };
 }
 
-/** Single row per figma_codes: ref (12px semibold) left, amount (12px semibold ₹) right */
-function BillAllocationRow({ item }: { item: BillAllocation }) {
+/** Resolve date from allocation (same field order as VoucherDetailView getBillAllocDate) */
+function getBillAllocDate(item: BillAllocation): string {
+  const raw = item as Record<string, unknown>;
+  const val = raw.billcreditperiod ?? raw.BILLCREDITPERIOD ?? raw.date ?? raw.DATE ?? raw.duedate ?? raw.DUEON ?? raw.billdate ?? raw.BILLDATE ?? '';
+  if (val == null || String(val).trim() === '') return '';
+  return String(val).trim();
+}
+
+/** Single row per figma_codes: ref (12px semibold) left, date middle, amount (12px semibold ₹) right */
+function BillAllocationRow({ item, voucherDate }: { item: BillAllocation; voucherDate?: string }) {
   // Support both old format (BILLNAME) and new format (billname)
   const refNo = (item.BILLNAME ?? item.billname ?? '—') as string;
   const billType = (item.BILLTYPE ?? item.billtype ?? '') as string;
+  const dateStr = getBillAllocDate(item) || voucherDate || '—';
   
   // Support both formats for amount
   const debit = toAmt(item.DEBITAMT);
@@ -181,6 +194,7 @@ function BillAllocationRow({ item }: { item: BillAllocation }) {
           {refNo}
         </Text>
       </View>
+      <Text style={styles.rowDate} numberOfLines={1}>{dateStr}</Text>
       <Text style={styles.rowAmount}>₹{fmtNum(amount)}</Text>
     </View>
   );
@@ -207,6 +221,10 @@ export default function BillAllocations() {
   const displayLedger = ledgerNameParam || voucherInfo.ledgerName || '—';
   const balanceAmount = fmtNum(voucherInfo.amount);
   const balanceDrCr = voucherInfo.isDebit ? 'Dr.' : 'Cr.';
+  const actualVoucher = (Array.isArray((voucher as { vouchers?: unknown[] }).vouchers) && (voucher as { vouchers: Record<string, unknown>[] }).vouchers.length > 0)
+    ? (voucher as { vouchers: Record<string, unknown>[] }).vouchers[0]
+    : voucher;
+  const voucherDate = (actualVoucher.DATE ?? actualVoucher.date ?? '') as string;
 
   React.useEffect(() => {
     setScrollDirection('up');
@@ -224,11 +242,11 @@ export default function BillAllocations() {
         compact
       />
 
-      {/* Top circled: info row – white bg, person icon + ledger name (regular) + amount Dr. (bolder) */}
+      {/* Company name header – same format as voucher details: lavender bar, icon + name + amount */}
       <View style={styles.accountStrip}>
         <View style={styles.accountStripInner}>
           <View style={styles.accountStripIconWrap}>
-            <IconAccountVector4 width={18} height={18} color="#6A7282" />
+            <IconAccountVector4 width={18} height={18} color="#131313" />
           </View>
           <Text style={styles.accountStripName} numberOfLines={1}>
             {displayLedger}
@@ -262,7 +280,7 @@ export default function BillAllocations() {
             </View>
           ) : (
             allocations.map((item, i) => (
-              <BillAllocationRow key={i} item={item} />
+              <BillAllocationRow key={i} item={item} voucherDate={voucherDate} />
             ))
           )}
         </View>
@@ -276,29 +294,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.white,
   },
-  // Top circled: horizontal info row – white bg, person icon + name (regular) + amount Dr. (bolder)
+  // Company name header – same format as voucher details (#e6ecfd bar, #c4d4ff border, icon + bold name)
   accountStrip: {
-    backgroundColor: colors.white,
+    backgroundColor: '#e6ecfd',
     borderBottomWidth: 1,
-    borderBottomColor: ROW_BORDER,
-    paddingVertical: 12,
+    borderBottomColor: '#c4d4ff',
+    paddingTop: 4,
+    paddingBottom: 6,
     paddingHorizontal: 16,
   },
   accountStripInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 6,
   },
   accountStripIconWrap: {
     width: 18,
     height: 18,
-    marginRight: 6,
+    marginRight: 0,
   },
   accountStripName: {
     flex: 1,
     fontFamily: 'System',
-    fontSize: 14,
-    fontWeight: '400',
+    fontSize: 13,
+    fontWeight: '600',
     color: '#131313',
   },
   accountStripRight: {
@@ -372,6 +392,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0e172b',
     flex: 1,
+  },
+  rowDate: {
+    fontFamily: 'System',
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#6a7282',
+    marginHorizontal: 8,
+    minWidth: 64,
   },
   rowAmount: {
     fontFamily: 'System',

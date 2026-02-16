@@ -59,6 +59,9 @@ export interface BillAllocation {
   billtype?: string | null;
   amount?: string | null;
   billcreditperiod?: string | null;
+  /** Bill/credit date (e.g. "20-Jan-26") */
+  date?: string | null;
+  billdate?: string | null;
 }
 
 export interface InventoryAllocation {

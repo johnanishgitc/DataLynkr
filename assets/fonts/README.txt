@@ -1,6 +1,11 @@
-Merienda font for "DataLynkr" text on Login, Signup, and Forgot Password.
+Wix Madefor Display for "DataLynkr" text (Login, Signup, Forgot Password).
 
-1. Download: https://fonts.google.com/specimen/Merienda → "Download family"
-2. Unzip and copy Merienda-Regular.ttf into this folder.
-3. From project root run: npx react-native-asset
-4. Rebuild: npx react-native run-android or run-ios
+iOS (this folder):
+1. Download: https://fonts.google.com/specimen/Wix+Madefor+Display → "Download family"
+2. Unzip and copy into this folder either:
+   - WixMadeforDisplay-VariableFont_wght.ttf (variable), or
+   - static/WixMadeforDisplay-Regular.ttf (and others if you want).
+3. From project root: npx react-native-asset then rebuild.
+
+Android (multiple weights 400/500/600/700):
+- See android/app/src/main/res/font/README.txt and add the 4 static TTFs there with the exact names listed. Then clean rebuild.

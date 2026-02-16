@@ -280,7 +280,7 @@ export default function ClearedOrders({
         ]}
       >
         <StatusBarTopBar
-          title="Cleared Orders"
+          title="Ledger Book"
           leftIcon="menu"
           onMenuPress={onNavigateHome}
           rightIcons="share-bell"

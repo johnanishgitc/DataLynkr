@@ -85,7 +85,7 @@ export default function Signup() {
           <View style={styles.card}>
             <View style={styles.topSection}>
               <Logo width={74} height={48} style={styles.logo} />
-              <Text style={styles.brand}>{strings.app_name}</Text>
+              <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
             </View>
             <Text style={styles.successText}>{strings.signup_success}</Text>
             <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('Login')} activeOpacity={0.8}>
@@ -112,7 +112,7 @@ export default function Signup() {
           <View style={styles.card}>
             <View style={styles.topSection}>
               <Logo width={74} height={48} style={styles.logo} />
-              <Text style={styles.brand}>{strings.app_name}</Text>
+              <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
               <Text style={styles.heading}>{strings.create_account}</Text>
             </View>
 
@@ -219,10 +219,15 @@ const styles = StyleSheet.create({
   },
   brand: {
     fontFamily: fonts.brand,
-    fontWeight: '500',
+    fontWeight: '400',
     fontSize: 30,
-    color: '#f4c74d',
     marginTop: 8,
+  },
+  brandData: {
+    color: '#000000',
+  },
+  brandLynkr: {
+    color: '#000000',
   },
   heading: {
     fontWeight: '400',

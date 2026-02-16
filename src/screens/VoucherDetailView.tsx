@@ -16,9 +16,17 @@ import {
   useWindowDimensions,
   Animated,
   Easing,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
+
+// Enable LayoutAnimation on Android for smooth expand/collapse (match order/invoice voucher)
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import WebView from 'react-native-webview';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -63,8 +71,7 @@ export default function VoucherDetailView() {
   const [v, setV] = useState<Record<string, unknown>>(initialVoucher);
   const [loading, setLoading] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-  const [expandedEntryIndex, setExpandedEntryIndex] = useState<number | null>(null);
-  const accExpandAnimRef = useRef<Record<number, Animated.Value>>({});
+  const [expandedEntryIndices, setExpandedEntryIndices] = useState<Set<number>>(new Set());
   const [htmlModalVisible, setHtmlModalVisible] = useState(false);
   const [htmlContent, setHtmlContent] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
@@ -107,13 +114,46 @@ export default function VoucherDetailView() {
           masterid: masterId,
         });
         const body = res?.data as Record<string, unknown> | undefined;
-        const full =
-          (Array.isArray(body?.vouchers) && (body.vouchers as unknown[])[0]) ??
-          (Array.isArray(body?.data) && (body.data as unknown[])[0]) ??
-          (Array.isArray(body) && body[0]) ??
-          body?.voucher ??
-          body?.data;
-        if (!cancelled && full && typeof full === 'object') setV(full as Record<string, unknown>);
+        if (__DEV__ && body && !cancelled) {
+          console.log('[VoucherDetailView] getVoucherData response keys:', Object.keys(body));
+        }
+        /** Extract voucher: API returns { vouchers: [ {...} ] } – handle that and other shapes */
+        let full: Record<string, unknown> | undefined;
+        let vouchersRaw = body?.vouchers ?? body?.Vouchers;
+        if (typeof vouchersRaw === 'string') {
+          try { vouchersRaw = JSON.parse(vouchersRaw) as unknown[]; } catch { vouchersRaw = undefined; }
+        }
+        if (Array.isArray(vouchersRaw) && vouchersRaw.length > 0 && typeof vouchersRaw[0] === 'object' && vouchersRaw[0] !== null) {
+          full = vouchersRaw[0] as Record<string, unknown>;
+        } else {
+          /** Support wrapper like { result: { data: [...] } } and other shapes */
+          const unwrapped = (body?.result != null && typeof body.result === 'object') ? (body.result as Record<string, unknown>) : body;
+          const dataVal = unwrapped?.data ?? unwrapped?.Data;
+          const vouchersVal = unwrapped?.vouchers ?? unwrapped?.Vouchers ?? (dataVal && typeof dataVal === 'object' && !Array.isArray(dataVal) ? (dataVal as Record<string, unknown>).vouchers ?? (dataVal as Record<string, unknown>).Vouchers : undefined);
+          const hasVoucherKeys = (o: unknown) => {
+            if (typeof o !== 'object' || o === null) return false;
+            const r = o as Record<string, unknown>;
+            return r.DATE != null || r.date != null || r.VOUCHERTYPE != null || r.vouchertype != null || r.vouchertypename != null
+              || r.ALLLEDGERENTRIES != null || r.allledgerentries != null || r.ledgerentries != null
+              || r.INVENTORYALLOCATIONS != null || r.allinventoryentries != null;
+          };
+          full =
+            (Array.isArray(vouchersVal) && vouchersVal.length > 0 && typeof vouchersVal[0] === 'object' && vouchersVal[0] !== null ? (vouchersVal[0] as Record<string, unknown>) : undefined) ??
+            (Array.isArray(dataVal) && dataVal.length > 0 && typeof dataVal[0] === 'object' && dataVal[0] !== null ? (dataVal[0] as Record<string, unknown>) : undefined) ??
+            (Array.isArray(unwrapped) && unwrapped.length > 0 && typeof unwrapped[0] === 'object' ? (unwrapped[0] as Record<string, unknown>) : undefined) ??
+            (Array.isArray(body) && body.length > 0 && typeof body[0] === 'object' ? (body[0] as Record<string, unknown>) : undefined) ??
+            (typeof unwrapped?.voucher === 'object' && unwrapped.voucher !== null ? (unwrapped.voucher as Record<string, unknown>) : undefined) ??
+            (typeof unwrapped?.Voucher === 'object' && unwrapped.Voucher !== null ? (unwrapped.Voucher as Record<string, unknown>) : undefined) ??
+            (typeof dataVal === 'object' && dataVal !== null && !Array.isArray(dataVal) ? (dataVal as Record<string, unknown>) : undefined) ??
+            (hasVoucherKeys(unwrapped) ? (unwrapped as Record<string, unknown>) : undefined) ??
+            (hasVoucherKeys(body) ? body : undefined) ??
+            (typeof body?.data === 'object' && body.data !== null && !Array.isArray(body.data) ? (body.data as Record<string, unknown>) : undefined);
+        }
+        if (!cancelled && full && typeof full === 'object') {
+          setV(full);
+        } else if (__DEV__ && !cancelled) {
+          console.warn('[VoucherDetailView] getVoucherData could not extract voucher; body keys:', body ? Object.keys(body) : 'null', 'vouchersRaw type:', typeof vouchersRaw, Array.isArray(vouchersRaw) ? `length=${vouchersRaw.length}` : '');
+        }
       } catch (err) {
         if (__DEV__ && !cancelled) console.warn('[VoucherDetailView] getVoucherData failed', err);
         if (!cancelled) {
@@ -253,21 +293,26 @@ export default function VoucherDetailView() {
   };
   const getBillAllocDate = (item: BillAllocation): string => {
     const raw = item as Record<string, unknown>;
-    const val = raw.date ?? raw.DATE ?? raw.duedate ?? raw.DUEON ?? raw.billdate ?? raw.BILLDATE ?? '';
+    const val = raw.billcreditperiod ?? raw.BILLCREDITPERIOD ?? raw.date ?? raw.DATE ?? raw.duedate ?? raw.DUEON ?? raw.billdate ?? raw.BILLDATE ?? '';
     if (val == null || String(val).trim() === '') return '—';
     return String(val).trim();
   };
 
-  // Footer collapse – one shared value so tab bar and voucher footer move together
+  // Footer collapse – match LedgerVoucher: direction-based, translateY, 300ms, useNativeDriver where possible
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const programmaticScrollRef = useRef(false); // true while scroll is from item expand/collapse – don't drive footer
-  const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed
+  const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed (accounting + tab bar)
+  /** Order/Invoice: translateY like LedgerVoucher – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down (useNativeDriver: true) */
+  const footerTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
-  const SCROLL_UP_THRESHOLD = 0;
-  const COLLAPSE_DURATION = 1000;
+  const SCROLL_UP_THRESHOLD = 10; // px – same as LedgerVoucher, avoids jitter
+  const FOOTER_COLLAPSE_HEIGHT = 55; // px – slide down when collapsed so grand total bar stays visible a bit up
+  const COLLAPSE_DURATION = 1000; // accounting only
   const collapseEasing = Easing.out(Easing.cubic);
+  const ORDER_INVOICE_COLLAPSE_DURATION = 380; // slightly longer for smoother feel
+  const orderInvoiceEasing = Easing.out(Easing.cubic); // smooth deceleration at end
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -277,6 +322,52 @@ export default function VoucherDetailView() {
     }
     const scrollDiff = currentScrollY - lastScrollY.current;
 
+    // Order/Invoice: direction-based, eased timing for smoother collapse/expand
+    if (!isAccountingView) {
+      if (scrollDiff > 0 && currentScrollY > 50) {
+        if (localScrollDirection.current !== 'down') {
+          localScrollDirection.current = 'down';
+          setScrollDirection('down');
+          Animated.parallel([
+            Animated.timing(footerTranslateY, {
+              toValue: FOOTER_COLLAPSE_HEIGHT,
+              duration: ORDER_INVOICE_COLLAPSE_DURATION,
+              easing: orderInvoiceEasing,
+              useNativeDriver: true,
+            }),
+            Animated.timing(collapseProgress, {
+              toValue: 1,
+              duration: ORDER_INVOICE_COLLAPSE_DURATION,
+              easing: orderInvoiceEasing,
+              useNativeDriver: false,
+            }),
+          ]).start();
+        }
+      } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+        if (localScrollDirection.current !== 'up') {
+          localScrollDirection.current = 'up';
+          setScrollDirection('up');
+          Animated.parallel([
+            Animated.timing(footerTranslateY, {
+              toValue: 0,
+              duration: ORDER_INVOICE_COLLAPSE_DURATION,
+              easing: orderInvoiceEasing,
+              useNativeDriver: true,
+            }),
+            Animated.timing(collapseProgress, {
+              toValue: 0,
+              duration: ORDER_INVOICE_COLLAPSE_DURATION,
+              easing: orderInvoiceEasing,
+              useNativeDriver: false,
+            }),
+          ]).start();
+        }
+      }
+      lastScrollY.current = currentScrollY;
+      return;
+    }
+
+    // Accounting: direction-based collapse animation
     if (scrollDiff > 0 && currentScrollY > 50) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
@@ -307,33 +398,46 @@ export default function VoucherDetailView() {
   useEffect(() => {
     setScrollDirection('up');
     collapseProgress.setValue(0);
+    footerTranslateY.setValue(0);
     setFooterCollapseValue(collapseProgress);
     return () => {
       setScrollDirection(null);
       setFooterCollapseValue(null);
     };
-  }, [setScrollDirection, setFooterCollapseValue, collapseProgress]);
+  }, [setScrollDirection, setFooterCollapseValue, collapseProgress, footerTranslateY]);
 
-  const footerContentBottom = collapseProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [TAB_BAR_OFFSET, 0],
-  });
+  // When returning to this screen, show footer expanded (like LedgerVoucher)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!isAccountingView && localScrollDirection.current === 'down') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        Animated.parallel([
+          Animated.timing(footerTranslateY, {
+            toValue: 0,
+            duration: ORDER_INVOICE_COLLAPSE_DURATION,
+            easing: orderInvoiceEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(collapseProgress, {
+            toValue: 0,
+            duration: ORDER_INVOICE_COLLAPSE_DURATION,
+            easing: orderInvoiceEasing,
+            useNativeDriver: false,
+          }),
+        ]).start();
+      }
+    }, [isAccountingView, footerTranslateY, collapseProgress, setScrollDirection])
+  );
 
-  // Smooth expand/collapse for accounting entries (height animation)
-  useEffect(() => {
-    const anims = accExpandAnimRef.current;
-    const duration = 300;
-    Object.keys(anims).forEach((key) => {
-      const idx = Number(key);
-      const val = anims[idx];
-      if (!val) return;
-      Animated.timing(val, {
-        toValue: expandedEntryIndex === idx ? 1 : 0,
-        duration,
-        useNativeDriver: false,
-      }).start();
-    });
-  }, [expandedEntryIndex]);
+  // Accounting: footer position via bottom; Order/Invoice: fixed bottom + translateY (like LedgerVoucher)
+  const footerContentBottom = isAccountingView
+    ? collapseProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [TAB_BAR_OFFSET, 0],
+      })
+    : TAB_BAR_OFFSET;
+  const footerTransform = !isAccountingView ? [{ translateY: footerTranslateY }] : [];
 
   const closeMenu = () => setMenuVisible(false);
 
@@ -553,17 +657,26 @@ export default function VoucherDetailView() {
               ? getBankDetailsFromEntry(entryRaw, `₹${fmtNum(displayAmt)} ${entryDrCr}`)
               : [];
             const hasSubRows = billAllocs.length > 0 || bankDetails.length > 0;
-            const isExpanded = expandedEntryIndex === i;
-            if (hasSubRows && !accExpandAnimRef.current[i]) {
-              accExpandAnimRef.current[i] = new Animated.Value(isExpanded ? 1 : 0);
-            }
+            const isExpanded = expandedEntryIndices.has(i);
             const onRowPress = hasSubRows
-              ? () => setExpandedEntryIndex(isExpanded ? null : i)
+                ? () => {
+                    LayoutAnimation.configureNext({
+                      duration: 320,
+                      update: { type: LayoutAnimation.Types.easeInEaseOut },
+                      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                    });
+                    setExpandedEntryIndices((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(i)) next.delete(i);
+                      else next.add(i);
+                      return next;
+                    });
+                  }
               : undefined;
             const RowWrapper = hasSubRows ? TouchableOpacity : View;
             const rowProps = hasSubRows ? { onPress: onRowPress, activeOpacity: 0.7 } : {};
             const rowStyle = hasSubRows && isExpanded ? styles.accEntryRowExpanded : styles.accEntryRow;
-            const animVal = hasSubRows ? accExpandAnimRef.current[i] : null;
             return (
               <View key={i}>
                 <RowWrapper style={rowStyle} {...rowProps}>
@@ -574,69 +687,40 @@ export default function VoucherDetailView() {
                     ₹{fmtNum(displayAmt)} {entryDrCr}
                   </Text>
                 </RowWrapper>
-                {hasSubRows && animVal ? (
-                  <Animated.View
-                    style={[
-                      {
-                        maxHeight: animVal.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, 3000],
-                        }),
-                        overflow: 'hidden',
-                        opacity: animVal.interpolate({
-                          inputRange: [0, 0.01, 1],
-                          outputRange: [0, 1, 1],
-                        }),
-                      },
-                    ]}
-                  >
-                    <View style={styles.accEntrySubBlock}>
-                    {bankDetails.length > 0
-                      ? bankDetails.map((row: BankDetailRow, j: number) => (
-                          <View
-                            key={`bank-${j}`}
-                            style={[
-                              styles.accSubRow,
-                              styles.accSubRowAlt,
-                              j === bankDetails.length - 1 && billAllocs.length === 0 && styles.accSubRowLast,
-                            ]}
-                          >
-                            <View style={styles.accSubRowLeftBorder} />
-                            <View style={styles.accSubRowContent}>
-                              <View style={styles.accSubRowBottom}>
-                                <Text style={styles.accSubRowLabel} numberOfLines={1}>{row.label}</Text>
-                                <Text style={styles.accSubRowAmount} numberOfLines={1}>{row.value}</Text>
-                              </View>
-                            </View>
+                {hasSubRows && isExpanded && (
+                  <View style={styles.accEntrySubBlock}>
+                    {bankDetails.length > 0 ? (
+                      <View style={[styles.accBankBlock, billAllocs.length === 0 && styles.accSubRowLast]}>
+                        {bankDetails.map((row: BankDetailRow, j: number) => (
+                          <View key={`bank-${j}`} style={styles.accBankDetailRow}>
+                            <Text style={styles.accBankDetailLabel} numberOfLines={1}>{row.label}</Text>
+                            <Text style={styles.accBankDetailValue} numberOfLines={1}>{row.value}</Text>
                           </View>
-                        ))
-                      : null}
+                        ))}
+                      </View>
+                    ) : null}
                     {billAllocs.map((alloc, j) => {
                       const refNo = (alloc.BILLNAME ?? alloc.billname ?? '—') as string;
                       const label = (alloc.BILLTYPE ?? alloc.billtype ?? '') as string;
                       const amount = getBillAllocAmt(alloc);
                       const dateStr = getBillAllocDate(alloc) || date || '—';
-                      const isAlt = j % 2 === 0;
                       const isLast = j === billAllocs.length - 1;
                       return (
-                        <View key={j} style={[styles.accSubRow, isAlt && styles.accSubRowAlt, isLast && styles.accSubRowLast]}>
-                          <View style={styles.accSubRowLeftBorder} />
-                          <View style={styles.accSubRowContent}>
-                            <View style={styles.accSubRowTop}>
-                              <Text style={styles.accSubRowRef} numberOfLines={1}>{refNo}</Text>
-                              <Text style={styles.accSubRowDate}>{dateStr}</Text>
-                            </View>
-                            <View style={styles.accSubRowBottom}>
-                              <Text style={styles.accSubRowLabel} numberOfLines={1}>{label || '—'}</Text>
-                              <Text style={styles.accSubRowAmount}>₹{fmtNum(amount)}</Text>
-                            </View>
+                        <View key={j} style={[styles.accSubRow, isLast && styles.accSubRowLast]}>
+                          <View style={styles.accSubRowTopLine}>
+                            <Text style={styles.accSubRowRef} numberOfLines={1}>{refNo}</Text>
+                            <View style={styles.accSubRowTopLineSpacer} />
+                            <Text style={styles.accSubRowDate}>{dateStr}</Text>
+                            <Text style={styles.accSubRowAmount}>₹{fmtNum(amount)}</Text>
+                          </View>
+                          <View style={styles.accSubRowBottomLine}>
+                            <Text style={styles.accSubRowLabel} numberOfLines={1}>{label || '—'}</Text>
                           </View>
                         </View>
                       );
                     })}
-                    </View>
-                  </Animated.View>
-                ) : null}
+                  </View>
+                )}
               </View>
             );
           })}
@@ -710,7 +794,11 @@ export default function VoucherDetailView() {
       </ScrollView>
 
       <Animated.View
-        style={[styles.voucherDetailFooterFixed, { bottom: footerContentBottom }]}
+        style={[
+          styles.voucherDetailFooterFixed,
+          { bottom: footerContentBottom },
+          footerTransform.length > 0 && { transform: footerTransform },
+        ]}
       >
         <VoucherDetailsFooter
           itemTotal={itemTotal}
@@ -826,9 +914,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     minHeight: 48,
-    backgroundColor: '#E6ECFD',
-    borderBottomWidth: 1,
-    borderBottomColor: '#c4d4ff',
+    backgroundColor: colors.white,
   },
   accEntryName: {
     fontSize: 14,
@@ -846,19 +932,21 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     minHeight: 22,
   },
-  /* Collapsible bill allocation sub-rows – TdsReceivable / inventory-card */
+  /* Collapsible bill allocation sub-rows – ref + label left, date middle, amount right (TDS Receivable style) */
   accEntrySubBlock: {
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 8,
     paddingHorizontal: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#c4d4ff',
   },
   accSubRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'stretch',
     backgroundColor: '#FCF4DB',
     borderBottomWidth: 1,
     borderBottomColor: '#e2eaf2',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 4,
   },
@@ -868,50 +956,67 @@ const styles = StyleSheet.create({
   accSubRowLast: {
     marginBottom: 0,
   },
-  accSubRowLeftBorder: {
-    width: 0,
-    marginRight: 0,
+  /* Group bank: single expanded panel with label-value rows */
+  accBankBlock: {
+    backgroundColor: '#FCF4DB',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2eaf2',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e6ecfd',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 4,
   },
-  accSubRowContent: {
-    flex: 1,
-    paddingVertical: 2,
-    paddingHorizontal: 0,
-    justifyContent: 'center',
-  },
-  accSubRowTop: {
+  accBankDetailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    paddingVertical: 4,
   },
-  accSubRowRef: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#0e172b',
+  accBankDetailLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6a7282',
     flex: 1,
     marginRight: 8,
   },
-  accSubRowDate: {
-    fontSize: 12,
-    fontWeight: '400',
+  accBankDetailValue: {
+    fontSize: 13,
+    fontWeight: '600',
     color: '#0e172b',
-    marginRight: 20,
   },
-  accSubRowBottom: {
+  accSubRowTopLine: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
+  },
+  accSubRowTopLineSpacer: {
+    flex: 1,
+    minWidth: 8,
+  },
+  accSubRowBottomLine: {
+    alignSelf: 'flex-start',
+  },
+  accSubRowRef: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0e172b',
   },
   accSubRowLabel: {
     fontSize: 12,
     fontWeight: '400',
     color: '#6a7282',
-    flex: 1,
-    marginRight: 8,
+  },
+  accSubRowDate: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#0e172b',
+    marginRight: 12,
   },
   accSubRowAmount: {
-    fontSize: 12,
-    fontWeight: '400',
+    fontSize: 14,
+    fontWeight: '600',
     color: '#0e172b',
   },
   narrationWrap: {
