@@ -27,6 +27,7 @@ export interface StockItem {
   GROUPLIST?: string | null;
   /** From api/tally/stockitem. When "Yes", show Godown and Batch on Order Entry Item Detail. */
   ISBATCHWISEON?: string | null;
+  ALIAS?: string | null;
   [key: string]: unknown;
 }
 

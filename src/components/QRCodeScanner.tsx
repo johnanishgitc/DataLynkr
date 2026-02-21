@@ -25,6 +25,7 @@ export function QRCodeScanner({ visible, onScanned, onCancel }: QRCodeScannerPro
   const { hasPermission, requestPermission } = useCameraPermission();
   const hasFiredRef = useRef(false);
   const [permissionRequested, setPermissionRequested] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
 
   const handleScanned = useCallback(
     (text: string) => {
@@ -46,14 +47,10 @@ export function QRCodeScanner({ visible, onScanned, onCancel }: QRCodeScannerPro
       'upc-a',
       'upc-e',
       'itf',
-      'itf-14',
       'codabar',
       'pdf-417',
       'aztec',
       'data-matrix',
-      'gs1-data-bar',
-      'gs1-data-bar-limited',
-      'gs1-data-bar-expanded',
     ],
     onCodeScanned: (codes) => {
       const value = codes[0]?.value;
@@ -63,14 +60,30 @@ export function QRCodeScanner({ visible, onScanned, onCancel }: QRCodeScannerPro
     },
   });
 
-  // When modal opens, request camera permission once
+  // When modal opens, request camera permission once, then delay mount 
   useEffect(() => {
-    if (!visible) return;
-    hasFiredRef.current = false;
-    if (!hasPermission && !permissionRequested) {
-      setPermissionRequested(true);
-      requestPermission().catch(() => {});
+    if (!visible) {
+      setCameraReady(false);
+      return;
     }
+
+    hasFiredRef.current = false;
+
+    if (!hasPermission) {
+      if (!permissionRequested) {
+        setPermissionRequested(true);
+        requestPermission().catch(() => { });
+      }
+      return;
+    }
+
+    // Permission is granted and modal is visible.
+    // Delay native camera mount slightly to allow Modal layout pass to finish, preventing hardware binding collisions.
+    const timer = setTimeout(() => {
+      setCameraReady(true);
+    }, 300);
+
+    return () => clearTimeout(timer);
   }, [visible, hasPermission, permissionRequested, requestPermission]);
 
   const handleCancel = useCallback(() => {
@@ -90,7 +103,7 @@ export function QRCodeScanner({ visible, onScanned, onCancel }: QRCodeScannerPro
             </Text>
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={() => requestPermission().then(() => {})}
+              onPress={() => requestPermission().then(() => { })}
               activeOpacity={0.8}
             >
               <Text style={styles.primaryButtonText}>Allow camera</Text>
@@ -126,12 +139,18 @@ export function QRCodeScanner({ visible, onScanned, onCancel }: QRCodeScannerPro
   return (
     <Modal visible animationType="slide">
       <View style={styles.container}>
-        <Camera
-          style={StyleSheet.absoluteFill}
-          device={device}
-          isActive={visible}
-          codeScanner={codeScanner}
-        />
+        {device != null && cameraReady && (
+          <Camera
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={visible && cameraReady}
+            codeScanner={codeScanner}
+            enableZoomGesture={false}
+            video={false}
+            audio={false}
+            photo={false}
+          />
+        )}
         <View style={styles.footer}>
           <Text style={styles.hint}>Point the camera at a QR code or barcode</Text>
           <TouchableOpacity style={styles.closeButton} onPress={handleCancel} activeOpacity={0.8}>

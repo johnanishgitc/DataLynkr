@@ -32,10 +32,24 @@ export type AddedOrderItem = {
   unit: string;
 };
 
+export type AddedOrderItemWithStock = AddedOrderItem & {
+  stockItem?: StockItem;
+  id?: number;
+  discount?: number;
+  stock?: number;
+  tax?: number;
+  dueDate?: string;
+  mfgDate?: string;
+  expiryDate?: string;
+};
+
 export type OrdersStackParamList = {
   OrderEntry: {
     editItem?: AddedOrderItem;
     editIndex?: number;
+    addedItems?: AddedOrderItemWithStock[];
+    replaceOrderItemId?: number;
+    clearOrder?: boolean;
   };
   OrderEntryItemDetail: {
     item?: AddedOrderItem;
@@ -44,6 +58,7 @@ export type OrdersStackParamList = {
   OrderSuccess: {
     orderNo: string;
   };
+  ComingSoon: { tab_name: string };
 };
 
 export type ApprovalsStackParamList = {

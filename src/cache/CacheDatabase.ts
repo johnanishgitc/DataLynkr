@@ -1,4 +1,4 @@
-import SQLite from 'react-native-sqlite-storage';
+import SQLite from '../database/SqliteShim';
 import { Buffer } from 'buffer';
 import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -88,7 +88,7 @@ function ensureString(val: unknown): string {
   if (typeof val === 'string') {
     // Check if the string is actually comma-separated byte codes (stringified array)
     // This can happen with some SQLite drivers
-    
+
     // SAFETY: First check if it looks like valid JSON - if so, don't convert
     // This prevents false positives where legitimate JSON data gets mangled
     const trimmed = val.trim();
@@ -96,7 +96,7 @@ function ensureString(val: unknown): string {
       // Looks like JSON, return as-is
       return val;
     }
-    
+
     // Also check if it looks like valid base64 - don't convert base64 strings
     // Base64 only contains A-Za-z0-9+/= characters (no commas!)
     // Check first 200 chars to be reasonably sure
@@ -105,7 +105,7 @@ function ensureString(val: unknown): string {
       // Looks like base64, return as-is (caller will decode)
       return val;
     }
-    
+
     // OPTIMIZATION: Only check first 50 characters for initial pattern match
     const preview = val.length > 50 ? val.slice(0, 50) : val;
     // Check if it looks like comma-separated byte codes (e.g., "91,123,34,...")
@@ -115,13 +115,13 @@ function ensureString(val: unknown): string {
       // Check a larger chunk but also the end of the string to catch corruption
       const largerPreview = val.length > 500 ? val.slice(0, 500) : val;
       const endPreview = val.length > 100 ? val.slice(-100) : val;
-      
+
       // Both beginning and end should match the pattern
       if (/^[\d,\s]+$/.test(largerPreview) && /^[\d,\s]+$/.test(endPreview)) {
         console.warn('Detected string representation of byte codes, converting...');
         try {
           const parts = val.split(',');
-          
+
           // Validate that we have actual byte values (0-255)
           // Sample a few parts to check validity
           const sampleIndices = [0, Math.floor(parts.length / 4), Math.floor(parts.length / 2), Math.floor(parts.length * 3 / 4), parts.length - 1];
@@ -134,13 +134,13 @@ function ensureString(val: unknown): string {
               }
             }
           }
-          
+
           // Require at least 80% of samples to be valid byte values
           if (validSamples < sampleIndices.length * 0.8) {
             console.warn('Byte code validation failed - not enough valid byte values');
             return val;
           }
-          
+
           // Use Uint8Array for native performance
           const byteArray = new Uint8Array(parts.length);
           let invalidCount = 0;
@@ -153,20 +153,20 @@ function ensureString(val: unknown): string {
               byteArray[i] = num;
             }
           }
-          
+
           if (invalidCount > 0) {
             console.warn(`Byte code conversion: ${invalidCount} invalid values replaced with null bytes`);
           }
-          
+
           const converted = Buffer.from(byteArray).toString('utf8');
           console.log(`Converted ${parts.length} byte codes to string (length: ${converted.length})`);
-          
+
           // Validate the result - should look like JSON or base64
           const resultPreview = converted.length > 100 ? converted.slice(0, 100) : converted;
           if (!/[\[\{"]/.test(resultPreview) && !/^[A-Za-z0-9+/=]+$/.test(resultPreview)) {
             console.warn('Byte code conversion result does not look like JSON or base64:', resultPreview.slice(0, 50));
           }
-          
+
           return converted;
         } catch (e) {
           console.error('Failed to convert string byte codes:', e);
@@ -239,19 +239,19 @@ function ensureString(val: unknown): string {
  */
 function chunkStringByBytes(str: string, maxBytes: number): string[] {
   const chunks: string[] = [];
-  
+
   console.log('[chunkStringByBytes] Input string length:', str.length, 'maxBytes:', maxBytes);
   console.log('[chunkStringByBytes] Input preview:', str.slice(0, 50));
-  
+
   // For JSON data, characters are mostly ASCII (1 byte each)
   // Multi-byte characters are rare in JSON keys/values
   // Using string slicing directly is safe and avoids Buffer/TextDecoder issues
-  
+
   let start = 0;
   while (start < str.length) {
     // For JSON (mostly ASCII), 1 char ≈ 1 byte
     let end = Math.min(start + maxBytes, str.length);
-    
+
     // Don't split in the middle of a surrogate pair (emoji, etc.)
     if (end < str.length) {
       const lastChar = str.charCodeAt(end - 1);
@@ -260,28 +260,28 @@ function chunkStringByBytes(str: string, maxBytes: number): string[] {
         end++; // Include the low surrogate
       }
     }
-    
+
     const chunk = str.slice(start, end);
-    
+
     // Log first chunk for verification
     if (chunks.length === 0) {
       console.log('[chunkStringByBytes] First chunk length:', chunk.length);
       console.log('[chunkStringByBytes] First chunk preview:', chunk.slice(0, 100));
-      
+
       // Verify chunk doesn't look like byte codes (sanity check)
       const looksLikeByteCodes = /^\d{1,3}(,\d{1,3})+/.test(chunk.slice(0, 50));
       const looksLikeJSON = /^[\[\{"']/.test(chunk.trimStart());
       console.log('[chunkStringByBytes] First chunk looksLikeJSON:', looksLikeJSON, 'looksLikeByteCodes:', looksLikeByteCodes);
-      
+
       if (looksLikeByteCodes && !looksLikeJSON) {
         console.error('[chunkStringByBytes] ERROR: Chunk looks like byte codes! Input may be corrupted.');
       }
     }
-    
+
     chunks.push(chunk);
     start = end;
   }
-  
+
   console.log('[chunkStringByBytes] Created', chunks.length, 'chunks using string slicing');
   return chunks;
 }
@@ -297,8 +297,8 @@ function runSql<T = unknown>(
         executeSql: (
           sql: string,
           params: unknown[],
-          success: (a: unknown, r: unknown) => void,
-          fail: (a: unknown, e: unknown) => void
+          success?: (a: unknown, r: unknown) => void,
+          fail?: (a: unknown, e: unknown) => void
         ) => void
       }) => void,
       err?: (e: unknown) => void
@@ -331,8 +331,9 @@ function runSql<T = unknown>(
 
 async function getDb(): Promise<{
   transaction: (
-    fn: (tx: { executeSql: (a: string, b: unknown[], c: (a: unknown, r: unknown) => void, d: (a: unknown, e: unknown) => void) => void }) => void,
-    err?: (e: unknown) => void
+    fn: (tx: { executeSql: (a: string, b: unknown[], c?: (a: unknown, r: unknown) => void, d?: (a: unknown, e: unknown) => void) => void }) => void,
+    err?: (e: unknown) => void,
+    success?: () => void
   ) => void;
 }> {
   if (db) return db;
@@ -518,7 +519,7 @@ export async function saveCacheEntry(cacheKey: string, json: string, meta: SaveC
 
   const byteLen = getByteLength(json);
   console.log('[CacheDatabase] saveCacheEntry: byteLen=', byteLen, 'threshold=', CHUNK_THRESHOLD_BYTES, 'willChunk=', byteLen > CHUNK_THRESHOLD_BYTES);
-  
+
   if (byteLen <= CHUNK_THRESHOLD_BYTES) {
     await runSql(
       d,
@@ -547,32 +548,32 @@ export async function saveCacheEntry(cacheKey: string, json: string, meta: SaveC
 
   const chunks = chunkStringByBytes(json, CHUNK_SIZE_BYTES);
   console.log('[CacheDatabase] saveCacheEntry: Creating', chunks.length, 'chunks for key:', cacheKey);
-  
+
   // Log first chunk details for debugging and VALIDATE the chunk is proper JSON, not byte codes
   if (chunks.length > 0) {
     const firstChunk = chunks[0];
-    
+
     // CRITICAL: Check if chunk looks like byte codes instead of JSON
     // Byte codes would look like "91,123,34,109,..." (comma-separated numbers)
     // Valid JSON starts with [ or { or "
     const chunkPreview = firstChunk.slice(0, 100);
     const looksLikeJSON = /^[\[\{"']/.test(firstChunk.trimStart());
     const looksLikeByteCodes = /^\d{1,3}(,\d{1,3})+/.test(chunkPreview);
-    
+
     console.log('[CacheDatabase] First chunk raw length:', firstChunk.length);
     console.log('[CacheDatabase] First chunk raw preview:', chunkPreview);
     console.log('[CacheDatabase] First chunk looksLikeJSON:', looksLikeJSON, 'looksLikeByteCodes:', looksLikeByteCodes);
-    
+
     if (looksLikeByteCodes && !looksLikeJSON) {
       console.error('[CacheDatabase] CRITICAL: Chunk data is already byte codes BEFORE Base64 encoding!');
       console.error('[CacheDatabase] This indicates corruption happened before saveCacheEntry was called');
       throw new Error('Data corruption detected: chunk data is byte codes instead of JSON');
     }
-    
+
     const firstChunkBase64 = Buffer.from(firstChunk, 'utf8').toString('base64');
     console.log('[CacheDatabase] First chunk base64 length:', firstChunkBase64.length);
     console.log('[CacheDatabase] First chunk base64 preview:', firstChunkBase64.slice(0, 100));
-    
+
     // Verify Base64 encoding is correct by decoding and comparing
     const decoded = Buffer.from(firstChunkBase64, 'base64').toString('utf8');
     if (decoded !== firstChunk) {
@@ -630,7 +631,7 @@ export async function saveCacheEntry(cacheKey: string, json: string, meta: SaveC
       meta.dataType ?? null,
     ]
   );
-  
+
   // VERIFICATION: Read back the first chunk and verify it wasn't corrupted during SQLite storage
   console.log('[CacheDatabase] saveCacheEntry: Verifying first chunk was stored correctly...');
   const verifyResult = await runSql<RunSqlResult>(
@@ -643,15 +644,15 @@ export async function saveCacheEntry(cacheKey: string, json: string, meta: SaveC
     const storedVersion = verifyResult.rows.item(0).encoding_version;
     console.log('[CacheDatabase] Verification: stored encoding_version=', storedVersion);
     console.log('[CacheDatabase] Verification: stored chunk type=', typeof storedChunk);
-    
+
     if (typeof storedChunk === 'string') {
       console.log('[CacheDatabase] Verification: stored chunk length=', storedChunk.length);
       console.log('[CacheDatabase] Verification: stored chunk preview=', storedChunk.slice(0, 100));
-      
+
       // Check if stored data looks like our Base64 or if SQLite corrupted it
       const isValidBase64 = /^[A-Za-z0-9+/=]+$/.test(storedChunk.slice(0, 100));
       console.log('[CacheDatabase] Verification: stored chunk isValidBase64=', isValidBase64);
-      
+
       if (!isValidBase64) {
         console.error('[CacheDatabase] CRITICAL: Stored chunk is NOT valid Base64!');
         console.error('[CacheDatabase] SQLite may have corrupted the data during INSERT');
@@ -661,11 +662,11 @@ export async function saveCacheEntry(cacheKey: string, json: string, meta: SaveC
           const decoded = Buffer.from(storedChunk, 'base64').toString('utf8');
           console.log('[CacheDatabase] Verification: decoded length=', decoded.length);
           console.log('[CacheDatabase] Verification: decoded preview=', decoded.slice(0, 100));
-          
+
           const decodedLooksLikeJSON = /^[\[\{"']/.test(decoded.trimStart());
           const decodedLooksLikeByteCodes = /^\d{1,3}(,\d{1,3})+/.test(decoded.slice(0, 100));
           console.log('[CacheDatabase] Verification: decoded looksLikeJSON=', decodedLooksLikeJSON, 'looksLikeByteCodes=', decodedLooksLikeByteCodes);
-          
+
           if (decodedLooksLikeByteCodes && !decodedLooksLikeJSON) {
             console.error('[CacheDatabase] CRITICAL: Decoded data is byte codes, not JSON!');
             console.error('[CacheDatabase] Corruption happened DURING or AFTER Base64 encoding');
@@ -708,7 +709,7 @@ export async function readCacheEntry(cacheKey: string): Promise<{ json: string }
 
       const parts: string[] = [];
       console.log('[CacheDatabase] readCacheEntry: Reading', chunkCount, 'chunks for key:', cacheKey);
-      
+
       for (let i = 0; i < chunkCount; i++) {
         // Read one chunk at a time to stay under CursorWindow limit
         const ch = await runSql<RunSqlResult>(
@@ -721,7 +722,7 @@ export async function readCacheEntry(cacheKey: string): Promise<{ json: string }
           const chunkData = row.chunk_data;
           const rawEncodingVersion = row.encoding_version;
           const encodingVersion = (rawEncodingVersion as number) || 1;
-          
+
           // Log first chunk details for debugging
           if (i === 0) {
             console.log('[CacheDatabase] First chunk: encoding_version raw=', rawEncodingVersion, 'parsed=', encodingVersion);
@@ -743,19 +744,19 @@ export async function readCacheEntry(cacheKey: string): Promise<{ json: string }
             // Some SQLite drivers return TEXT/BLOB as byte arrays instead of strings
             // Using ensureString first ensures we have a proper base64 string to decode
             const rawString = ensureString(chunkData);
-            
+
             if (i === 0) {
               console.log('[CacheDatabase] First chunk after ensureString: length=', rawString.length, 'preview=', rawString.slice(0, 100));
             }
-            
+
             // Check if the result is a valid base64 string (not comma-separated byte codes)
             // Base64 strings contain only A-Za-z0-9+/= characters
             const isValidBase64 = /^[A-Za-z0-9+/=]+$/.test(rawString.slice(0, 100));
-            
+
             if (i === 0) {
               console.log('[CacheDatabase] First chunk isValidBase64=', isValidBase64);
             }
-            
+
             if (isValidBase64) {
               try {
                 converted = Buffer.from(rawString, 'base64').toString('utf8');
@@ -1103,10 +1104,10 @@ export async function exportCacheEntryToFile(
       // Base64 encoded (new format)
       // CRITICAL: First use ensureString to handle byte array returns from SQLite
       const rawString = ensureString(chunkData);
-      
+
       // Check if the result is a valid base64 string
       const isValidBase64 = /^[A-Za-z0-9+/=]+$/.test(rawString.slice(0, 100));
-      
+
       if (isValidBase64) {
         try {
           part = Buffer.from(rawString, 'base64').toString('utf8');

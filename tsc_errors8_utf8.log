@@ -1,0 +1,92 @@
+﻿src/cache/ledgerListCacheReader.ts(52,12): error TS2322: Type 'unknown[]' is not assignable to type 'LedgerItem[]'.
+  Type 'unknown' is not assignable to type 'LedgerItem'.
+src/components/charts/BarChart.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/KPICard.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/LineChart.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/MetricCard.tsx(9,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/PieChart.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/Logo.tsx(24,34): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ImageProps): Image', gave the following error.
+    Type 'ViewStyle | undefined' is not assignable to type 'Falsy | ImageStyle | RegisteredStyle<ImageStyle> | RecursiveArray<Falsy | ImageStyle | RegisteredStyle<ImageStyle>> | readonly (Falsy | ... 1 more ... | RegisteredStyle<...>)[]'.
+      Type 'ViewStyle' is not assignable to type 'Falsy | ImageStyle | RegisteredStyle<ImageStyle> | RecursiveArray<Falsy | ImageStyle | RegisteredStyle<ImageStyle>> | readonly (Falsy | ... 1 more ... | RegisteredStyle<...>)[]'.
+        Type 'ViewStyle' is not assignable to type 'ImageStyle'.
+          Types of property 'overflow' are incompatible.
+            Type '"visible" | "hidden" | "scroll" | undefined' is not assignable to type '"visible" | "hidden" | undefined'.
+              Type '"scroll"' is not assignable to type '"visible" | "hidden" | undefined'.
+  Overload 2 of 2, '(props: ImageProps, context: any): Image', gave the following error.
+    Type 'ViewStyle | undefined' is not assignable to type 'Falsy | ImageStyle | RegisteredStyle<ImageStyle> | RecursiveArray<Falsy | ImageStyle | RegisteredStyle<ImageStyle>> | readonly (Falsy | ... 1 more ... | RegisteredStyle<...>)[]'.
+src/navigation/ApprovalsStack.tsx(9,61): error TS2322: Type '"ApprovalsScreen"' is not assignable to type '"Approvals"'.
+src/navigation/ApprovalsStack.tsx(11,9): error TS2322: Type '"ApprovalsScreen"' is not assignable to type '"Approvals"'.
+src/screens/ApprovalsScreen.tsx(991,83): error TS2339: Property 'tab_active_bg' does not exist on type '{ readonly primary_blue: "#1e488f"; readonly yellow_accent: "#f1c74b"; readonly bg_light_blue: "#e6ecfd"; readonly bg_light_blue2: "#e8eeff"; readonly white: "#ffffff"; readonly text_primary: "#131313"; ... 31 more ...; readonly stock_text_label: "#354152"; }'.
+src/screens/CacheManagement2.tsx(29,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/screens/ClearedOrderDetails.tsx(131,26): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/ClearedOrderDetails.tsx(147,28): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/ClearedOrderDetails.tsx(160,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/ClearedOrderDetails.tsx(161,42): error TS18048: 'body' is possibly 'undefined'.
+src/screens/ClearedOrderDetails.tsx(174,28): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/ClearedOrderDetails.tsx(187,26): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/OrderEntry.tsx(430,101): error TS18047: 'cached' is possibly 'null'.
+src/screens/OrderEntry.tsx(449,43): error TS18048: 'data' is possibly 'undefined'.
+src/screens/OrderEntry.tsx(711,56): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(callbackfn: (previousValue: OrderEntryOrderItem, currentValue: OrderEntryOrderItem, currentIndex: number, array: OrderEntryOrderItem[]) => OrderEntryOrderItem, initialValue: OrderEntryOrderItem): OrderEntryOrderItem', gave the following error.
+    Type 'string' is not assignable to type 'OrderEntryOrderItem'.
+      Type 'string' is not assignable to type 'AddedOrderItem'.
+  Overload 2 of 3, '(callbackfn: (previousValue: number, currentValue: OrderEntryOrderItem, currentIndex: number, array: OrderEntryOrderItem[]) => number, initialValue: number): number', gave the following error.
+    Type 'string' is not assignable to type 'number'.
+src/screens/OrderEntry.tsx(717,19): error TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+src/screens/OrderEntry.tsx(781,46): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(885,22): error TS2339: Property 'discount' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(886,17): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(923,11): error TS2345: Argument of type '{ voucherNumber: string; reference: string; }' is not assignable to parameter of type '{ orderNo: string; }'.
+  Object literal may only specify known properties, and 'voucherNumber' does not exist in type '{ orderNo: string; }'.
+src/screens/OrderEntry.tsx(1006,11): error TS2739: Type 'StockItem' is missing the following properties from type 'AddedOrderItem': name, qty, rate, total, unit
+src/screens/OrderEntry.tsx(1008,95): error TS2339: Property 'discount' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,132): error TS2339: Property 'stock' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,147): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,164): error TS2339: Property 'dueDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,185): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,209): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1327,29): error TS2322: Type 'StockItem' is not assignable to type 'AddedOrderItem'.
+src/screens/OrderEntry.tsx(1420,58): error TS2339: Property 'discount' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1427,73): error TS2339: Property 'stock' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1430,70): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1447,84): error TS2339: Property 'dueDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1450,30): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1450,44): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1452,33): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1453,90): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1455,33): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1456,93): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(2529,81): error TS2339: Property 'dueDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntryItemDetail.tsx(208,40): error TS2339: Property 'selectedLedger' does not exist on type 'Readonly<{ item?: AddedOrderItem | undefined; index?: number | undefined; }>'.
+src/screens/OrderEntryItemDetail.tsx(209,39): error TS2339: Property 'editOrderItem' does not exist on type 'Readonly<{ item?: AddedOrderItem | undefined; index?: number | undefined; }>'.
+src/screens/OrderEntryItemDetail.tsx(223,39): error TS2339: Property 'isBatchWiseOn' does not exist on type 'Readonly<{ item?: AddedOrderItem | undefined; index?: number | undefined; }>'.
+src/screens/OrderEntryItemDetail.tsx(324,13): error TS2339: Property 'MASTERID' does not exist on type 'AddedOrderItem'.
+src/screens/OrderEntryItemDetail.tsx(324,31): error TS2551: Property 'NAME' does not exist on type 'AddedOrderItem'. Did you mean 'name'?
+src/screens/OrderEntryItemDetail.tsx(422,13): error TS2339: Property 'MASTERID' does not exist on type 'AddedOrderItem'.
+src/screens/OrderEntryItemDetail.tsx(422,31): error TS2551: Property 'NAME' does not exist on type 'AddedOrderItem'. Did you mean 'name'?
+src/screens/OrderEntryItemDetail.tsx(546,7): error TS2322: Type 'number' is not assignable to type 'string'.
+src/screens/OrderEntryItemDetail.tsx(547,7): error TS2322: Type 'number' is not assignable to type 'string'.
+src/screens/OrderEntryItemDetail.tsx(555,11): error TS2322: Type 'AddedOrderItemWithStock[] | { name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }[]' is not assignable to type 'AddedOrderItemWithStock[]'.
+  Type '{ name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }[]' is not assignable to type 'AddedOrderItemWithStock[]'.
+    Type '{ name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }' is not assignable to type 'AddedOrderItemWithStock'.
+      Property 'unit' is missing in type '{ name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }' but required in type 'AddedOrderItem'.
+src/screens/OrderSuccess.tsx(35,11): error TS2339: Property 'voucherNumber' does not exist on type 'Readonly<{ orderNo: string; }>'.
+src/screens/OrderSuccess.tsx(35,26): error TS2339: Property 'reference' does not exist on type 'Readonly<{ orderNo: string; }>'.
+src/screens/OrderSuccess.tsx(53,91): error TS2322: Type '{ source: any; style: { width: number; height: number; }; loop: false; autoPlay: true; }' is not assignable to type 'IntrinsicAttributes & { source: object; style?: object | undefined; loop?: boolean | undefined; }'.
+  Property 'autoPlay' does not exist on type 'IntrinsicAttributes & { source: object; style?: object | undefined; loop?: boolean | undefined; }'.
+src/screens/SalesDashboard.tsx(24,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/screens/SalesOrderLineDetail.tsx(96,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderLineDetail.tsx(97,42): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderOrderDetails.tsx(128,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderOrderDetails.tsx(129,42): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderVoucherDetails.tsx(291,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderVoucherDetails.tsx(292,42): error TS18048: 'body' is possibly 'undefined'.
+src/utils/permissions.ts(174,9): error TS2365: Operator '>=' cannot be applied to types 'string | number' and 'number'.

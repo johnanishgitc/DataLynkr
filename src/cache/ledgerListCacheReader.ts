@@ -3,7 +3,7 @@
  * Use this to populate the "Select Company" dropdown in Ledger Book screens
  * without making API calls.
  */
-import SQLite from 'react-native-sqlite-storage';
+import SQLite from '../database/SqliteShim';
 import { getUserEmail, getTallylocId, getGuid } from '../store/storage';
 import type { LedgerListResponse } from '../api/models/ledger';
 

@@ -460,7 +460,7 @@ export async function downloadCompleteSales(
           if (!data ||
             data === null ||
             data === undefined ||
-            (typeof data === 'string' && data.trim().length === 0) ||
+            (typeof data === 'string' && (data as string).trim().length === 0) ||
             (typeof data === 'object' && Object.keys(data).length === 0)) {
             console.log('[API] Response is blank/empty, stopping sync loop');
             break;
@@ -644,8 +644,8 @@ export async function downloadCompleteSales(
       // Process chunks in batches
       // Check initial app state to determine starting concurrency
       let currentBatchSize = CONCURRENCY;
-      
-      for (let i = startIndex; i < chunks.length; ) {
+
+      for (let i = startIndex; i < chunks.length;) {
         // Check for cancellation before starting a batch
         const control = getDownloadControl(guid, tallylocId);
         if (control.isCancelled) {
@@ -698,7 +698,7 @@ export async function downloadCompleteSales(
         // Reduce concurrency when in background to prevent network request cancellation
         // Use sequential downloads (1 at a time) when in background
         currentBatchSize = isBackground ? 1 : CONCURRENCY;
-        
+
         // Prepare batch of indices (smaller batch when in background)
         const batchIndices = [];
         for (let j = 0; j < currentBatchSize && (i + j) < chunks.length; j++) {
@@ -760,7 +760,7 @@ export async function downloadCompleteSales(
           });
 
           const results = await Promise.all(batchPromises);
-          
+
           // When in background and processing sequentially, add a small delay between batches
           // to prevent overwhelming the system and reduce chance of request cancellation
           if (isBackground && i + currentBatchSize < chunks.length) {
@@ -884,7 +884,7 @@ export async function downloadCompleteSales(
             return { voucherCount: 0, error: `Error at chunk ${i + 1}. Resume to continue.` };
           }
         }
-        
+
         // Increment loop counter by the actual batch size processed
         i += batchIndices.length;
       }

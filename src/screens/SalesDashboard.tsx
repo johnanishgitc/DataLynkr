@@ -21,7 +21,6 @@ import {
     Animated,
 } from 'react-native';
 import RNFS from 'react-native-fs';
-import SQLite from 'react-native-sqlite-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -47,17 +46,10 @@ import {
     formatYYYYMMDDForDisplay,
     parseToISODate,
 } from '../utils/formatters';
-import {
-    transformVouchersToSaleRecords,
-    transformVouchersToSaleRecordsAsync,
-    computeAllDashboardAggregations,
-    computeAllDashboardAggregationsAsync,
-    filterSaleRecordsByFilters,
-    SaleRecord,
-    AllDashboardAggregations,
-} from '../utils/salesTransformer';
 import { getFinancialYearStartMonthDay, sortMonthsByFinancialYear } from '../utils/fyUtils';
 import type { SalesVoucher, ChartDataPoint, SalesFilters, FilterDimensionValue } from '../types/sales';
+import { useDashboardStore } from '../store/dashboardStore';
+import { getDashboardData } from '../services/DashboardService';
 
 interface SalesDashboardProps {
     navigation?: {
@@ -66,183 +58,17 @@ interface SalesDashboardProps {
     };
 }
 
-// Enable SQLite promises (safe to call multiple times)
-SQLite.enablePromise(true);
 
-// SQLite-based persistent cache for dashboard aggregations
-// This stores pre-computed aggregations so dashboard loads instantly even after app restart
-const DASHBOARD_CACHE_TABLE = 'dashboard_aggregations_cache';
-// Cache version: increment when aggregation format changes (e.g., monthly -> daily trend data)
-const DASHBOARD_CACHE_VERSION = 2;
-const DASHBOARD_CACHE_VERSION_KEY = '__cache_version__';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let dashboardCacheDb: any | null = null;
+// Helpers for multi-value filters
+export const getFilterValues = (val: FilterDimensionValue | undefined | null): string[] => {
+    if (val == null) return [];
+    if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
+    const s = String(val).trim();
+    return s === '' || s.toLowerCase() === 'all' ? [] : [s];
+};
 
-async function getDashboardCacheDatabase(): Promise<any> {
-    if (dashboardCacheDb) return dashboardCacheDb;
 
-    dashboardCacheDb = await SQLite.openDatabase({
-        name: 'dashboard_cache.db',
-        location: 'default',
-    });
-
-    // Create table for storing pre-computed aggregations
-    await dashboardCacheDb.executeSql(`
-        CREATE TABLE IF NOT EXISTS ${DASHBOARD_CACHE_TABLE} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cache_key TEXT NOT NULL UNIQUE,
-            aggregations_json TEXT NOT NULL,
-            voucher_count INTEGER NOT NULL,
-            record_count INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            file_timestamp TEXT
-        )
-    `);
-
-    // Check cache version - if outdated, clear all cached aggregations
-    try {
-        const [versionResult] = await dashboardCacheDb.executeSql(
-            `SELECT aggregations_json FROM ${DASHBOARD_CACHE_TABLE} WHERE cache_key = ? LIMIT 1`,
-            [DASHBOARD_CACHE_VERSION_KEY],
-        );
-        let currentVersion = 0;
-        if (versionResult.rows.length > 0) {
-            currentVersion = parseInt(versionResult.rows.item(0).aggregations_json, 10) || 0;
-        }
-        if (currentVersion < DASHBOARD_CACHE_VERSION) {
-            console.log('[SalesDashboard] Cache version outdated (', currentVersion, '->', DASHBOARD_CACHE_VERSION, '), clearing cache...');
-            await dashboardCacheDb.executeSql(`DELETE FROM ${DASHBOARD_CACHE_TABLE}`);
-            await dashboardCacheDb.executeSql(
-                `INSERT OR REPLACE INTO ${DASHBOARD_CACHE_TABLE} (cache_key, aggregations_json, voucher_count, record_count, created_at) VALUES (?, ?, 0, 0, ?)`,
-                [DASHBOARD_CACHE_VERSION_KEY, String(DASHBOARD_CACHE_VERSION), new Date().toISOString()],
-            );
-            console.log('[SalesDashboard] Cache cleared and version updated to', DASHBOARD_CACHE_VERSION);
-        }
-    } catch (versionError) {
-        console.warn('[SalesDashboard] Failed to check/update cache version:', versionError);
-    }
-
-    return dashboardCacheDb;
-}
-
-async function getDashboardCacheEntry(cacheKey: string): Promise<AllDashboardAggregations | null> {
-    try {
-        console.log('[SalesDashboard] Looking for SQLite cache with key:', cacheKey);
-        const db = await getDashboardCacheDatabase();
-        const [results] = await db.executeSql(
-            `SELECT aggregations_json FROM ${DASHBOARD_CACHE_TABLE} WHERE cache_key = ? LIMIT 1`,
-            [cacheKey],
-        );
-        console.log('[SalesDashboard] SQLite cache query returned', results.rows.length, 'rows');
-        if (results.rows.length === 0) {
-            console.log('[SalesDashboard] No SQLite cache found for key');
-            return null;
-        }
-
-        const row = results.rows.item(0);
-        const aggregations = JSON.parse(row.aggregations_json) as AllDashboardAggregations;
-        console.log('[SalesDashboard] Loaded aggregations from SQLite - revenue:', aggregations.metrics?.totalRevenue);
-        return aggregations;
-    } catch (error) {
-        console.warn('[SalesDashboard] Failed to get dashboard cache:', error);
-        return null;
-    }
-}
-
-async function saveDashboardCacheEntry(
-    cacheKey: string,
-    aggregations: AllDashboardAggregations,
-    voucherCount: number,
-    recordCount: number,
-    fileTimestamp?: string
-): Promise<void> {
-    try {
-        const db = await getDashboardCacheDatabase();
-        const aggregationsJson = JSON.stringify(aggregations);
-        const createdAt = new Date().toISOString();
-
-        await db.executeSql(
-            `INSERT OR REPLACE INTO ${DASHBOARD_CACHE_TABLE} 
-             (cache_key, aggregations_json, voucher_count, record_count, created_at, file_timestamp) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [cacheKey, aggregationsJson, voucherCount, recordCount, createdAt, fileTimestamp || null],
-        );
-        console.log('[SalesDashboard] Saved dashboard aggregations to SQLite cache');
-    } catch (error) {
-        console.warn('[SalesDashboard] Failed to save dashboard cache:', error);
-    }
-}
-
-// Cache2 (Data Management) helpers
-interface Cache2Entry {
-    id: number;
-    key: string;
-    from_date: string;
-    to_date: string;
-    created_at: string;
-    json_path: string;
-}
-
-const CACHE2_DB_NAME = 'cache2.db';
-const CACHE2_TABLE_NAME = 'cache2_entries';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let cache2Db: any | null = null;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getCache2Database(): Promise<any> {
-    if (cache2Db) return cache2Db;
-
-    cache2Db = await SQLite.openDatabase({
-        name: CACHE2_DB_NAME,
-        location: 'default',
-    });
-
-    // Ensure table exists (matches DataManagement)
-    await cache2Db.executeSql(`
-    CREATE TABLE IF NOT EXISTS ${CACHE2_TABLE_NAME} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      key TEXT NOT NULL UNIQUE,
-      from_date TEXT NOT NULL,
-      to_date TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      json_path TEXT NOT NULL
-    )
-  `);
-
-    return cache2Db;
-}
-
-async function getCache2EntryByKey(key: string): Promise<Cache2Entry | null> {
-    const db = await getCache2Database();
-    const [results] = await db.executeSql(
-        `SELECT * FROM ${CACHE2_TABLE_NAME} WHERE key = ? ORDER BY created_at DESC LIMIT 1`,
-        [key],
-    );
-    if (results.rows.length === 0) return null;
-    return results.rows.item(0) as Cache2Entry;
-}
-
-/** Fallback: find any cache2 entry for this company when exact key does not match (e.g. email differs). */
-async function getCache2EntryForCompany(guid: string, tallylocId: number): Promise<Cache2Entry | null> {
-    const db = await getCache2Database();
-    const [results] = await db.executeSql(
-        `SELECT * FROM ${CACHE2_TABLE_NAME} ORDER BY created_at DESC`
-    );
-    const suffix = `_${guid}_${tallylocId}_complete_sales`;
-    for (let i = 0; i < results.rows.length; i++) {
-        const row = results.rows.item(i) as Cache2Entry;
-        if (row.key && row.key.endsWith(suffix)) return row;
-    }
-    return null;
-}
-
-// Helper: generate cache2 key (same logic as DataManagement)
-function generateCache2Key(email: string, guid: string, tallylocId: number): string {
-    const userIdPart = email.replace(/@/g, '_').replace(/\./g, '_').replace(/\s/g, '_');
-    return `${userIdPart}_${guid}_${tallylocId}_complete_sales`;
-}
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.78, 320);
 
@@ -250,13 +76,12 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     const nav = useNavigation<NativeStackNavigationProp<HomeStackParamList, 'SalesDashboard'>>();
     const navigation = navigationProp ?? nav;
 
+    // Zustand state
+    const { isLoading, kpi, charts, setDashboardData } = useDashboardStore();
+
     // State
-    const [sales, setSales] = useState<SalesVoucher[]>([]);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [company, setCompany] = useState('');
-    const [saleRecords, setSaleRecords] = useState<SaleRecord[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [chartsLoading, setChartsLoading] = useState(true); // Progressive loading for charts
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [filters, setFilters] = useState<SalesFilters>({
@@ -274,384 +99,73 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     // Deferred filters for heavy computation: filter chips update immediately, charts defer to avoid blocking
     const deferredFilters = useDeferredValue(filters);
 
-    // Pre-computed aggregations from full data (for cache); filtered view uses filteredAggregations
-    const [aggregations, setAggregations] = useState<AllDashboardAggregations | null>(null);
-
     /** KPI popup: show complete figure when user taps a KPI card */
     const [kpiModal, setKpiModal] = useState<{ title: string; fullValue: string } | null>(null);
 
-    // Track interaction manager task for cleanup
-    const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
 
-    /** Compute min/max date (YYYY-MM-DD) from sale records. Normalizes any date-like string for comparison. */
-    const getDateRangeFromRecords = useCallback((records: SaleRecord[]): { minDate: string; maxDate: string } | null => {
-        const toYmd = (d: string): string | null => {
-            if (!d || typeof d !== 'string') return null;
-            const s = d.trim();
-            if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-            const parsed = new Date(s);
-            if (!isNaN(parsed.getTime())) {
-                const y = parsed.getFullYear();
-                const m = String(parsed.getMonth() + 1).padStart(2, '0');
-                const day = String(parsed.getDate()).padStart(2, '0');
-                return `${y}-${m}-${day}`;
-            }
-            return null;
-        };
-        const dates = records.map(r => toYmd(r.date)).filter((d): d is string => !!d);
-        if (dates.length === 0) return null;
-        const sorted = [...dates].sort();
-        return { minDate: sorted[0], maxDate: sorted[sorted.length - 1] };
-    }, []);
 
-    // Load sales data from cache - defers ALL heavy operations to keep UI responsive
+    // Load sales data natively from DashboardService
     const loadSalesData = useCallback(async () => {
         try {
             setError(null);
+            setDashboardData({ isLoading: true });
 
-            // Get user info quickly (these are fast async storage reads)
-            const [email, guid, tallylocId, company] = await Promise.all([
-                getUserEmail(),
+            const [guid, tallylocId] = await Promise.all([
                 getGuid(),
                 getTallylocId(),
-                getCompany(),
             ]);
 
-            console.log('[SalesDashboard] Loading sales data...');
-            console.log('[SalesDashboard] guid:', guid);
-            console.log('[SalesDashboard] tallylocId:', tallylocId);
-
             if (!guid || !tallylocId) {
-                console.log('[SalesDashboard] Missing guid or tallylocId');
                 setError('No company selected. Please select a company first.');
-                setSales([]);
-                setLoading(false);
+                setDashboardData({ isLoading: false, kpi: null, charts: null });
                 return;
             }
 
-            // Check if cache2 entry exists (fast DB query, no file read)
-            let cache2Path: string | null = null;
-            let cacheKey2: string | null = null;
-            let cacheRangeFromEntry: { minDate: string; maxDate: string } | null = null;
-            if (email && guid && tallylocId && company) {
-                cacheKey2 = generateCache2Key(email, guid, tallylocId);
-                console.log('[SalesDashboard] Trying cache2 with key:', cacheKey2);
+            console.log(`[SalesDashboard] Querying native SQLite... dates: ${filters.startDate} - ${filters.endDate}`);
 
-                // Priority 1: Check SQLite cache for pre-computed aggregations (fast DB read)
-                // Show dashboard instantly; load full data in background so filters can be used
-                const cachedAggregations = await getDashboardCacheEntry(cacheKey2);
-                if (cachedAggregations) {
-                    console.log('[SalesDashboard] Found SQLite cache! Showing precomputed data instantly...');
-                    setAggregations(cachedAggregations);
-                    // Use cache2 entry date range (Data Management) for calendar and default filters
-                    let entryForRange = await getCache2EntryByKey(cacheKey2);
-                    if (!entryForRange && guid && tallylocId) entryForRange = await getCache2EntryForCompany(guid, tallylocId);
-                    if (entryForRange?.from_date && entryForRange?.to_date) {
-                        const cacheRange = {
-                            minDate: parseToISODate(entryForRange.from_date),
-                            maxDate: parseToISODate(entryForRange.to_date),
-                        };
-                        setCacheEntryDateRange(cacheRange);
-                        setAvailableDateRange(cacheRange);
-                        if (!hasSetFiltersToAvailableRef.current) {
-                            setFilters(prev => ({ ...prev, startDate: cacheRange.minDate, endDate: cacheRange.maxDate }));
-                            hasSetFiltersToAvailableRef.current = true;
-                        }
-                        console.log('[SalesDashboard] Data available date range:', cacheRange.minDate, 'to', cacheRange.maxDate);
-                    }
-                    setLoading(false);
-                    setChartsLoading(false);
-                    // Background: load full data from cache2 file so filters work (indexing in background)
-                    // Uses async chunked processing to avoid blocking UI thread
-                    const keyForBackground = cacheKey2;
-                    InteractionManager.runAfterInteractions(() => {
-                        (async () => {
-                            try {
-                                let entry = await getCache2EntryByKey(keyForBackground);
-                                if (!entry && guid && tallylocId) entry = await getCache2EntryForCompany(guid, tallylocId);
-                                if (!entry?.json_path) return;
-                                const exists = await RNFS.exists(entry.json_path);
-                                if (!exists) return;
-                                const stat = await RNFS.stat(entry.json_path).catch(() => null);
-                                const fileSizeMB = (stat?.size ?? 0) / 1024 / 1024;
-                                if (fileSizeMB > 80) {
-                                    console.log('[SalesDashboard] Skipping background load: file too large', fileSizeMB.toFixed(1), 'MB');
-                                    return;
-                                }
-                                console.log('[SalesDashboard] Background: loading full data for filters...');
-                                const contentStr = await RNFS.readFile(entry.json_path, 'utf8');
-                                // Yield before heavy JSON parse so pending UI events can flush
-                                await new Promise<void>(r => setTimeout(r, 0));
-                                const parsed: unknown = JSON.parse(contentStr);
-                                // Yield after parse so UI stays responsive
-                                await new Promise<void>(r => setTimeout(r, 0));
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                let vouchers: any[] = [];
-                                if (Array.isArray(parsed)) {
-                                    for (const item of parsed) {
-                                        if (item && typeof item === 'object') {
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            if (Array.isArray((item as any).vouchers)) {
-                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                                vouchers.push(...(item as any).vouchers);
-                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            } else if ((item as any).masterid !== undefined) {
-                                                vouchers.push(item);
-                                            }
-                                        }
-                                    }
-                                } else if (parsed && typeof parsed === 'object') {
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    if (Array.isArray((parsed as any).vouchers)) {
-                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        vouchers = (parsed as any).vouchers;
-                                    }
-                                }
-                                if (vouchers.length === 0) return;
-                                const data = vouchers as SalesVoucher[];
-                                // Use async chunked versions to avoid blocking UI
-                                const records = await transformVouchersToSaleRecordsAsync(data);
-                                const allAggregations = await computeAllDashboardAggregationsAsync(records);
-                                setSales(data);
-                                setSaleRecords(records);
-                                setAggregations(allAggregations);
-                                const range = getDateRangeFromRecords(records);
-                                if (range) {
-                                    setAvailableDateRange(range);
-                                    console.log('[SalesDashboard] Data available date range:', range.minDate, 'to', range.maxDate);
-                                    if (!hasSetFiltersToAvailableRef.current) {
-                                        setFilters(prev => ({ ...prev, startDate: range.minDate, endDate: range.maxDate }));
-                                        hasSetFiltersToAvailableRef.current = true;
-                                    }
-                                }
-                                if (entry.from_date && entry.to_date) {
-                                    const cacheRange = {
-                                        minDate: parseToISODate(entry.from_date),
-                                        maxDate: parseToISODate(entry.to_date),
-                                    };
-                                    setCacheEntryDateRange(cacheRange);
-                                }
-                                console.log('[SalesDashboard] Background full data load done; filters enabled.');
-                            } catch (err) {
-                                console.warn('[SalesDashboard] Background full data load failed:', err);
-                            }
-                        })();
+            // Await query completion to Native SQLite Database
+            InteractionManager.runAfterInteractions(async () => {
+                try {
+                    const data = await getDashboardData(guid, {
+                        startDate: filters.startDate.replace(/-/g, ''),
+                        endDate: filters.endDate.replace(/-/g, ''),
+                        customer: getFilterValues(filters.customer)[0],
+                        salesperson: getFilterValues(filters.salesperson)[0]
                     });
-                    return;
+
+                    setDashboardData({
+                        isLoading: false,
+                        kpi: data.kpi || null,
+                        charts: data.charts || null
+                    });
+                    // Set available range dynamically once if not set yet.
+                    if (!hasSetFiltersToAvailableRef.current) {
+                        const startString = String(filters.startDate).replace(/-/g, '');
+                        const endString = String(filters.endDate).replace(/-/g, '');
+                        const isoStart = `${startString.substring(0, 4)}-${startString.substring(4, 6)}-${startString.substring(6, 8)}`;
+                        const isoEnd = `${endString.substring(0, 4)}-${endString.substring(4, 6)}-${endString.substring(6, 8)}`;
+                        setAvailableDateRange({ minDate: isoStart, maxDate: isoEnd });
+                        hasSetFiltersToAvailableRef.current = true;
+                    }
+
+                } catch (e) {
+                    console.error('[SalesDashboard] Native DB fetch error', e);
+                    const errMsg = e instanceof Error ? e.message : String(e);
+                    if (errMsg.includes('no such table')) {
+                        setError('no_cache');
+                    } else {
+                        setError('Failed to fetch from local database.');
+                    }
+                    setDashboardData({ isLoading: false });
                 }
-
-                // Priority 2: Need to read from file (slow, but only on first load after sync)
-                // Check file size first - if it's very large (>50MB), warn user and skip file read
-                let entry = await getCache2EntryByKey(cacheKey2);
-                if (!entry && guid && tallylocId) {
-                    entry = await getCache2EntryForCompany(guid, tallylocId);
-                    if (entry) console.log('[SalesDashboard] Using cache2 entry for company (key fallback):', entry.key);
-                }
-                if (entry && entry.json_path) {
-                    if (entry.from_date && entry.to_date) {
-                        cacheRangeFromEntry = { minDate: entry.from_date, maxDate: entry.to_date };
-                    }
-                    const exists = await RNFS.exists(entry.json_path);
-                    if (exists) {
-                        try {
-                            const stat = await RNFS.stat(entry.json_path);
-                            const fileSizeMB = (stat.size || 0) / 1024 / 1024;
-
-                            if (fileSizeMB > 50) {
-                                console.warn('[SalesDashboard] File is very large (', fileSizeMB.toFixed(2), 'MB). Skipping file read - please ensure dashboard cache is pre-computed.');
-                                setError(`File is very large (${fileSizeMB.toFixed(1)}MB). Dashboard cache not found. Please go to Cache Management and ensure data is synced, or use a smaller date range.`);
-                                setLoading(false);
-                                setChartsLoading(false);
-                                return;
-                            }
-
-                            cache2Path = entry.json_path;
-                            console.log('[SalesDashboard] Found cache2 entry at path:', cache2Path, 'Size:', fileSizeMB.toFixed(2), 'MB');
-                        } catch (statError) {
-                            console.warn('[SalesDashboard] Failed to get file size, proceeding anyway:', statError);
-                            cache2Path = entry.json_path;
-                        }
-                    }
-                }
-            }
-
-            // Show loading UI immediately, then defer ALL heavy operations
-            setLoading(false);
-            setChartsLoading(true);
-
-            // Use InteractionManager to defer ALL heavy operations (file read, parse, transform)
-            // This ensures the UI is visible and responsive before we do any heavy work
-            // All heavy operations use async chunked versions to yield to event loop regularly
-            interactionTaskRef.current = InteractionManager.runAfterInteractions(async () => {
-                console.log('[SalesDashboard] Starting deferred data loading...');
-                const totalStartTime = Date.now();
-
-                let data: SalesVoucher[] | null = null;
-
-                // Heavy operation 1: Read and parse cache2 file
-                if (cache2Path) {
-                    try {
-                        console.log('[SalesDashboard] Reading cache2 file...');
-                        const readStartTime = Date.now();
-                        const contentStr = await RNFS.readFile(cache2Path, 'utf8');
-                        console.log('[SalesDashboard] File read completed in', Date.now() - readStartTime, 'ms');
-
-                        // Yield before heavy JSON parse so pending UI events can flush
-                        await new Promise<void>(r => setTimeout(r, 0));
-                        const parseStartTime = Date.now();
-                        let parsed: unknown;
-                        try {
-                            parsed = JSON.parse(contentStr);
-                            console.log('[SalesDashboard] JSON parse completed in', Date.now() - parseStartTime, 'ms');
-                        } catch (parseError) {
-                            console.warn('[SalesDashboard] Failed to parse cache2 JSON:', parseError);
-                            parsed = null;
-                        }
-                        // Yield after parse so UI stays responsive
-                        await new Promise<void>(r => setTimeout(r, 0));
-
-                        if (parsed) {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            let vouchers: any[] = [];
-
-                            if (Array.isArray(parsed)) {
-                                for (const item of parsed) {
-                                    if (item && typeof item === 'object') {
-                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        if (Array.isArray((item as any).vouchers)) {
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            vouchers.push(...(item as any).vouchers);
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        } else if ((item as any).masterid !== undefined) {
-                                            vouchers.push(item);
-                                        }
-                                    }
-                                }
-                            } else if (parsed && typeof parsed === 'object') {
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const o = parsed as any;
-                                if (Array.isArray(o.vouchers)) vouchers = o.vouchers;
-                                else if (Array.isArray(o.data)) vouchers = o.data;
-                            }
-
-                            // Flatten if file is array of response objects (each with vouchers/data)
-                            if (vouchers.length === 0 && Array.isArray(parsed)) {
-                                for (const item of parsed) {
-                                    if (item && typeof item === 'object') {
-                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                        const arr = (item as any).vouchers ?? (item as any).data;
-                                        if (Array.isArray(arr)) vouchers.push(...arr);
-                                    }
-                                }
-                            }
-
-                            if (vouchers.length > 0) {
-                                console.log('[SalesDashboard] Loaded', vouchers.length, 'vouchers from cache2');
-                                data = vouchers as SalesVoucher[];
-                            }
-                        }
-                    } catch (cache2Error) {
-                        console.warn('[SalesDashboard] Failed to load from cache2:', cache2Error);
-                    }
-                }
-
-                // Fallback to legacy cache if cache2 didn't work (legacy keys use YYYYMMDD)
-                if (!data || data.length === 0) {
-                    console.log('[SalesDashboard] Trying legacy cache...');
-                    const startKey = filters.startDate.replace(/-/g, '');
-                    const endKey = filters.endDate.replace(/-/g, '');
-                    data = await cacheManager.getSalesData(
-                        guid,
-                        tallylocId,
-                        startKey,
-                        endKey,
-                    );
-                }
-
-                console.log('[SalesDashboard] Data returned:', data ? `Array with ${data.length} vouchers` : 'null');
-
-                // Fallback: try to find any matching company cache
-                if (!data || data.length === 0) {
-                    console.log('[SalesDashboard] Checking for any sales cache...');
-                    const allEntries = await cacheManager.listAllCacheEntries();
-                    const matchingCompanyEntries = allEntries.filter(e =>
-                        e.category === 'sales' && e.cacheKey.includes(`_${tallylocId}_complete_sales_`)
-                    );
-
-                    if (matchingCompanyEntries.length > 0) {
-                        const firstMatch = matchingCompanyEntries[0];
-                        const keyParts = firstMatch.cacheKey.split('_complete_sales_');
-                        if (keyParts.length === 2) {
-                            const dateRange = keyParts[1].split('_');
-                            if (dateRange.length === 2) {
-                                data = await cacheManager.getSalesData(guid, tallylocId, dateRange[0], dateRange[1]);
-                            }
-                        }
-                    }
-                }
-
-                if (data && Array.isArray(data) && data.length > 0) {
-                    setSales(data);
-
-                    // Heavy operation 2: Transform vouchers to sale records (async chunked - yields to UI)
-                    console.log('[SalesDashboard] Starting data transformation (async)...');
-                    const transformStartTime = Date.now();
-                    const records = await transformVouchersToSaleRecordsAsync(data);
-                    setSaleRecords(records);
-                    console.log('[SalesDashboard] Transformed to', records.length, 'sale records in', Date.now() - transformStartTime, 'ms');
-
-                    const range = getDateRangeFromRecords(records);
-                    if (range) {
-                        setAvailableDateRange(range);
-                        console.log('[SalesDashboard] Data available date range:', range.minDate, 'to', range.maxDate);
-                        if (!hasSetFiltersToAvailableRef.current) {
-                            setFilters(prev => ({ ...prev, startDate: range.minDate, endDate: range.maxDate }));
-                            hasSetFiltersToAvailableRef.current = true;
-                        }
-                    }
-                    if (cacheRangeFromEntry) {
-                        setCacheEntryDateRange({
-                            minDate: parseToISODate(cacheRangeFromEntry.minDate),
-                            maxDate: parseToISODate(cacheRangeFromEntry.maxDate),
-                        });
-                    }
-
-                    // Heavy operation 3: Compute all aggregations (async chunked - yields to UI)
-                    const aggStartTime = Date.now();
-                    const allAggregations = await computeAllDashboardAggregationsAsync(records);
-                    setAggregations(allAggregations);
-                    console.log('[SalesDashboard] Computed all aggregations in', Date.now() - aggStartTime, 'ms');
-
-                    // Save to SQLite for instant loading on next app launch
-                    if (cacheKey2) {
-                        saveDashboardCacheEntry(
-                            cacheKey2,
-                            allAggregations,
-                            data.length,
-                            records.length
-                        ).catch(err => console.warn('[SalesDashboard] Failed to save to SQLite cache:', err));
-                    }
-
-                    console.log('[SalesDashboard] Total deferred loading time:', Date.now() - totalStartTime, 'ms');
-                } else {
-                    setSales([]);
-                    setSaleRecords([]);
-
-                    const corruptedKeys = getCorruptedCacheKeys();
-                    if (corruptedKeys.length > 0 && corruptedKeys.some(k => k.includes('sales'))) {
-                        setError('Cache data is corrupted. Please go to Cache Management and clear the sales cache, then re-download the data.');
-                    }
-                }
-
-                setChartsLoading(false);
             });
+
         } catch (err) {
             console.error('[SalesDashboard] Error loading sales data:', err);
             setError('Failed to load sales data. Please try again.');
-            setSales([]);
-            setLoading(false);
+            setDashboardData({ isLoading: false });
         }
-    }, [getDateRangeFromRecords]);
+    }, [filters, setDashboardData, getFilterValues]);
 
     // Load company name for sidebar
     useEffect(() => {
@@ -689,31 +203,19 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         [closeSidebar, nav],
     );
 
-    // Initial load - use InteractionManager to defer heavy work
+    // Initial load
     useEffect(() => {
-        const init = async () => {
-            setLoading(true);
-            setChartsLoading(true);
-            await loadSalesData();
-            // Note: setLoading(false) is now called inside loadSalesData for progressive loading
-        };
-        init();
-
-        // Cleanup InteractionManager task on unmount
-        return () => {
-            if (interactionTaskRef.current) {
-                interactionTaskRef.current.cancel();
-            }
-        };
-    }, [loadSalesData]);
+        setDashboardData({ isLoading: true });
+        loadSalesData();
+    }, [loadSalesData, setDashboardData]);
 
     // Refresh handler
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
-        setChartsLoading(true);
+        setDashboardData({ isLoading: true });
         await loadSalesData();
         setRefreshing(false);
-    }, [loadSalesData]);
+    }, [loadSalesData, setDashboardData]);
 
     // Helper to format month labels (YYYY-MM -> Mon YYYY)
     const formatMonthLabel = useCallback((label: string): string => {
@@ -735,77 +237,16 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         return `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
     }, []);
 
-    // Filter records by deferred filters (avoids blocking UI on bar click / clear filter)
-    const filteredRecords = useMemo(
-        () => filterSaleRecordsByFilters(saleRecords, deferredFilters),
-        [saleRecords, deferredFilters],
-    );
 
-    // Helpers for multi-value filters
-    const getFilterValues = useCallback((val: FilterDimensionValue | undefined | null): string[] => {
-        if (val == null) return [];
-        if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
-        const s = String(val).trim();
-        return s === '' || s.toLowerCase() === 'all' ? [] : [s];
-    }, []);
+
+
     const drillDownKeys = ['customer', 'stockGroup', 'ledgerGroup', 'state', 'country', 'item', 'month', 'salesperson', 'pincode'] as const;
     const hasActiveDrillDowns = useMemo(
         () => drillDownKeys.some(k => getFilterValues(filters[k]).length > 0),
         [filters, getFilterValues],
     );
 
-    // When date filter yields 0 but user applied a drill-down (e.g. customer), apply only drill-downs
-    const recordsForDisplay = useMemo(() => {
-        if (filteredRecords.length > 0) return filteredRecords;
-        if (saleRecords.length === 0 || !hasActiveDrillDowns) return filteredRecords;
-        const drillDownOnly = filterSaleRecordsByFilters(saleRecords, {
-            ...deferredFilters,
-            startDate: '',
-            endDate: '',
-        });
-        return drillDownOnly.length > 0 ? drillDownOnly : filteredRecords;
-    }, [saleRecords, deferredFilters, filteredRecords, hasActiveDrillDowns]);
 
-    // Aggregations from records for display (date + drill-downs, or drill-downs only when date had no matches)
-    // Uses async chunked computation to avoid blocking the UI thread when filters change
-    const [filteredAggregations, setFilteredAggregations] = useState<AllDashboardAggregations | null>(null);
-    const filteredAggregationsVersionRef = useRef(0);
-    useEffect(() => {
-        if (recordsForDisplay.length === 0) {
-            setFilteredAggregations(null);
-            return;
-        }
-        // For small datasets (<500 records), compute synchronously for instant feedback
-        if (recordsForDisplay.length < 500) {
-            setFilteredAggregations(computeAllDashboardAggregations(recordsForDisplay));
-            return;
-        }
-        // For large datasets, compute asynchronously with chunked yielding
-        const version = ++filteredAggregationsVersionRef.current;
-        let cancelled = false;
-        (async () => {
-            const result = await computeAllDashboardAggregationsAsync(recordsForDisplay);
-            // Only apply if this is still the latest computation (prevents stale updates)
-            if (!cancelled && filteredAggregationsVersionRef.current === version) {
-                setFilteredAggregations(result);
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [recordsForDisplay]);
-
-    // Use only data that falls within the selected date range (and drill-downs).
-    // When we don't have saleRecords (SQLite-only), show precomputed aggregations.
-    // When viewing the full data range (min/max from records) and filtered result is empty, fall back to precomputed
-    // aggregations so we don't show "No data" incorrectly during edge cases.
-    const isViewingFullDataRange = Boolean(
-        availableDateRange &&
-        filters.startDate === availableDateRange.minDate &&
-        filters.endDate === availableDateRange.maxDate,
-    );
-    const displayAggregations =
-        filteredAggregations ??
-        (saleRecords.length === 0 ? aggregations : null) ??
-        (recordsForDisplay.length === 0 && isViewingFullDataRange && aggregations ? aggregations : null);
 
     // Toggle a value in a dimension: add if not present, remove if present. Supports multiple values per dimension.
     const applyDrillDown = useCallback(
@@ -854,45 +295,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         }));
     }, []);
 
-    // When a filter from cache doesn't match any record (e.g. cache vs transformed vouchers),
-    // try to correct the filter to the first record that loosely matches (normalized startsWith).
-    const normStr = useCallback((s: string) => (s ?? '').toString().trim().replace(/\s+/g, ' ').toLowerCase(), []);
-    useEffect(() => {
-        if (saleRecords.length === 0 || !hasActiveDrillDowns || recordsForDisplay.length > 0) return;
-        const dimToField: Record<string, keyof SaleRecord> = {
-            customer: 'customer',
-            stockGroup: 'category',
-            ledgerGroup: 'ledgerGroup',
-            state: 'region',
-            country: 'country',
-            item: 'item',
-            salesperson: 'salesperson',
-            pincode: 'pincode',
-        };
-        let corrected: Partial<SalesFilters> = {};
-        const activeKeys = (['customer', 'stockGroup', 'ledgerGroup', 'state', 'country', 'item', 'salesperson', 'pincode'] as const).filter(
-            k => getFilterValues(filters[k]).length > 0
-        );
-        for (const key of activeKeys) {
-            const vals = getFilterValues(filters[key]);
-            if (vals.length !== 1) continue; // only correct single-value dimensions
-            const filterVal = vals[0];
-            const field = dimToField[key];
-            if (!field) continue;
-            const filterNorm = normStr(filterVal.replace(/\.\.\.$/, ''));
-            if (!filterNorm) continue;
-            const uniqueValues = Array.from(new Set(saleRecords.map(r => (r[field] ?? '') as string).filter(Boolean)));
-            const exactMatch = uniqueValues.some(v => normStr(v) === filterNorm);
-            if (exactMatch) continue;
-            const startsWithMatch = uniqueValues.filter(v => normStr(v).startsWith(filterNorm) || filterNorm.startsWith(normStr(v)));
-            if (startsWithMatch.length === 1) {
-                corrected[key] = startsWithMatch[0];
-            }
-        }
-        if (Object.keys(corrected).length > 0) {
-            setFilters(prev => ({ ...prev, ...corrected }));
-        }
-    }, [saleRecords.length, hasActiveDrillDowns, recordsForDisplay.length, filters, normStr, getFilterValues]);
+
 
     // Display label for period filter (YYYY-MM -> "Jan 2024", Q1-2024 -> "Q1 2024", 2024 -> "FY 2024")
     const formatPeriodLabel = useCallback((periodKey: string): string => {
@@ -902,121 +305,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         return formatMonthLabel(periodKey);
     }, [formatMonthLabel]);
 
-    // All chart data comes from display aggregations (filtered when drill-downs active)
 
-    // Metrics - from display aggregations (per KPI_AND_CHART_CALCULATIONS.md)
-    const {
-        totalRevenue,
-        totalQuantity,
-        totalProfit,
-        totalInvoices,
-        uniqueCustomers,
-        avgInvoiceValue,
-        profitMargin,
-        avgProfitPerOrder,
-    } = displayAggregations?.metrics ?? {
-        totalRevenue: 0,
-        totalQuantity: 0,
-        totalProfit: 0,
-        totalInvoices: 0,
-        uniqueCustomers: 0,
-        avgInvoiceValue: 0,
-        profitMargin: 0,
-        avgProfitPerOrder: 0,
-    };
-
-    // Chart Data: Sales by Customer (Top 10)
-    const salesByCustomer = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byCustomer.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Sales by Stock Group/Category
-    const salesByStockGroup = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byCategory.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Sales by Period (Month) - sorted by FY order (April–March), formatted labels
-    const fyStart = useMemo(() => getFinancialYearStartMonthDay(), []);
-    const salesByPeriod = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        const sorted = sortMonthsByFinancialYear(
-            displayAggregations.byMonth.map(d => ({ label: d.label, value: d.value })),
-            fyStart.month,
-            fyStart.day
-        );
-        return sorted.map(d => ({
-            label: formatMonthLabel(d.label),
-            value: d.value,
-        }));
-    }, [displayAggregations, formatMonthLabel, fyStart]);
-
-    // Chart Data: Top Items by Revenue
-    const topItemsByRevenue = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byItem.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Top Items by Quantity
-    const topItemsByQuantity = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byItemQuantity.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Sales by Ledger Group
-    const salesByLedgerGroup = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byLedgerGroup.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Sales by Region/State
-    const salesByRegion = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byRegion.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Sales by Country
-    const salesByCountry = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.byCountry.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Profit by Month - sorted by FY order (April–March), formatted labels
-    const profitByMonth = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        const sorted = sortMonthsByFinancialYear(
-            displayAggregations.profitByMonth.map(d => ({ label: d.label, value: d.value })),
-            fyStart.month,
-            fyStart.day
-        );
-        return sorted.map(d => ({
-            label: formatMonthLabel(d.label),
-            value: d.value,
-        }));
-    }, [displayAggregations, formatMonthLabel, fyStart]);
-
-    // Chart Data: Top Profitable Items
-    const topProfitableItems = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.topProfitableItems.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Chart Data: Top Loss Items
-    const topLossItems = useMemo((): ChartDataPoint[] => {
-        if (!displayAggregations) return [];
-        return displayAggregations.topLossItems.map(d => ({ label: d.label, value: d.value }));
-    }, [displayAggregations]);
-
-    // Per-KPI trend data for sparklines (each card shows its own metric over time)
-    const revenueTrendData = useMemo(() => displayAggregations?.revenueTrendData ?? [], [displayAggregations]);
-    const profitTrendData = useMemo(() => displayAggregations?.profitTrendData ?? [], [displayAggregations]);
-    const invoicesTrendData = useMemo(() => displayAggregations?.invoicesTrendData ?? [], [displayAggregations]);
-    const quantityTrendData = useMemo(() => displayAggregations?.quantityTrendData ?? [], [displayAggregations]);
-    const uniqueCustomersTrendData = useMemo(() => displayAggregations?.uniqueCustomersTrendData ?? [], [displayAggregations]);
-    const avgInvoiceValueTrendData = useMemo(() => displayAggregations?.avgInvoiceValueTrendData ?? [], [displayAggregations]);
-    const profitMarginTrendData = useMemo(() => displayAggregations?.profitMarginTrendData ?? [], [displayAggregations]);
-    const avgProfitPerOrderTrendData = useMemo(() => displayAggregations?.avgProfitPerOrderTrendData ?? [], [displayAggregations]);
 
     // Handle period selection (receives timestamps from PeriodSelection component)
     const handlePeriodApply = useCallback(
@@ -1058,7 +347,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     }, []);
 
     // Render loading state
-    if (loading) {
+    if (isLoading) {
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.header}>
@@ -1078,6 +367,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
 
     // Render error state
     if (error) {
+        const isNoCache = error === 'no_cache';
         return (
             <SafeAreaView style={styles.container}>
                 <View style={styles.header}>
@@ -1088,11 +378,21 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                     <View style={styles.headerRight} />
                 </View>
                 <View style={styles.errorContainer}>
-                    <Icon name="error-outline" size={48} color="#ef4444" />
-                    <Text style={styles.errorText}>{error}</Text>
-                    <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
-                        <Text style={styles.retryButtonText}>Retry</Text>
-                    </TouchableOpacity>
+                    <Icon name={isNoCache ? "cloud-download" : "error-outline"} size={48} color={isNoCache ? "#0d6464" : "#ef4444"} />
+                    <Text style={styles.errorText}>
+                        {isNoCache
+                            ? "No data available. Please go to Data Management and download your cache to view the dashboard."
+                            : error}
+                    </Text>
+                    {isNoCache ? (
+                        <TouchableOpacity style={styles.retryButton} onPress={() => nav.navigate('DataManagement' as never)}>
+                            <Text style={styles.retryButtonText}>Go to Data Management</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
+                            <Text style={styles.retryButtonText}>Retry</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </SafeAreaView>
         );
@@ -1128,15 +428,13 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 onConnectionsPress={goToAdminDashboard}
             />
 
-            {/* Period Selection Modal - restrict to available data range when set */}
+            {/* Period Selection Modal */}
             <PeriodSelection
                 visible={showPeriodPicker}
                 onClose={() => setShowPeriodPicker(false)}
                 fromDate={getTimestamp(filters.startDate)}
                 toDate={getTimestamp(filters.endDate)}
                 onApply={handlePeriodApply}
-                minDate={cacheEntryDateRange ? getTimestamp(cacheEntryDateRange.minDate) : undefined}
-                maxDate={cacheEntryDateRange ? getTimestamp(cacheEntryDateRange.maxDate) : undefined}
             />
 
             {/* KPI popup – full figure when user taps a KPI card */}
@@ -1176,19 +474,13 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 }
                 showsVerticalScrollIndicator={false}>
 
-                {/* When filters are active but full data not loaded yet, show brief hint */}
-                {hasActiveDrillDowns && saleRecords.length === 0 && (
-                    <View style={styles.filterLoadingHint}>
-                        <Icon name="hourglass-empty" size={14} color="#64748b" />
-                        <Text style={styles.filterLoadingHintText}>Loading full data… filters will apply to all charts shortly</Text>
-                    </View>
-                )}
+
 
                 {/* Active drill-down filters (multiple values per dimension; tap X on chip to remove that value) */}
                 {hasActiveDrillDowns && (
                     <View style={styles.activeFiltersBar}>
                         <View style={styles.activeFiltersChips}>
-                            {getFilterValues(filters.customer).map((v, i) => (
+                            {getFilterValues((filters as any).customer).map((v, i) => (
                                 <TouchableOpacity key={`customer-${i}-${v}`} style={styles.filterChip} onPress={() => removeFilterValue('customer', v)}>
                                     <Text style={styles.filterChipText} numberOfLines={1}>Customer: {v}</Text>
                                     <Icon name="close" size={14} color="#0d6464" />
@@ -1254,23 +546,21 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 <View style={styles.kpiRow}>
                     <KPICard
                         title="Total Revenue"
-                        value={totalRevenue}
+                        value={kpi?.totalRevenue || 0}
                         format={val => formatFullCurrency(val)}
                         iconName="account-balance-wallet"
                         variant="blue"
                         chartType="bar"
-                        trendData={revenueTrendData}
-                        onPress={() => setKpiModal({ title: 'Total Revenue', fullValue: formatFullCurrency(totalRevenue) })}
+                        onPress={() => setKpiModal({ title: 'Total Revenue', fullValue: formatFullCurrency(kpi?.totalRevenue || 0) })}
                     />
                     <KPICard
                         title="Total Invoices"
-                        value={totalInvoices}
+                        value={kpi?.totalInvoices || 0}
                         format={val => val.toLocaleString()}
-                        iconName="shopping-cart"
+                        iconName="receipt"
                         variant="blue"
                         chartType="bar"
-                        trendData={invoicesTrendData}
-                        onPress={() => setKpiModal({ title: 'Total Invoices', fullValue: totalInvoices.toLocaleString() })}
+                        onPress={() => setKpiModal({ title: 'Total Invoices', fullValue: (kpi?.totalInvoices || 0).toLocaleString() })}
                     />
                 </View>
 
@@ -1278,95 +568,82 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 <View style={styles.kpiRow}>
                     <KPICard
                         title="Unique Customers"
-                        value={uniqueCustomers}
+                        value={kpi?.uniqueCustomers || 0}
                         format={val => val.toLocaleString()}
                         iconName="people"
                         variant="blue"
                         chartType="bar"
-                        trendData={uniqueCustomersTrendData}
-                        onPress={() => setKpiModal({ title: 'Unique Customers', fullValue: uniqueCustomers.toLocaleString() })}
+                        onPress={() => setKpiModal({ title: 'Unique Customers', fullValue: (kpi?.uniqueCustomers || 0).toLocaleString() })}
                     />
                     <KPICard
                         title="Avg Invoice Value"
-                        value={avgInvoiceValue}
+                        value={kpi?.avgInvoiceValue || 0}
                         format={val => formatFullCurrency(val)}
                         iconName="trending-up"
                         variant="green"
                         chartType="bar"
-                        trendData={avgInvoiceValueTrendData}
-                        onPress={() => setKpiModal({ title: 'Avg Invoice Value', fullValue: formatFullCurrency(avgInvoiceValue) })}
+                        onPress={() => setKpiModal({ title: 'Avg Invoice Value', fullValue: formatFullCurrency(kpi?.avgInvoiceValue || 0) })}
                     />
                 </View>
 
                 {/* KPI Cards Row 3 - Green: Total Profit; Purple: Profit Margin */}
-                {totalProfit !== 0 && (
-                    <View style={styles.kpiRow}>
-                        <KPICard
-                            title="Total Profit"
-                            value={totalProfit}
-                            format={val => formatFullCurrency(val)}
-                            iconName="trending-up"
-                            variant="green"
-                            chartType="bar"
-                            trendData={profitTrendData}
-                            showVisibilityToggle
-                            onPress={() => setKpiModal({ title: 'Total Profit', fullValue: formatFullCurrency(totalProfit) })}
-                        />
-                        <KPICard
-                            title="Profit Margin"
-                            value={profitMargin}
-                            format={val => val.toFixed(1)}
-                            unit="%"
-                            iconName="percent"
-                            variant="purple"
-                            chartType="bar"
-                            trendData={profitMarginTrendData}
-                            showVisibilityToggle
-                            onPress={() => setKpiModal({ title: 'Profit Margin', fullValue: profitMargin.toFixed(2) + '%' })}
-                        />
-                    </View>
-                )}
+                <View style={styles.kpiRow}>
+                    <KPICard
+                        title="Total Profit"
+                        value={kpi?.totalProfit || 0}
+                        format={val => formatFullCurrency(val)}
+                        iconName="attach-money"
+                        variant="green"
+                        chartType="bar"
+                        onPress={() => setKpiModal({ title: 'Total Profit', fullValue: formatFullCurrency(kpi?.totalProfit || 0) })}
+                    />
+                    <KPICard
+                        title="Profit Margin"
+                        value={kpi?.profitMargin || 0}
+                        format={val => val.toFixed(1)}
+                        unit="%"
+                        iconName="percent"
+                        variant="purple"
+                        chartType="bar"
+                        onPress={() => setKpiModal({ title: 'Profit Margin', fullValue: (kpi?.profitMargin || 0).toFixed(2) + '%' })}
+                    />
+                </View>
 
                 {/* KPI Cards Row 4 - Blue: Total Quantity; Purple: Avg Profit/Order */}
                 <View style={styles.kpiRow}>
                     <KPICard
                         title="Total Quantity"
-                        value={totalQuantity}
+                        value={kpi?.totalQuantity || 0}
                         format={val => val.toLocaleString()}
                         iconName="inventory"
                         variant="blue"
                         chartType="bar"
-                        trendData={quantityTrendData}
-                        onPress={() => setKpiModal({ title: 'Total Quantity', fullValue: totalQuantity.toLocaleString() })}
+                        onPress={() => setKpiModal({ title: 'Total Quantity', fullValue: (kpi?.totalQuantity || 0).toLocaleString() })}
                     />
-                    {totalProfit !== 0 && totalInvoices > 0 && (
-                        <KPICard
-                            title="Avg Profit/Order"
-                            value={avgProfitPerOrder}
-                            format={val => formatFullCurrency(val)}
-                            iconName="trending-up"
-                            variant="purple"
-                            chartType="bar"
-                            trendData={avgProfitPerOrderTrendData}
-                            showVisibilityToggle
-                            onPress={() => setKpiModal({ title: 'Avg Profit/Order', fullValue: formatFullCurrency(avgProfitPerOrder) })}
-                        />
-                    )}
+                    <KPICard
+                        title="Avg Profit per Order"
+                        value={kpi?.avgProfitPerOrder || 0}
+                        format={val => formatFullCurrency(val)}
+                        iconName="stars"
+                        variant="purple"
+                        chartType="bar"
+                        onPress={() => setKpiModal({ title: 'Avg Profit per Order', fullValue: formatFullCurrency(kpi?.avgProfitPerOrder || 0) })}
+                    />
                 </View>
 
                 {/* Charts - Show loading state while aggregations are being computed */}
-                {chartsLoading ? (
+                {isLoading ? (
                     <View style={styles.chartsLoadingContainer}>
                         <ActivityIndicator size="small" color="#0d6464" />
                         <Text style={styles.chartsLoadingText}>Loading charts...</Text>
                     </View>
-                ) : displayAggregations ? (
+                ) : (!isLoading && kpi) ? (
                     <>
                         {/* Top Customers Bar Chart */}
                         <View style={styles.chartSection}>
                             <BarChart
                                 title="Top Customers"
-                                data={salesByCustomer}
+                                data={charts?.topCustomers || []}
                                 valuePrefix="₹"
                                 formatValue={formatChartValue}
                                 horizontal
@@ -1377,117 +654,125 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         </View>
 
                         {/* Sales by Ledger Group */}
-                        {salesByLedgerGroup.length > 0 && salesByLedgerGroup[0].label !== 'Unknown' && (
+                        {charts?.salesByLedgerGroup && charts.salesByLedgerGroup.length > 0 && charts.salesByLedgerGroup[0].label !== 'Unknown' && (
                             <View style={styles.chartSection}>
                                 <BarChart
                                     title="Sales by Ledger Group"
-                                    data={salesByLedgerGroup}
+                                    data={charts.salesByLedgerGroup}
                                     valuePrefix="₹"
                                     formatValue={formatChartValue}
                                     horizontal
                                     onBarClick={label => applyDrillDown('ledgerGroup', label)}
-                                    showBackButton={getFilterValues(filters.ledgerGroup).length > 0}
-                                    onBackClick={getFilterValues(filters.ledgerGroup).length > 0 ? () => clearDimension('ledgerGroup') : undefined}
+                                    showBackButton={getFilterValues((filters as any).ledgerGroup).length > 0}
+                                    onBackClick={getFilterValues((filters as any).ledgerGroup).length > 0 ? () => clearDimension('ledgerGroup') : undefined}
                                 />
                             </View>
                         )}
 
                         {/* Sales by Region/State */}
-                        {salesByRegion.length > 0 && salesByRegion[0].label !== 'Unknown' && (
+                        {charts?.salesByRegion && charts.salesByRegion.length > 0 && charts.salesByRegion[0].label !== 'Unknown' && (
                             <View style={styles.chartSection}>
                                 <BarChart
                                     title="Sales by State"
-                                    data={salesByRegion}
+                                    data={charts.salesByRegion}
                                     valuePrefix="₹"
                                     formatValue={formatChartValue}
                                     horizontal
                                     onBarClick={label => applyDrillDown('state', label)}
-                                    showBackButton={getFilterValues(filters.state).length > 0}
-                                    onBackClick={getFilterValues(filters.state).length > 0 ? () => clearDimension('state') : undefined}
+                                    showBackButton={getFilterValues((filters as any).state).length > 0}
+                                    onBackClick={getFilterValues((filters as any).state).length > 0 ? () => clearDimension('state') : undefined}
                                 />
                             </View>
                         )}
 
                         {/* Sales by Country */}
-                        {salesByCountry.length > 1 && (
+                        {charts?.salesByCountry && charts.salesByCountry.length > 1 && (
                             <View style={styles.chartSection}>
                                 <BarChart
                                     title="Sales by Country"
-                                    data={salesByCountry}
+                                    data={charts.salesByCountry}
                                     valuePrefix="₹"
                                     formatValue={formatChartValue}
                                     horizontal
                                     onBarClick={label => applyDrillDown('country', label)}
-                                    showBackButton={getFilterValues(filters.country).length > 0}
-                                    onBackClick={getFilterValues(filters.country).length > 0 ? () => clearDimension('country') : undefined}
+                                    showBackButton={getFilterValues((filters as any).country).length > 0}
+                                    onBackClick={getFilterValues((filters as any).country).length > 0 ? () => clearDimension('country') : undefined}
                                 />
                             </View>
                         )}
 
                         {/* Period Chart (Sales by Month) - click filters by month */}
-                        <View style={styles.chartSection}>
-                            <BarChart
-                                title="Period Chart"
-                                data={salesByPeriod}
-                                valuePrefix="₹"
-                                formatValue={formatChartValue}
-                                horizontal
-                                onBarClick={label => {
-                                    const monthKey = parseMonthDisplayToKey(label);
-                                    if (monthKey) applyDrillDown('month', monthKey);
-                                }}
-                                showBackButton={getFilterValues(filters.month).length > 0}
-                                onBackClick={getFilterValues(filters.month).length > 0 ? () => clearDimension('month') : undefined}
-                            />
-                        </View>
+                        {charts?.salesByMonth && (
+                            <View style={styles.chartSection}>
+                                <BarChart
+                                    title="Period Chart"
+                                    data={charts.salesByMonth}
+                                    valuePrefix="₹"
+                                    formatValue={formatChartValue}
+                                    horizontal
+                                    onBarClick={label => {
+                                        const monthKey = parseMonthDisplayToKey(label);
+                                        if (monthKey) applyDrillDown('month', monthKey);
+                                    }}
+                                    showBackButton={getFilterValues((filters as any).month).length > 0}
+                                    onBackClick={getFilterValues((filters as any).month).length > 0 ? () => clearDimension('month') : undefined}
+                                />
+                            </View>
+                        )}
 
                         {/* Top Items by Revenue */}
-                        <View style={styles.chartSection}>
-                            <BarChart
-                                title="Top Items by Revenue"
-                                data={topItemsByRevenue}
-                                valuePrefix="₹"
-                                formatValue={formatChartValue}
-                                horizontal
-                                onBarClick={label => applyDrillDown('item', label)}
-                                showBackButton={getFilterValues(filters.item).length > 0}
-                                onBackClick={getFilterValues(filters.item).length > 0 ? () => clearDimension('item') : undefined}
-                            />
-                        </View>
+                        {charts?.topItemsByRevenue && (
+                            <View style={styles.chartSection}>
+                                <BarChart
+                                    title="Top Items by Revenue"
+                                    data={charts.topItemsByRevenue}
+                                    valuePrefix="₹"
+                                    formatValue={formatChartValue}
+                                    horizontal
+                                    onBarClick={label => applyDrillDown('item', label)}
+                                    showBackButton={getFilterValues((filters as any).item).length > 0}
+                                    onBackClick={getFilterValues((filters as any).item).length > 0 ? () => clearDimension('item') : undefined}
+                                />
+                            </View>
+                        )}
 
                         {/* Top Items by Quantity */}
-                        <View style={styles.chartSection}>
-                            <BarChart
-                                title="Top Items by Quantity"
-                                data={topItemsByQuantity}
-                                formatValue={(val) => val.toLocaleString()}
-                                horizontal
-                                onBarClick={label => applyDrillDown('item', label)}
-                                showBackButton={getFilterValues(filters.item).length > 0}
-                                onBackClick={getFilterValues(filters.item).length > 0 ? () => clearDimension('item') : undefined}
-                            />
-                        </View>
+                        {charts?.topItemsByQuantity && (
+                            <View style={styles.chartSection}>
+                                <BarChart
+                                    title="Top Items by Quantity"
+                                    data={charts.topItemsByQuantity}
+                                    formatValue={(val) => val.toLocaleString()}
+                                    horizontal
+                                    onBarClick={label => applyDrillDown('item', label)}
+                                    showBackButton={getFilterValues((filters as any).item).length > 0}
+                                    onBackClick={getFilterValues((filters as any).item).length > 0 ? () => clearDimension('item') : undefined}
+                                />
+                            </View>
+                        )}
 
                         {/* Sales by Category (Pie) */}
-                        <View style={styles.chartSection}>
-                            <PieChart
-                                title="Sales by Stock Group"
-                                data={salesByStockGroup}
-                                valuePrefix="₹"
-                                formatValue={formatChartValue}
-                                donut
-                                onSliceClick={label => applyDrillDown('stockGroup', label)}
-                                showBackButton={getFilterValues(filters.stockGroup).length > 0}
-                                onBackClick={getFilterValues(filters.stockGroup).length > 0 ? () => clearDimension('stockGroup') : undefined}
-                            />
-                        </View>
+                        {charts?.salesByStockGroup && (
+                            <View style={styles.chartSection}>
+                                <PieChart
+                                    title="Sales by Stock Group"
+                                    data={charts.salesByStockGroup}
+                                    valuePrefix="₹"
+                                    formatValue={formatChartValue}
+                                    donut
+                                    onSliceClick={label => applyDrillDown('stockGroup', label)}
+                                    showBackButton={getFilterValues((filters as any).stockGroup).length > 0}
+                                    onBackClick={getFilterValues((filters as any).stockGroup).length > 0 ? () => clearDimension('stockGroup') : undefined}
+                                />
+                            </View>
+                        )}
 
                         {/* Month-wise Profit Line Chart - click filters by month */}
-                        {profitByMonth.some(d => d.value !== 0) && (
+                        {charts?.monthWiseProfit && (
                             <View style={styles.chartSection}>
                                 <LineChart
                                     title="Month-wise Profit"
-                                    data={profitByMonth}
+                                    data={charts.monthWiseProfit}
                                     valuePrefix="₹"
                                     formatValue={formatChartValue}
                                     showArea
@@ -1496,63 +781,65 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                                         const monthKey = parseMonthDisplayToKey(label);
                                         if (monthKey) applyDrillDown('month', monthKey);
                                     }}
-                                    showBackButton={getFilterValues(filters.month).length > 0}
-                                    onBackClick={getFilterValues(filters.month).length > 0 ? () => clearDimension('month') : undefined}
+                                    showBackButton={getFilterValues((filters as any).month).length > 0}
+                                    onBackClick={getFilterValues((filters as any).month).length > 0 ? () => clearDimension('month') : undefined}
                                 />
                             </View>
                         )}
 
                         {/* Top Profitable Items */}
-                        {topProfitableItems.length > 0 && (
+                        {charts?.topProfitableItems && charts.topProfitableItems.length > 0 && (
                             <View style={styles.chartSection}>
                                 <BarChart
                                     title="Top 10 Profitable Items"
-                                    data={topProfitableItems}
+                                    data={charts.topProfitableItems}
                                     valuePrefix="₹"
                                     formatValue={formatChartValue}
                                     horizontal
                                     onBarClick={label => applyDrillDown('item', label)}
-                                    showBackButton={getFilterValues(filters.item).length > 0}
-                                    onBackClick={getFilterValues(filters.item).length > 0 ? () => clearDimension('item') : undefined}
+                                    showBackButton={getFilterValues((filters as any).item).length > 0}
+                                    onBackClick={getFilterValues((filters as any).item).length > 0 ? () => clearDimension('item') : undefined}
                                 />
                             </View>
                         )}
 
                         {/* Top Loss Items */}
-                        {topLossItems.length > 0 && (
+                        {charts?.topLossItems && charts.topLossItems.length > 0 && (
                             <View style={styles.chartSection}>
                                 <BarChart
                                     title="Top 10 Loss Items"
-                                    data={topLossItems}
+                                    data={charts.topLossItems}
                                     valuePrefix="₹"
                                     formatValue={formatChartValue}
                                     horizontal
                                     onBarClick={label => applyDrillDown('item', label)}
-                                    showBackButton={getFilterValues(filters.item).length > 0}
-                                    onBackClick={getFilterValues(filters.item).length > 0 ? () => clearDimension('item') : undefined}
+                                    showBackButton={getFilterValues((filters as any).item).length > 0}
+                                    onBackClick={getFilterValues((filters as any).item).length > 0 ? () => clearDimension('item') : undefined}
                                 />
                             </View>
                         )}
 
                         {/* Sales Trend Line - click filters by month */}
-                        <View style={styles.chartSection}>
-                            <LineChart
-                                title="Sales Trend"
-                                data={salesByPeriod}
-                                valuePrefix="₹"
-                                formatValue={formatChartValue}
-                                showArea
-                                curved
-                                onPointClick={label => {
-                                    const monthKey = parseMonthDisplayToKey(label);
-                                    if (monthKey) applyDrillDown('month', monthKey);
-                                }}
-                                showBackButton={getFilterValues(filters.month).length > 0}
-                                onBackClick={getFilterValues(filters.month).length > 0 ? () => clearDimension('month') : undefined}
-                            />
-                        </View>
+                        {charts?.salesByPeriod && (
+                            <View style={styles.chartSection}>
+                                <LineChart
+                                    title="Sales Trend"
+                                    data={charts.salesByPeriod}
+                                    valuePrefix="₹"
+                                    formatValue={formatChartValue}
+                                    showArea
+                                    curved
+                                    onPointClick={label => {
+                                        const monthKey = parseMonthDisplayToKey(label);
+                                        if (monthKey) applyDrillDown('month', monthKey);
+                                    }}
+                                    showBackButton={getFilterValues((filters as any).month).length > 0}
+                                    onBackClick={getFilterValues((filters as any).month).length > 0 ? () => clearDimension('month') : undefined}
+                                />
+                            </View>
+                        )}
                     </>
-                ) : aggregations ? (
+                ) : charts ? (
                     /* Has data but filtered result is empty: either date range or drill-downs */
                     <View style={styles.noDataContainer}>
                         <Icon
