@@ -18,7 +18,7 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { LedgerStackParamList } from '../navigation/types';
+import type { MainStackParamList } from '../navigation/types';
 import type { BillAllocation, LedgerEntryDetail } from '../api/models/ledger';
 import { normalizeToArray } from '../api';
 import { colors } from '../constants/colors';
@@ -28,7 +28,7 @@ import { toNum, fmtNum, getLedgerEntryAmount } from '../components/VoucherDetail
 import { strings } from '../constants/strings';
 import { IconAccountVector4, IconDocumentBill } from '../assets/bill-allocations';
 
-type Route = RouteProp<LedgerStackParamList, 'BillAllocations'>;
+type Route = RouteProp<MainStackParamList, 'BillAllocations'>;
 
 /** Row/section borders and text colors to match design */
 const ROW_BORDER = '#e2eaf2';
@@ -70,13 +70,13 @@ interface NewFormatVoucher {
 function collectBillAllocations(voucher: Record<string, unknown>): BillAllocation[] {
   // Check for new format first (lowercase keys)
   const newFormatVoucher = voucher as NewFormatVoucher;
-  
+
   // Handle wrapped voucher format { vouchers: [{ ... }] }
   let actualVoucher = newFormatVoucher;
   if (Array.isArray(newFormatVoucher.vouchers) && newFormatVoucher.vouchers.length > 0) {
     actualVoucher = newFormatVoucher.vouchers[0];
   }
-  
+
   // New format: ledgerentries (lowercase)
   if (actualVoucher.ledgerentries && Array.isArray(actualVoucher.ledgerentries)) {
     const allAllocations: BillAllocation[] = [];
@@ -105,14 +105,14 @@ function collectBillAllocations(voucher: Record<string, unknown>): BillAllocatio
       return allAllocations;
     }
   }
-  
+
   // Legacy format: ALLLEDGERENTRIES, LEDGERENTRIES (uppercase)
   const entries = normalizeToArray<LedgerEntryDetail>(
     voucher.ALLLEDGERENTRIES ??
-      voucher.allledgerentries ??
-      voucher.LEDGERENTRIES ??
-      voucher.ledgerentries ??
-      voucher.LedgerEntries
+    voucher.allledgerentries ??
+    voucher.LEDGERENTRIES ??
+    voucher.ledgerentries ??
+    voucher.LedgerEntries
   );
   const fromEntries = entries.flatMap((e) =>
     normalizeToArray<BillAllocation>(e.BILLALLOCATIONS ?? (e as unknown as { billallocations?: BillAllocation[] }).billallocations)
@@ -127,29 +127,29 @@ function collectBillAllocations(voucher: Record<string, unknown>): BillAllocatio
 /** Get display info from voucher - supports both old and new formats */
 function getVoucherDisplayInfo(voucher: Record<string, unknown>): { ledgerName: string; amount: number; isDebit: boolean } {
   const newFormatVoucher = voucher as NewFormatVoucher;
-  
+
   // Handle wrapped voucher format
   let actualVoucher = newFormatVoucher;
   if (Array.isArray(newFormatVoucher.vouchers) && newFormatVoucher.vouchers.length > 0) {
     actualVoucher = newFormatVoucher.vouchers[0];
   }
-  
+
   // New format
   if (actualVoucher.partyledgername || actualVoucher.ledgerentries) {
     const ledgerName = actualVoucher.partyledgername || '';
     const amountStr = actualVoucher.amount || '0';
     const amount = parseFloat(amountStr.replace(/,/g, ''));
-    
+
     // Check first ledger entry for debit/credit
     let isDebit = true;
     if (actualVoucher.ledgerentries && actualVoucher.ledgerentries.length > 0) {
       const firstEntry = actualVoucher.ledgerentries[0];
       isDebit = firstEntry.isdeemedpositive !== 'Yes';
     }
-    
+
     return { ledgerName, amount: isNaN(amount) ? 0 : amount, isDebit };
   }
-  
+
   // Legacy format
   const legacyAmount = getLedgerEntryAmount(voucher as LedgerEntryDetail);
   return {
@@ -173,12 +173,12 @@ function BillAllocationRow({ item, voucherDate }: { item: BillAllocation; vouche
   const refNo = (item.BILLNAME ?? item.billname ?? '—') as string;
   const billType = (item.BILLTYPE ?? item.billtype ?? '') as string;
   const dateStr = getBillAllocDate(item) || voucherDate || '—';
-  
+
   // Support both formats for amount
   const debit = toAmt(item.DEBITAMT);
   const credit = toAmt(item.CREDITAMT);
   let amount = debit > 0 ? debit : credit;
-  
+
   // New format uses 'amount' field directly
   if (amount === 0 && item.amount) {
     const amtStr = item.amount || '0';

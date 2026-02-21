@@ -24,6 +24,15 @@ export interface VoucherViewRequest {
 export interface Voucher {
   alterid?: string | null;
   masterid?: string | null;
+  vouchertypename?: string | null;
+  vouchernumber?: string | null;
+  date?: string | null;
+  narration?: string | null;
+  amount?: string | null;
+  partyledgername?: string | null;
+  ledgerentries?: any[] | null;
+  allinventoryentries?: any[] | null;
+  // Legacy/Other API support
   DATE?: string | null;
   PARTICULARS?: string | null;
   VCHTYPE?: string | null;
@@ -39,6 +48,7 @@ export interface Voucher {
 }
 
 export interface VoucherDataResponse {
+  vouchers?: Voucher[] | null;
   data?: Voucher[] | null;
   error?: string | null;
   message?: string | null;

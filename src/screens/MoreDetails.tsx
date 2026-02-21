@@ -22,7 +22,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, useWindowDimensio
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { LedgerStackParamList } from '../navigation/types';
+import type { MainStackParamList } from '../navigation/types';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
@@ -30,7 +30,7 @@ import { DetailCard } from '../components/DetailCard';
 import { IconAccountVector4 } from '../assets/bill-allocations';
 import { strings } from '../constants/strings';
 
-type Route = RouteProp<LedgerStackParamList, 'MoreDetails'>;
+type Route = RouteProp<MainStackParamList, 'MoreDetails'>;
 
 const STRIP_BG = '#e6ecfd';
 const STRIP_BORDER = '#c4d4ff';
@@ -187,7 +187,7 @@ function isSalesOrderData(v: VoucherRecord): boolean {
 /** Buyer Details content - mapped from voucher API or Sales Order Outstanding API */
 function BuyerDetailsContent({ voucher }: { voucher: VoucherRecord }) {
   const v = voucher;
-  
+
   // Check if this is Sales Order Outstanding data
   if (isSalesOrderData(v)) {
     return (
@@ -211,7 +211,7 @@ function BuyerDetailsContent({ voucher }: { voucher: VoucherRecord }) {
       </View>
     );
   }
-  
+
   // Original voucher data format
   return (
     <View style={contentStyles.wrap}>
@@ -245,7 +245,7 @@ function BuyerDetailsContent({ voucher }: { voucher: VoucherRecord }) {
 /** Consignee Details content - mapped from voucher API or Sales Order Outstanding API */
 function ConsigneeDetailsContent({ voucher }: { voucher: VoucherRecord }) {
   const v = voucher;
-  
+
   // Check if this is Sales Order Outstanding data
   if (isSalesOrderData(v)) {
     return (
@@ -260,7 +260,7 @@ function ConsigneeDetailsContent({ voucher }: { voucher: VoucherRecord }) {
       </View>
     );
   }
-  
+
   // Original voucher data format
   return (
     <View style={contentStyles.wrap}>
@@ -283,13 +283,13 @@ function ConsigneeDetailsContent({ voucher }: { voucher: VoucherRecord }) {
 /** Order Details content - mapped from voucher API or Sales Order Outstanding API */
 function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
   const v = voucher;
-  
+
   // Check if this is Sales Order Outstanding data
   if (isSalesOrderData(v)) {
     // Get vouchers list from Sales Order Outstanding
     const salesVouchers = (v.VOUCHERS ?? []) as SalesOrderVoucherRecord[];
     const firstVoucher = salesVouchers[0];
-    
+
     return (
       <View style={contentStyles.wrap}>
         <DetailCard
@@ -303,7 +303,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
             { label: 'Due On:', value: get(v, 'DUEON') },
           ]}
         />
-        
+
         <DetailCard
           title="Stock Details"
           rows={[
@@ -313,7 +313,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
             { label: 'Batch Name:', value: get(v, 'BATCHNAME') },
           ]}
         />
-        
+
         <DetailCard
           title="Quantity Details"
           rows={[
@@ -323,7 +323,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
             { label: 'Pre-Close Reason:', value: get(v, 'PRECLOSEREASON') },
           ]}
         />
-        
+
         <DetailCard
           title="Ledger Details"
           rows={[
@@ -331,7 +331,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
             { label: 'Ledger Group:', value: get(v, 'LEDGERGROUP') },
           ]}
         />
-        
+
         {firstVoucher && (
           <DetailCard
             title="Voucher Details"
@@ -344,7 +344,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
             ]}
           />
         )}
-        
+
         {salesVouchers.length > 1 && (
           <DetailCard
             title={`Additional Vouchers (${salesVouchers.length - 1})`}
@@ -357,7 +357,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
       </View>
     );
   }
-  
+
   // Original voucher data format (from getvoucherdata API)
   return (
     <View style={contentStyles.wrap}>
@@ -370,7 +370,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
           { label: 'Terms of Delivery:', value: get(v, 'basicshipdocumentno') || get(v, 'eicheckpost') },
         ]}
       />
-      
+
       <DetailCard
         title={strings.dispatch_details ?? 'Dispatch Details'}
         rows={[
@@ -381,7 +381,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
           { label: 'Date:', value: get(v, 'billofladingdate') },
         ]}
       />
-      
+
       <DetailCard
         title={strings.export_details ?? 'Export Details'}
         rows={[
@@ -394,7 +394,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
           { label: 'Port Code:', value: get(v, 'portcode') },
           { label: 'Date:', value: get(v, 'shippingbilldate') },
         ]}
-      />     
+      />
     </View>
   );
 }
@@ -413,7 +413,7 @@ export default function MoreDetails() {
   const insets = useSafeAreaInsets();
   const { setScrollDirection } = useScroll();
   const rawVoucher = (route.params?.voucher ?? {}) as VoucherRecord;
-  
+
   // Handle both new format (vouchers array) and legacy format
   const voucher: VoucherRecord = useMemo(() => {
     // New format: { vouchers: [{ ... }] }
@@ -427,7 +427,7 @@ export default function MoreDetails() {
     // Direct voucher object
     return rawVoucher;
   }, [rawVoucher]);
-  
+
   const ledgerName = (route.params?.ledger_name ?? '') as string;
   const isSalesOrder = isSalesOrderData(voucher);
 

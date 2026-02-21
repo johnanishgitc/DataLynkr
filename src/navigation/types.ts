@@ -21,13 +21,58 @@ export type LedgerStackParamList = {
     from_date?: number;
     to_date?: number;
   };
-  VoucherDetails: {
-    voucher: object;
-    ledger_name?: string;
-    report_name?: string;
-    from_date?: number;
-    to_date?: number;
+};
+
+/** Item added from Order Entry Item Detail and shown on Order Entry (OE1.2). */
+export type AddedOrderItem = {
+  name: string;
+  qty: string;
+  rate: string;
+  total: number;
+  unit: string;
+};
+
+export type OrdersStackParamList = {
+  OrderEntry: {
+    editItem?: AddedOrderItem;
+    editIndex?: number;
   };
+  OrderEntryItemDetail: {
+    item?: AddedOrderItem;
+    index?: number;
+  };
+  OrderSuccess: {
+    orderNo: string;
+  };
+};
+
+export type ApprovalsStackParamList = {
+  Approvals: undefined;
+};
+
+export type SummaryStackParamList = {
+  StockSummary: undefined;
+  StockGroupSummary: { stockitem: string; breadcrumb: string[] };
+  StockItemMonthly: { stockitem: string; breadcrumb: string[] };
+  StockItemVouchers: {
+    stockitem: string;
+    fromdate: string;
+    todate: string;
+    breadcrumb: string[];
+  };
+};
+
+export type MainTabsParamList = {
+  HomeTab: undefined;
+  OrdersTab: undefined;
+  LedgerTab: undefined;
+  ApprovalsTab: undefined;
+  SummaryTab: undefined;
+};
+
+export type MainStackParamList = {
+  AdminDashboard: undefined;
+  MainTabs: undefined;
   VoucherDetailView: {
     voucher: object;
     ledger_name?: string;
@@ -41,6 +86,13 @@ export type LedgerStackParamList = {
   MoreDetails: {
     voucher?: object;
     ledger_name?: string;
+  };
+  VoucherDetails: {
+    voucher: object;
+    ledger_name?: string;
+    report_name?: string;
+    from_date?: number;
+    to_date?: number;
   };
   SalesOrderVoucherDetails: {
     row: object;
@@ -69,49 +121,6 @@ export type LedgerStackParamList = {
   };
 };
 
-/** Item added from Order Entry Item Detail and shown on Order Entry (OE1.2). */
-export type AddedOrderItem = {
-  name: string;
-  qty: number;
-  rate: number;
-  discount: number;
-  total: number;
-  stock: number;
-  tax: number;
-  dueDate?: string;
-  mfgDate?: string;
-  expiryDate?: string;
-};
-
-/** When adding to order, optionally include stockItem so Edit can navigate back to Item Detail. */
-export type AddedOrderItemWithStock = AddedOrderItem & { stockItem?: StockItem };
-
-export type OrdersStackParamList = {
-  /** When navigated back from OrderEntryItemDetail with "Add to Order", addedItems is set. replaceOrderItemId when editing an existing line. clearOrder clears cart when true. */
-  OrderEntry: { addedItems?: AddedOrderItemWithStock[]; replaceOrderItemId?: number; clearOrder?: boolean };
-  /** Order Entry Item Detail - Figma 3067-52684 (OE3). editOrderItem when editing an existing cart line. isBatchWiseOn passed so godown/batch show when "Yes". */
-  OrderEntryItemDetail: { item: StockItem; selectedLedger?: LedgerItem | null; editOrderItem?: AddedOrderItem & { id: number }; isBatchWiseOn?: boolean };
-  /** Order placed successfully – Figma 3067-64915. voucherNumber/reference from place_order API. */
-  OrderSuccess: { voucherNumber?: string; reference?: string };
-  ComingSoon: { tab_name: string };
-};
-
-export type ApprovalsStackParamList = {
-  ApprovalsScreen: undefined;
-};
-
-export type MainTabsParamList = {
-  HomeTab: undefined;
-  OrdersTab: undefined;
-  LedgerTab: undefined;
-  ApprovalsTab: undefined;
-};
-
-export type MainStackParamList = {
-  AdminDashboard: undefined;
-  MainTabs: undefined;
-};
-
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
@@ -127,5 +136,25 @@ export type HomeStackScreenProps<T extends keyof HomeStackParamList> = NativeSta
 >;
 export type LedgerStackScreenProps<T extends keyof LedgerStackParamList> = NativeStackScreenProps<
   LedgerStackParamList,
+  T
+>;
+export type OrdersStackScreenProps<T extends keyof OrdersStackParamList> = NativeStackScreenProps<
+  OrdersStackParamList,
+  T
+>;
+export type SummaryStackScreenProps<T extends keyof SummaryStackParamList> = NativeStackScreenProps<
+  SummaryStackParamList,
+  T
+>;
+export type MainStackScreenProps<T extends keyof MainStackParamList> = NativeStackScreenProps<
+  MainStackParamList,
+  T
+>;
+export type MainTabsScreenProps<T extends keyof MainTabsParamList> = NativeStackScreenProps<
+  MainTabsParamList,
+  T
+>;
+export type RootStackScreenProps<T extends keyof RootStackParamList> = NativeStackScreenProps<
+  RootStackParamList,
   T
 >;

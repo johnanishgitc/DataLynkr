@@ -12,8 +12,19 @@ import {
     Modal,
     ScrollView,
     Dimensions,
+    LayoutAnimation,
+    Platform,
+    UIManager,
 } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { AppSidebar, SIDEBAR_MENU_APPROVALS } from '../components';
 import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
 import FilterSvg from '../assets/approvals/filter.svg';
@@ -21,9 +32,14 @@ import SortSvg from '../assets/approvals/sort.svg';
 import BellSvg from '../assets/approvals/bell.svg';
 import KebabSvg from '../assets/approvals/kebab.svg';
 import CalendarSvg from '../assets/approvals/calendar.svg';
+import UserPartSvg from '../assets/approvals/user.svg';
+import BoxSvg from '../assets/approvals/box.svg';
+import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
+import CloseSvg from '../assets/clipPopup/close.svg';
 import { colors } from '../constants/colors';
 import { apiService } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
+import type { Voucher } from '../api/models/voucher';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { toYyyyMmDd } from '../utils/dateUtils';
 import PeriodSelection from '../components/PeriodSelection';
@@ -111,6 +127,79 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [sortBy, setSortBy] = useState<string>('');
     const [personDropOpen, setPersonDropOpen] = useState(false);
     const [voucherDropOpen, setVoucherDropOpen] = useState(false);
+
+    // Voucher Detail Modal
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedVoucher, setSelectedVoucher] = useState<PendVchAuthItem | null>(null);
+    const [voucherDetail, setVoucherDetail] = useState<Voucher | null>(null);
+    const [loadingDetail, setLoadingDetail] = useState(false);
+    const [inventoryExpanded, setInventoryExpanded] = useState(true);
+    const [ledgerExpanded, setLedgerExpanded] = useState(false);
+    const [showRejectionReasonModal, setShowRejectionReasonModal] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [companyName, setCompanyName] = useState('DataLynkr');
+
+    useEffect(() => {
+        getCompany().then(c => {
+            if (c) setCompanyName(c);
+        });
+    }, []);
+
+    const openSidebar = useCallback(() => setSidebarOpen(true), []);
+    const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+    const onSidebarItemPress = useCallback(
+        (item: any) => {
+            closeSidebar();
+            if (item.target === 'ApprovalsTab') return; // already here
+            (navigation as any).navigate(item.target, item.params);
+        },
+        [closeSidebar, navigation]
+    );
+
+    // -----------------------------------------------------------------------
+    // Computed & Logic
+    // -----------------------------------------------------------------------
+
+    const ledgerRows = useMemo(() => {
+        if (!voucherDetail) return [];
+        const entriesRaw = (voucherDetail as any).allledgerentries ?? (voucherDetail as any).allledgers ?? (voucherDetail as any).ledgerentries ?? (voucherDetail as any).ALLLEDGERENTRIES;
+        const entries = Array.isArray(entriesRaw) ? entriesRaw : (entriesRaw ? [entriesRaw] : []);
+        const particularsStr = (voucherDetail.partyledgername ?? (voucherDetail as any).PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '').toLowerCase();
+
+        return entries.filter((e: any) => {
+            const amtRaw = e.AMOUNT ?? e.amount ?? e.ENTRYAMOUNT ?? 0;
+            const amtNum = typeof amtRaw === 'number' ? amtRaw : Number(String(amtRaw).replace(/,/g, ''));
+            if (Math.abs(amtNum) <= 0) return false;
+
+            const name = (e.LEDGERNAME ?? e.ledgername ?? '').toLowerCase();
+            if (particularsStr && name === particularsStr) return false;
+            return true;
+        }).map((e: any) => {
+            const amtRaw = e.AMOUNT ?? e.amount ?? e.ENTRYAMOUNT ?? 0;
+            const amtNum = typeof amtRaw === 'number' ? amtRaw : Number(String(amtRaw).replace(/,/g, ''));
+            return {
+                label: e.LEDGERNAME ?? e.ledgername ?? '—',
+                amount: amtNum,
+                percentage: e.RATE ?? e.rate ?? '',
+            };
+        });
+    }, [voucherDetail, selectedVoucher]);
+
+    const toggleLedger = () => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setLedgerExpanded(!ledgerExpanded);
+    };
+
+    const handleDetailNavigation = () => {
+        if (!selectedVoucher) return;
+        setShowDetailModal(false);
+        // Navigation to universal VoucherDetailView
+        (navigation as any).navigate('VoucherDetailView', {
+            voucher: voucherDetail || selectedVoucher,
+            ledger_name: voucherDetail?.partyledgername ?? selectedVoucher?.SUBMITTER,
+        });
+    };
 
     // -----------------------------------------------------------------------
     // Fetch
@@ -264,6 +353,39 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         }
     }, [toDate, fetchData]);
 
+    const handleCardPress = useCallback(async (item: PendVchAuthItem) => {
+        setSelectedVoucher(item);
+        setShowDetailModal(true);
+        setLoadingDetail(true);
+        setVoucherDetail(null);
+        setInventoryExpanded(true);
+        setLedgerExpanded(false);
+
+        try {
+            const tId = await getTallylocId();
+            const comp = await getCompany();
+            const guid = await getGuid();
+
+            const res = await apiService.getVoucherData({
+                tallyloc_id: tId,
+                company: comp,
+                guid: guid,
+                masterid: item.MASTERID,
+            });
+
+            const vData = res.data?.vouchers?.[0] || res.data?.data?.[0];
+            if (vData) {
+                setVoucherDetail(vData);
+            } else {
+                console.warn('Voucher detail fetch failed or empty:', res.data?.message);
+            }
+        } catch (e) {
+            console.error('Error fetching voucher detail:', e);
+        } finally {
+            setLoadingDetail(false);
+        }
+    }, []);
+
     const handleReject = useCallback((item: PendVchAuthItem) => {
         setRejectingItem(item);
         setRejectComment('');
@@ -305,7 +427,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
     const renderCard = useCallback(
         ({ item }: { item: PendVchAuthItem }) => (
-            <View style={styles.card}>
+            <TouchableOpacity
+                style={styles.card}
+                onPress={() => handleCardPress(item)}
+                activeOpacity={0.9}
+            >
                 {/* Row 1: type badge + amount */}
                 <View style={styles.cardRow}>
                     <View style={styles.typeBadge}>
@@ -346,23 +472,23 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     <View style={styles.actionRow}>
                         <TouchableOpacity
                             style={styles.rejectBtn}
-                            onPress={() => handleReject(item)}
+                            onPress={(e) => { e.stopPropagation(); handleReject(item); }}
                             activeOpacity={0.7}
                         >
                             <Text style={styles.rejectBtnText}>Reject</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.approveBtn}
-                            onPress={() => handleApprove(item)}
+                            onPress={(e) => { e.stopPropagation(); handleApprove(item); }}
                             activeOpacity={0.7}
                         >
                             <Text style={styles.approveBtnText}>Approve</Text>
                         </TouchableOpacity>
                     </View>
                 ) : null}
-            </View>
+            </TouchableOpacity>
         ),
-        [activeTab, handleReject, handleApprove],
+        [activeTab, handleApprove, handleReject, handleCardPress],
     );
 
     // -----------------------------------------------------------------------
@@ -378,11 +504,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 <View style={styles.headerRow}>
                     <View style={styles.headerLeft}>
                         <TouchableOpacity
-                            onPress={() => navigation.goBack()}
+                            onPress={openSidebar}
                             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                            accessibilityLabel="Back"
+                            accessibilityLabel="Menu"
                         >
-                            <CaretLeftSvg width={24} height={24} />
+                            <Icon name="menu" size={24} color="#fff" />
                         </TouchableOpacity>
                         <Text style={styles.headerTitle}>Approvals</Text>
                     </View>
@@ -535,7 +661,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
                         {/* Text */}
                         <Text style={popupStyles.title}>Approved!</Text>
-                        <Text style={popupStyles.subtitle}>Now you are approved!</Text>
+                        <Text style={popupStyles.subtitle}>The Voucher was Successfully Approved</Text>
 
                         {/* Continue button */}
                         <TouchableOpacity
@@ -586,8 +712,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         </View>
 
                         {/* Text */}
-                        <Text style={[popupStyles.title, { color: '#eb2122' }]}>Request Rejected!</Text>
-                        <Text style={popupStyles.subtitle}>Sorry, your request was rejected. Please try again or contact support.</Text>
+                        <Text style={[popupStyles.title, { color: '#eb2122' }]}>Rejected!</Text>
+                        <Text style={popupStyles.subtitle}>The Voucher was Successfully Rejected</Text>
 
                         {/* Continue button */}
                         <TouchableOpacity
@@ -836,6 +962,242 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     </View>
                 </View>
             </Modal>
+
+            {/* Voucher Detail Modal */}
+            <Modal visible={showDetailModal} transparent animationType="slide">
+                <View style={popupStyles.overlay}>
+                    <View style={popupStyles.detailSheet}>
+                        <View style={popupStyles.detailHeader}>
+                            <Text style={popupStyles.detailHeaderTitle}>Order</Text>
+                            <TouchableOpacity onPress={() => setShowDetailModal(false)} style={popupStyles.detailCloseBtn}>
+                                <Text style={popupStyles.detailCloseX}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
+                            onPress={handleDetailNavigation}
+                            activeOpacity={1}
+                            style={{ flex: 1 }}
+                        >
+                            <View style={popupStyles.detailSubheader}>
+                                <View style={popupStyles.detailSubheaderInner}>
+                                    <UserPartSvg width={18} height={18} style={{ marginRight: 6 }} />
+                                    <Text style={popupStyles.detailPartyName}>{voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}</Text>
+                                </View>
+                            </View>
+
+                            {loadingDetail ? (
+                                <View style={popupStyles.detailLoading}>
+                                    <ActivityIndicator size="large" color={colors.tab_active_bg} />
+                                </View>
+                            ) : (
+                                <>
+                                    {/* Main Basic Info - Constant */}
+                                    <View style={popupStyles.detailMainInfo}>
+                                        <View style={popupStyles.detailMainRow}>
+                                            <Text style={popupStyles.detailMainLedger} numberOfLines={1}>
+                                                {voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}
+                                            </Text>
+                                            <View style={popupStyles.detailMainAmtRow}>
+                                                <Text style={popupStyles.detailMainAmount}>
+                                                    {voucherDetail?.amount ?? (voucherDetail
+                                                        ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT}` : `${voucherDetail.CREDITAMT}`)
+                                                        : (selectedVoucher?.AMOUNT ?? '0'))}
+                                                </Text>
+                                                <Text style={popupStyles.detailMainAmtType}>
+                                                    {voucherDetail?.amount ? '' : (voucherDetail
+                                                        ? (Number(voucherDetail.DEBITAMT) !== 0 ? ' Dr' : ' Cr')
+                                                        : '')}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                        <View style={popupStyles.detailMetaRow}>
+                                            <Text style={popupStyles.detailMetaText}>{voucherDetail?.date ?? voucherDetail?.DATE ?? selectedVoucher?.DATE}</Text>
+                                            <View style={popupStyles.detailMetaDivider} />
+                                            <Text style={popupStyles.detailMetaText}>{voucherDetail?.vouchertypename ?? voucherDetail?.VCHTYPE ?? selectedVoucher?.VCHTYPE}</Text>
+                                            <View style={popupStyles.detailMetaDivider} />
+                                            <Text style={popupStyles.detailMetaText} numberOfLines={1}>#{voucherDetail?.vouchernumber ?? voucherDetail?.VCHNO ?? selectedVoucher?.VCHNO}</Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Inventory Toggle - Constant */}
+                                    <View style={popupStyles.inventoryToggleRow}>
+                                        <View style={popupStyles.inventoryToggleLeft}>
+                                            <BoxSvg width={18} height={18} style={{ marginRight: 10 }} />
+                                            <Text style={popupStyles.inventoryToggleTitle}>Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            onPress={() => setInventoryExpanded(!inventoryExpanded)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <View style={[popupStyles.switchTrack, inventoryExpanded && popupStyles.switchTrackOn]}>
+                                                <View style={[popupStyles.switchThumb, inventoryExpanded && popupStyles.switchThumbOn]} />
+                                            </View>
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    {/* Scrollable Inventory List */}
+                                    <ScrollView style={popupStyles.detailContent} bounces={false}>
+                                        {inventoryExpanded && (
+                                            <View style={popupStyles.inventoryList}>
+                                                {(voucherDetail?.allinventoryentries || voucherDetail?.INVENTORYALLOCATIONS) ? (
+                                                    (voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries : (Array.isArray(voucherDetail?.INVENTORYALLOCATIONS) ? voucherDetail?.INVENTORYALLOCATIONS : [voucherDetail?.INVENTORYALLOCATIONS])).map((item: any, idx) => (
+                                                        <View key={idx} style={popupStyles.inventoryItem}>
+                                                            <View style={popupStyles.inventoryItemTop}>
+                                                                <Text style={popupStyles.inventoryItemName} numberOfLines={1}>{item.stockitemname ?? item.STOCKITEMNAME}</Text>
+                                                                <Text style={popupStyles.inventoryItemAmt}>₹{item.amount ?? item.AMOUNT}</Text>
+                                                            </View>
+                                                            <View style={popupStyles.inventoryItemDetails}>
+                                                                <View style={popupStyles.invDetailCol}>
+                                                                    <Text style={popupStyles.inventoryDetailText}>Qty : <Text style={popupStyles.inventoryDetailValue}>{item.actualqty ?? item.ACTUALQTY}</Text></Text>
+                                                                </View>
+                                                                <View style={popupStyles.invDetailCol}>
+                                                                    <Text style={popupStyles.inventoryDetailText}>Rate : <Text style={popupStyles.inventoryDetailValue}>{item.rate ?? item.RATE}</Text></Text>
+                                                                </View>
+                                                                <View style={popupStyles.invDetailCol}>
+                                                                    <Text style={popupStyles.inventoryDetailText}>Discount : <Text style={popupStyles.inventoryDetailValue}>{item.discount ?? item.DISCOUNT ?? 0}</Text></Text>
+                                                                </View>
+                                                            </View>
+                                                        </View>
+                                                    ))
+                                                ) : (
+                                                    <Text style={popupStyles.noInventoryText}>No inventory allocations found.</Text>
+                                                )}
+                                            </View>
+                                        )}
+                                    </ScrollView>
+
+                                    {/* Summary Footer Section - Constant */}
+                                    <View style={popupStyles.detailSummary}>
+                                        <View style={popupStyles.summaryRow}>
+                                            <Text style={popupStyles.summaryLabel}>ITEM TOTAL</Text>
+                                            <Text style={popupStyles.summaryValue}>
+                                                {voucherDetail?.amount ?? (voucherDetail
+                                                    ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT} Dr` : `${voucherDetail.CREDITAMT} Cr`)
+                                                    : (selectedVoucher?.AMOUNT))}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </>
+                            )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={popupStyles.ledgerDetailsBar}
+                            onPress={toggleLedger}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={popupStyles.ledgerDetailsBarText}>LEDGER DETAILS</Text>
+                            <View style={[popupStyles.ledgerDetailsChevron, ledgerExpanded && { transform: [{ rotate: '90deg' }] }]}>
+                                <ChevronRightWhiteSvg width={8} height={14} />
+                            </View>
+                        </TouchableOpacity>
+
+                        {ledgerExpanded && (
+                            <View style={popupStyles.ledgerDetailsExpand}>
+                                {ledgerRows.length > 0 ? (
+                                    ledgerRows.map((row, i) => (
+                                        <View key={i} style={popupStyles.ledgerDetailsRow}>
+                                            <Text style={popupStyles.ledgerDetailsRowLabel} numberOfLines={1}>
+                                                {row.label}
+                                            </Text>
+                                            <View style={popupStyles.ledgerDetailsRowRight}>
+                                                {row.percentage ? (
+                                                    <Text style={popupStyles.ledgerDetailsRowPct}>{row.percentage}</Text>
+                                                ) : null}
+                                                <Text style={popupStyles.ledgerDetailsRowVal}>
+                                                    ₹{Math.abs(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    ))
+                                ) : (
+                                    <Text style={popupStyles.ledgerDetailsEmpty}>No additional ledger details</Text>
+                                )}
+                            </View>
+                        )}
+
+                        <View style={popupStyles.summaryRowLarge}>
+                            <Text style={popupStyles.summaryLabelLarge}>Grand Total</Text>
+                            <Text style={popupStyles.summaryValueLarge}>
+                                {voucherDetail?.amount ?? (voucherDetail
+                                    ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT} Dr` : `${voucherDetail.CREDITAMT} Cr`)
+                                    : (selectedVoucher?.AMOUNT))}
+                            </Text>
+                        </View>
+                        <View style={popupStyles.detailAction}>
+                            {activeTab === 'rejected' ? (
+                                <View style={popupStyles.detailActionRow}>
+                                    <TouchableOpacity
+                                        style={popupStyles.rejectionReasonBannerBtn}
+                                        onPress={() => {
+                                            setShowRejectionReasonModal(true);
+                                        }}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Text style={popupStyles.rejectionReasonBannerBtnText}>Rejection Reason</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[popupStyles.updateOrderBtn, popupStyles.updateOrderBtnBlue]}
+                                        onPress={() => setShowDetailModal(false)}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Text style={popupStyles.updateOrderBtnText}>Update Order</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : (
+                                <TouchableOpacity
+                                    style={popupStyles.updateOrderBtn}
+                                    onPress={() => setShowDetailModal(false)}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={popupStyles.updateOrderBtnText}>Update Order</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Rejection Reason Modal */}
+            <Modal
+                visible={showRejectionReasonModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowRejectionReasonModal(false)}
+            >
+                <View style={reasonPopupStyles.overlay}>
+                    <View style={reasonPopupStyles.popup}>
+                        <View style={reasonPopupStyles.header}>
+                            <Text style={reasonPopupStyles.headerTitle}>Rejection Reason</Text>
+                            <TouchableOpacity
+                                onPress={() => setShowRejectionReasonModal(false)}
+                                style={reasonPopupStyles.closeBtn}
+                            >
+                                <CloseSvg width={14} height={14} fill="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={reasonPopupStyles.content}>
+                            <Text style={reasonPopupStyles.reasonText}>
+                                {selectedVoucher?.REJECTION_REASON || 'No reason specified'}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            <AppSidebar
+                visible={sidebarOpen}
+                onClose={closeSidebar}
+                menuItems={SIDEBAR_MENU_APPROVALS}
+                activeTarget="ApprovalsTab"
+                companyName={companyName}
+                onItemPress={onSidebarItemPress}
+                onConnectionsPress={() => {
+                    closeSidebar();
+                    (navigation as any).replace('AdminDashboard');
+                }}
+            />
         </View>
     );
 }
@@ -1136,18 +1498,19 @@ const styles = StyleSheet.create({
 // Popup Styles (Approved / Rejected bottom-sheet)
 // ---------------------------------------------------------------------------
 
-const { width: SCREEN_W } = Dimensions.get('window');
+
 
 const popupStyles = StyleSheet.create({
     overlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.6)',
-        justifyContent: 'flex-end',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     sheet: {
         backgroundColor: '#fff',
-        borderTopLeftRadius: 0,
-        borderTopRightRadius: 0,
+        borderTopLeftRadius: 4,
+        borderTopRightRadius: 4,
         paddingTop: 24,
         paddingBottom: 10,
         paddingHorizontal: 16,
@@ -1472,6 +1835,409 @@ const popupStyles = StyleSheet.create({
     },
     sortChipTextActive: {
         color: '#fff',
+    },
+
+    // Voucher Detail Modal Styles
+    detailSheet: {
+        width: SCREEN_W * 0.85,
+        minHeight: SCREEN_H * 0.8,
+        maxHeight: SCREEN_H * 1.2,
+        backgroundColor: '#fff',
+        borderRadius: 4,
+        overflow: 'hidden',
+        elevation: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+    },
+    detailHeader: {
+        backgroundColor: '#1e488f',
+        height: 44,
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'space-between' as const,
+        paddingHorizontal: 12,
+    },
+    detailHeaderTitle: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: '#fff',
+    },
+    detailCloseBtn: {
+        padding: 4,
+    },
+    detailCloseX: {
+        color: '#fff',
+        fontSize: 18,
+    },
+    detailSubheader: {
+        backgroundColor: '#e6ecfd',
+        paddingHorizontal: 14,
+        paddingVertical: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: '#c4d4ff',
+    },
+    detailSubheaderInner: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+    },
+    detailPartyName: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 13,
+        color: '#131313',
+    },
+    detailContent: {
+        flex: 1,
+        backgroundColor: '#fff',
+    },
+    detailLoading: {
+        paddingVertical: 60,
+        alignItems: 'center' as const,
+    },
+    detailMainInfo: {
+        paddingHorizontal: 14,
+        paddingTop: 10,
+        paddingBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e6ecfd',
+    },
+    detailMainRow: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        marginBottom: 8,
+    },
+    detailMainLedger: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 14,
+        color: '#0e172b',
+        flex: 1,
+        marginRight: 10,
+    },
+    detailMainAmtRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'baseline' as const,
+    },
+    detailMainAmount: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 16,
+        color: '#131313',
+    },
+    detailMainAmtType: {
+        fontFamily: 'Roboto',
+        fontSize: 12,
+        color: '#0e172b',
+    },
+    detailMetaRow: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+    },
+    detailMetaText: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 13,
+        color: '#6a7282',
+    },
+    detailMetaDivider: {
+        width: 1,
+        height: 14,
+        backgroundColor: '#d3d3d3',
+        marginHorizontal: 8,
+    },
+    inventoryToggleRow: {
+        backgroundColor: '#fafafd',
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+    },
+    inventoryToggleLeft: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+    },
+    inventoryToggleTitle: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 17,
+        color: '#1e488f',
+    },
+    switchTrack: {
+        width: 34,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: '#d3d3d3',
+        padding: 2,
+        justifyContent: 'center' as const,
+    },
+    switchTrackOn: {
+        backgroundColor: '#1e488f',
+    },
+    switchThumb: {
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        backgroundColor: '#fff',
+    },
+    switchThumbOn: {
+        alignSelf: 'flex-end' as const,
+    },
+    inventoryList: {
+        paddingHorizontal: 14,
+    },
+    inventoryItem: {
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e6ecfd',
+    },
+    inventoryItemTop: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        marginBottom: 6,
+    },
+    inventoryItemName: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 14,
+        color: '#0e172b',
+        flex: 1,
+        marginRight: 10,
+    },
+    inventoryItemAmt: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 15,
+        color: '#0e172b',
+    },
+    inventoryItemDetails: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+    },
+    invDetailCol: {
+        flex: 1,
+    },
+    inventoryDetailText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        color: '#6a7282',
+    },
+    inventoryDetailValue: {
+        color: '#1e488f',
+        textDecorationLine: 'underline' as const,
+    },
+    noInventoryText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        color: '#999',
+        textAlign: 'center' as const,
+        marginVertical: 20,
+    },
+    detailSummary: {
+        marginTop: 5,
+    },
+    summaryRow: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        backgroundColor: '#fff',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    summaryLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 13,
+        color: '#0e172b',
+    },
+    summaryValue: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 13,
+        color: '#0e172b',
+    },
+    ledgerDetailsBar: {
+        backgroundColor: '#1e488f',
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#c4d4ff',
+    },
+    ledgerDetailsBarText: {
+        fontFamily: 'Roboto',
+        fontWeight: '700',
+        fontSize: 13,
+        color: '#fff',
+    },
+    ledgerDetailsChevron: {
+        width: 20,
+        height: 20,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+    },
+    ledgerDetailsExpand: {
+        backgroundColor: '#e6ecfd',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
+    ledgerDetailsRow: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        paddingVertical: 6,
+    },
+    ledgerDetailsRowLabel: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: '#0e172b',
+        fontWeight: '400',
+        flex: 1,
+        marginRight: 12,
+    },
+    ledgerDetailsRowRight: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        justifyContent: 'flex-end' as const,
+        minWidth: 120,
+    },
+    ledgerDetailsRowPct: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: '#0e172b',
+        fontWeight: '400',
+        marginRight: 40,
+    },
+    ledgerDetailsRowVal: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: '#0e172b',
+        fontWeight: '400',
+        minWidth: 70,
+        textAlign: 'right' as const,
+    },
+    ledgerDetailsEmpty: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        fontWeight: '400',
+        color: '#6a7282',
+        fontStyle: 'italic' as const,
+        paddingVertical: 4,
+    },
+    summaryRowLarge: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        backgroundColor: '#fff',
+    },
+    summaryLabelLarge: {
+        fontFamily: 'Roboto',
+        fontWeight: '700',
+        fontSize: 17,
+        color: '#0e172b',
+    },
+    summaryValueLarge: {
+        fontFamily: 'Roboto',
+        fontWeight: '700',
+        fontSize: 17,
+        color: '#0e172b',
+    },
+    detailAction: {
+        backgroundColor: '#fafafd',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+    },
+    updateOrderBtn: {
+        backgroundColor: '#39b57c',
+        height: 40,
+        borderRadius: 4,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+    },
+    updateOrderBtnText: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 15,
+        color: '#fff',
+    },
+    detailActionRow: {
+        flexDirection: 'row' as const,
+        gap: 12,
+        alignItems: 'center' as const,
+    },
+    rejectionReasonBannerBtn: {
+        flex: 1,
+        backgroundColor: '#0e172b',
+        height: 40,
+        borderRadius: 4,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+    },
+    rejectionReasonBannerBtnText: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 15,
+        color: '#fff',
+    },
+    updateOrderBtnBlue: {
+        backgroundColor: '#1e488f',
+        flex: 1,
+    },
+});
+
+const reasonPopupStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+    },
+    popup: {
+        width: '100%',
+        maxWidth: 320,
+        backgroundColor: '#fff',
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: '#1e488f',
+        overflow: 'hidden',
+    },
+    header: {
+        backgroundColor: '#1e488f',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+    },
+    headerTitle: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 16,
+        color: '#fff',
+    },
+    closeBtn: {
+        padding: 4,
+    },
+    content: {
+        padding: 16,
+        backgroundColor: '#fff',
+    },
+    reasonText: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: '#131313',
+        lineHeight: 20,
     },
 });
 
