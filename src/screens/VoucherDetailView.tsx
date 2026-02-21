@@ -75,6 +75,7 @@ export default function VoucherDetailView() {
   const [htmlModalVisible, setHtmlModalVisible] = useState(false);
   const [htmlContent, setHtmlContent] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
+  const [connectionErrorVisible, setConnectionErrorVisible] = useState(false);
   const fetchDone = useRef(false);
   const { width: winWidth, height: winHeight } = useWindowDimensions();
 
@@ -157,7 +158,7 @@ export default function VoucherDetailView() {
       } catch (err) {
         if (__DEV__ && !cancelled) console.warn('[VoucherDetailView] getVoucherData failed', err);
         if (!cancelled) {
-          Alert.alert('', 'Could not load full voucher details. Showing summary.');
+          setConnectionErrorVisible(true);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -516,6 +517,38 @@ export default function VoucherDetailView() {
         onRightIconsPress={() => setMenuVisible(true)}
         compact
       />
+
+      <Modal
+        visible={connectionErrorVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setConnectionErrorVisible(false);
+          nav.goBack();
+        }}
+      >
+        <View style={styles.connectionErrorOverlay}>
+          <View style={styles.connectionErrorCard}>
+            <View style={styles.connectionErrorIconWrap}>
+              <Icon name="wifi-off" size={40} color={colors.primary_blue} />
+            </View>
+            <Text style={styles.connectionErrorTitle}>Connection error</Text>
+            <Text style={styles.connectionErrorMessage}>
+              Failed to fetch. Check your Internet connection.
+            </Text>
+            <TouchableOpacity
+              style={styles.connectionErrorButton}
+              onPress={() => {
+                setConnectionErrorVisible(false);
+                nav.goBack();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.connectionErrorButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={menuVisible}
@@ -1080,5 +1113,62 @@ const styles = StyleSheet.create({
   htmlWebView: {
     flex: 1,
     backgroundColor: colors.white,
+  },
+  /* Connection error popup */
+  connectionErrorOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  connectionErrorCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    padding: 24,
+    minWidth: 280,
+    maxWidth: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  connectionErrorIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.bg_light_blue,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  connectionErrorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text_primary,
+    marginBottom: 8,
+  },
+  connectionErrorMessage: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: colors.text_secondary,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  connectionErrorButton: {
+    backgroundColor: colors.primary_blue,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  connectionErrorButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.white,
   },
 });

@@ -14,11 +14,12 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/types';
 import type { UserConnection } from '../api';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { apiService } from '../api';
+import { RefreshIcon, DLogo } from '../assets/connections';
 import { useAuth } from '../store';
 import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
 import { strings, connections_available } from '../constants/strings';
+const CONNECTIONS_TITLE = strings.connections;
 import { colors } from '../constants/colors';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'AdminDashboard'>;
@@ -111,14 +112,15 @@ export default function AdminDashboard() {
 
   const renderItem = ({ item }: { item: UserConnection }) => {
     const isConnected = (item.status ?? '').toLowerCase() === 'connected';
+    const displayName = item.company || '—';
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => onSelect(item)} activeOpacity={0.7}>
         <View style={styles.cardRow}>
           <View style={styles.iconWrap}>
-            <Text style={styles.iconLetter}>D</Text>
+            <DLogo width={10} height={11} color="#ffffff" />
           </View>
-          <Text style={styles.company} numberOfLines={1}>{item.company || '—'}</Text>
+          <Text style={styles.company} numberOfLines={1}>{displayName}</Text>
           {isConnected && (
             <View style={styles.connectedBadge}>
               <View style={styles.connectedDot} />
@@ -135,16 +137,11 @@ export default function AdminDashboard() {
       <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
       <View style={[styles.header, { paddingTop: insets.top || 12 }]}>
         <View style={styles.headerLeft}>
-          <Text style={styles.title}>{strings.select_connection}</Text>
+          <Text style={styles.title}>{CONNECTIONS_TITLE}</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity onPress={() => {}} hitSlop={12} style={styles.headerIconBtn}>
-            <Icon name="dots-vertical" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12} style={styles.headerIconBtn}>
-            <Icon name="refresh" size={24} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12} style={styles.headerIconBtn}>
+          <RefreshIcon width={24} height={24} color="#ffffff" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.countBar}>
@@ -154,7 +151,7 @@ export default function AdminDashboard() {
 
       {loading ? (
         <View style={styles.contentArea}>
-          <ActivityIndicator size="large" color="#1e488f" />
+          <ActivityIndicator size="large" color={colors.primary_blue} />
         </View>
       ) : all.length === 0 ? (
         <View style={styles.contentArea}>
@@ -183,7 +180,7 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fdfdfe',
   },
   header: {
     flexDirection: 'row',
@@ -191,24 +188,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingBottom: 12,
-    backgroundColor: '#1e488f',
+    backgroundColor: colors.primary_blue,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   headerIconBtn: {
     padding: 4,
   },
   title: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#ffffff',
   },
   countBar: {
@@ -216,11 +208,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginHorizontal: 16,
-    marginTop: 12,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 4,
+    paddingVertical: 8,
+    marginTop: 0,
+    backgroundColor: '#fdfdfe',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
   countDot: {
     width: 8,
@@ -229,8 +221,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#00c950',
   },
   countText: {
-    fontSize: 13,
-    color: '#374151',
+    fontSize: 11,
+    color: '#495565',
   },
   contentArea: {
     flex: 1,
@@ -239,6 +231,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     flex: 1,
+    backgroundColor: '#fdfdfe',
   },
   list: {
     paddingHorizontal: 16,
@@ -247,47 +240,42 @@ const styles = StyleSheet.create({
   logoutFooter: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fdfdfe',
   },
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    paddingVertical: 14,
+    borderColor: '#e6ecfd',
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1e498f',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primary_blue,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconLetter: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#ffffff',
-  },
   company: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '400',
-    color: '#374151',
+    color: '#101727',
   },
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 3,
     backgroundColor: '#dcfce7',
     borderRadius: 9999,
   },
@@ -295,23 +283,23 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#22c55e',
+    backgroundColor: '#00c950',
   },
   connectedText: {
     fontSize: 12,
-    color: '#16a34a',
+    color: '#008235',
   },
   logoutBtn: {
     paddingVertical: 10,
     backgroundColor: '#ffffff',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#dc2626',
+    borderColor: '#ff383c',
     alignItems: 'center',
   },
   logoutBtnText: {
     fontSize: 16,
-    color: '#dc2626',
+    color: '#ff383c',
   },
   empty: {
     color: '#697282',

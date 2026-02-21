@@ -32,6 +32,9 @@ export const colors = {
   footer_border: '#f2f4f6',
   voucher_divider: '#bcc9ec',
   voucher_yellow_tint: '#38F1C74B',
+  approve_green: '#39b57c',
+  reject_red: '#eb2122',
+  bg_page: '#fafafd',
 } as const;
 
 export type Colors = typeof colors;

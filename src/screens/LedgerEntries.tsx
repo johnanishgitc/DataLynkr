@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
+import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -16,7 +17,10 @@ import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { cacheManager } from '../cache';
 import { apiService } from '../api';
 import type { LedgerListResponse, LedgerReportData } from '../api';
-import { ExportMenu, PeriodSelection } from '../components';
+import { ExportMenu, PeriodSelection, AppSidebar } from '../components';
+import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
+import type { AppSidebarMenuItem } from '../components/AppSidebar';
+import { navigationRef } from '../navigation/navigationRef';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import { formatDate } from '../utils/dateUtils';
@@ -64,6 +68,37 @@ export default function LedgerEntries() {
   
   // For export functionality - we need to track data from child components
   const [exportData, setExportData] = useState<LedgerReportData | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [company, setCompany] = useState('');
+
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  const goToAdminDashboard = useCallback(() => {
+    closeSidebar();
+    if (navigationRef.isReady()) {
+      navigationRef.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'AdminDashboard' }] }));
+    }
+  }, [closeSidebar]);
+
+  const onSidebarItemPress = useCallback(
+    (item: AppSidebarMenuItem) => {
+      closeSidebar();
+      const tabNav = nav.getParent()?.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
+      if (item.target === 'LedgerTab') {
+        // Already on Ledger
+      } else if (item.target === 'HomeTab' || item.target === 'OrderEntry') {
+        tabNav?.navigate?.(item.target);
+      } else if (item.target === 'DataManagement') {
+        tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
+      } else if (item.target === 'ComingSoon' && item.params) {
+        tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
+      } else {
+        tabNav?.navigate?.(item.target);
+      }
+    },
+    [closeSidebar, nav],
+  );
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return ledgerNames;
@@ -117,12 +152,12 @@ export default function LedgerEntries() {
 
   const dateRangeStr = `${formatDate(from_date)} – ${formatDate(to_date)}`;
 
-  // Navigation handlers for child components
-  const onNavigateHome = () => {
-    const parent = nav.getParent();
-    const tabNavigator = parent?.getParent();
-    (tabNavigator as { navigate?: (name: string) => void })?.navigate?.('HomeTab');
-  };
+  useEffect(() => {
+    getCompany().then(setCompany);
+  }, []);
+
+  // Menu: open shared sidebar (same as LedgerMain / Sales / Order Entry)
+  const onNavigateHome = openSidebar;
 
   const onCustomerDropdownOpen = () => setCustomerDropdownOpen(true);
   const onReportDropdownOpen = () => setReportDropdownOpen(true);
@@ -328,6 +363,16 @@ export default function LedgerEntries() {
         onPdf={onPdf}
         onExcel={onExcel}
         onPrint={onPrint}
+      />
+
+      <AppSidebar
+        visible={sidebarOpen}
+        onClose={closeSidebar}
+        menuItems={SIDEBAR_MENU_LEDGER}
+        activeTarget="LedgerTab"
+        companyName={company || undefined}
+        onItemPress={onSidebarItemPress}
+        onConnectionsPress={goToAdminDashboard}
       />
     </View>
   );

@@ -49,3 +49,42 @@ export function formatDateFromYyyyMmDd(yyyymmdd: string): string {
   const mon = MONTH_ABBR[m - 1] ?? '—';
   return `${String(day).padStart(2, '0')}-${mon}-${yy}`;
 }
+
+/** Format date as YYYYMMDDHHMMSS (e.g. "20250218143022") for auto-generated order no. */
+export function toYyyyMmDdHhMmSs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${y}${m}${day}${h}${min}${s}`;
+}
+
+/** Format date as d-mmm-yy (e.g. "18-Feb-25"), day without leading zero. */
+export function formatDateDmmmYy(ms: number): string {
+  const d = new Date(ms);
+  const day = d.getDate();
+  const mon = MONTH_ABBR[d.getMonth()] ?? '—';
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${day}-${mon}-${yy}`;
+}
+
+/** Parse "d-mmm-yy" or "dd-mmm-yy" (e.g. "18-Feb-26") to Date. Returns null if invalid. */
+export function parseDateDmmmYy(s: string): Date | null {
+  if (!s || typeof s !== 'string') return null;
+  const t = s.trim();
+  const parts = t.split('-');
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const monStr = parts[1];
+  const yy = parseInt(parts[2], 10);
+  if (isNaN(day) || isNaN(yy)) return null;
+  const monthIdx = MONTH_ABBR.findIndex((m) => m.toLowerCase() === monStr.toLowerCase());
+  if (monthIdx < 0) return null;
+  const year = yy >= 0 && yy <= 99 ? 2000 + yy : yy;
+  const d = new Date(year, monthIdx, day);
+  if (d.getDate() !== day || d.getMonth() !== monthIdx || d.getFullYear() !== year) return null;
+  return d;
+}

@@ -20,6 +20,12 @@ export default function FooterTabBar({
   descriptors,
   insets,
 }: BottomTabBarProps) {
+  // Respect tabBarStyle.display: 'none' from screen options (e.g. OrderEntry, OrderEntryItemDetail)
+  const focusedRoute = state.routes[state.index];
+  const focusedDescriptor = descriptors[focusedRoute.key];
+  const tabBarStyle = focusedDescriptor?.options?.tabBarStyle as { display?: 'none' } | undefined;
+  const isHidden = tabBarStyle?.display === 'none';
+
   const paddingBottom = Math.max(
     insets.bottom - Platform.select({ ios: 4, default: 0 }),
     0
@@ -79,6 +85,10 @@ export default function FooterTabBar({
     // Inactive state: Orders uses font-normal (400), others use font-light (300)
     return routeName === 'OrdersTab' ? '400' : '300';
   };
+
+  if (isHidden) {
+    return null;
+  }
 
   return (
     <Animated.View
