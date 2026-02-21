@@ -82,7 +82,7 @@ export default function LedgerVoucher({
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    if (scrollDiff > 0 && currentScrollY > 50) {
+    if (scrollDiff > 0 && currentScrollY > 10) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');

@@ -48,8 +48,10 @@ export default function LedgerMain() {
       const tabNav = nav.getParent()?.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
       if (item.target === 'LedgerTab') {
         // Already on Ledger Book
-      } else if (item.target === 'HomeTab' || item.target === 'OrderEntry') {
-        tabNav?.navigate?.(item.target);
+      } else if (item.target === 'OrderEntry') {
+        tabNav?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
+      } else if (item.target === 'HomeTab') {
+        tabNav?.navigate?.('HomeTab');
       } else if (item.target === 'DataManagement') {
         tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
       } else if (item.target === 'ComingSoon' && item.params) {

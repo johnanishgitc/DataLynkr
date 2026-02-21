@@ -92,7 +92,7 @@ export default function SalesOrderLedgerOutstandings({
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    if (scrollDiff > 0 && currentScrollY > 50) {
+    if (scrollDiff > 0 && currentScrollY > 10) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
@@ -216,13 +216,13 @@ export default function SalesOrderLedgerOutstandings({
   // Group similar STOCKITEM entries together and calculate average rate
   const groupedRows = useMemo((): GroupedStockItemRow[] => {
     if (!salesOrderRows || salesOrderRows.length === 0) return [];
-    
+
     const byStockItem = new Map<string, SalesOrderOutstandingRow[]>();
-    
+
     for (const row of salesOrderRows) {
       const stockItem = (row.STOCKITEM ?? '').trim();
       if (!stockItem) continue;
-      
+
       const existing = byStockItem.get(stockItem);
       if (existing) {
         existing.push(row);
@@ -230,9 +230,9 @@ export default function SalesOrderLedgerOutstandings({
         byStockItem.set(stockItem, [row]);
       }
     }
-    
+
     const result: GroupedStockItemRow[] = [];
-    
+
     for (const [stockItem, rows] of byStockItem.entries()) {
       let totalQty = 0;
       let totalAmount = 0;
@@ -240,25 +240,25 @@ export default function SalesOrderLedgerOutstandings({
       let rateCount = 0;
       let rateUnit = '';
       let qtyUnit = '';
-      
+
       for (const r of rows) {
         // Sum quantities
         const qtyStr = r.CLOSINGBALANCE || r.OPENINGBALANCE || '';
         totalQty += parseQtyStr(qtyStr);
         if (!qtyUnit) qtyUnit = parseQtyUnit(qtyStr);
-        
+
         // Sum amounts
         const amtStr = (r.AMOUNT || '').toString().replace(/,/g, '');
         const amtNum = parseFloat(amtStr);
         if (!isNaN(amtNum)) totalAmount += amtNum;
-        
+
         // Calculate average rate
         const rateNum = parseRateStr(r.RATE);
         if (rateNum > 0) {
           rateSum += rateNum;
           rateCount++;
         }
-        
+
         // Extract rate unit from first row that has it
         if (!rateUnit && r.RATE) {
           const parts = String(r.RATE).split('/');
@@ -267,9 +267,9 @@ export default function SalesOrderLedgerOutstandings({
           }
         }
       }
-      
+
       const avgRate = rateCount > 0 ? rateSum / rateCount : 0;
-      
+
       result.push({
         stockItem,
         avgRate,
@@ -280,7 +280,7 @@ export default function SalesOrderLedgerOutstandings({
         rows,
       });
     }
-    
+
     return result;
   }, [salesOrderRows]);
 
@@ -289,7 +289,7 @@ export default function SalesOrderLedgerOutstandings({
     const rateDisplay = grouped.avgRate > 0
       ? `${fmtNum(grouped.avgRate)}${grouped.rateUnit ? '/' + grouped.rateUnit : ''}`
       : '—';
-    
+
     // Format quantity with unit
     const qtyDisplay = grouped.totalQty !== 0
       ? `${fmtNum(grouped.totalQty)}${grouped.qtyUnit ? ' ' + grouped.qtyUnit : ''}`
@@ -306,10 +306,10 @@ export default function SalesOrderLedgerOutstandings({
           <Text style={sharedStyles.cardSalesOrderItem} numberOfLines={2}>
             {grouped.stockItem || '—'}
           </Text>
-          <Text style={sharedStyles.cardSalesOrderRate} numberOfLines={1}>
+          <Text style={sharedStyles.cardSalesOrderRate}>
             {rateDisplay}
           </Text>
-          <Text style={sharedStyles.cardSalesOrderValue} numberOfLines={1}>
+          <Text style={sharedStyles.cardSalesOrderValue}>
             {grouped.totalAmount ? fmtNum(grouped.totalAmount) : '—'}
           </Text>
         </View>
@@ -384,9 +384,9 @@ export default function SalesOrderLedgerOutstandings({
 
         {/* SOLO1 table header */}
         <View style={sharedStyles.salesOrderTableHeader}>
-          <Text style={[sharedStyles.salesOrderTableHeaderCell, { flex: 2 }]}>Particulars & Qty</Text>
-          <Text style={[sharedStyles.salesOrderTableHeaderCell, { flex: 1, textAlign: 'right' }]}>Rate</Text>
-          <Text style={[sharedStyles.salesOrderTableHeaderCell, { flex: 1, textAlign: 'right' }]}>Value</Text>
+          <Text style={[sharedStyles.salesOrderTableHeaderCell, { flex: 1.5 }]}>Particulars & Qty</Text>
+          <Text style={[sharedStyles.salesOrderTableHeaderCell, { flex: 1.25, textAlign: 'right' }]}>Rate</Text>
+          <Text style={[sharedStyles.salesOrderTableHeaderCell, { flex: 1.25, textAlign: 'right' }]}>Value</Text>
         </View>
       </Animated.View>
 

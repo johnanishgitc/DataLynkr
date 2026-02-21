@@ -30,7 +30,7 @@ import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/nativ
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import type { MainStackParamList } from '../navigation/types';
+import type { LedgerStackParamList } from '../navigation/types';
 import { normalizeToArray } from '../api';
 import type {
   LedgerEntryDetail,
@@ -58,7 +58,7 @@ import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import apiService from '../api/client';
 import { strings } from '../constants/strings';
 
-type Route = RouteProp<MainStackParamList, 'VoucherDetailView'>;
+type Route = RouteProp<LedgerStackParamList, 'VoucherDetailView'>;
 
 export default function VoucherDetailView() {
   const route = useRoute<Route>();
@@ -310,9 +310,9 @@ export default function VoucherDetailView() {
   const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
   const SCROLL_UP_THRESHOLD = 10; // px – same as LedgerVoucher, avoids jitter
   const FOOTER_COLLAPSE_HEIGHT = 55; // px – slide down when collapsed so grand total bar stays visible a bit up
-  const COLLAPSE_DURATION = 1000; // accounting only
+  const COLLAPSE_DURATION = 300; // accounting: immediate on scroll, smooth (match LedgerVoucher)
   const collapseEasing = Easing.out(Easing.cubic);
-  const ORDER_INVOICE_COLLAPSE_DURATION = 380; // slightly longer for smoother feel
+  const ORDER_INVOICE_COLLAPSE_DURATION = 300; // immediate on scroll, smooth
   const orderInvoiceEasing = Easing.out(Easing.cubic); // smooth deceleration at end
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -325,7 +325,7 @@ export default function VoucherDetailView() {
 
     // Order/Invoice: direction-based, eased timing for smoother collapse/expand
     if (!isAccountingView) {
-      if (scrollDiff > 0 && currentScrollY > 50) {
+      if (scrollDiff > 0 && currentScrollY > 10) {
         if (localScrollDirection.current !== 'down') {
           localScrollDirection.current = 'down';
           setScrollDirection('down');
@@ -369,7 +369,7 @@ export default function VoucherDetailView() {
     }
 
     // Accounting: direction-based collapse animation
-    if (scrollDiff > 0 && currentScrollY > 50) {
+    if (scrollDiff > 0 && currentScrollY > 10) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');

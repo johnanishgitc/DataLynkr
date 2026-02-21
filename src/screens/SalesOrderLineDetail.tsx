@@ -53,9 +53,12 @@ export default function SalesOrderLineDetail() {
     async (v: SalesOrderOutstandingVoucher) => {
       const masterId = v.MASTERID ?? '';
       const navToDetail = (voucherPayload: object) => {
-        (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
-          voucher: voucherPayload,
-          ledger_name: displayLedger,
+        (nav.navigate as (a: string, b: object) => void)('MainTabs', {
+          screen: 'LedgerTab',
+          params: {
+            screen: 'VoucherDetailView',
+            params: { voucher: voucherPayload, ledger_name: displayLedger },
+          },
         });
       };
       if (!masterId) {

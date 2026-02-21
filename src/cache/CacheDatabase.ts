@@ -307,6 +307,9 @@ function runSql<T = unknown>(
   sql: string,
   params: unknown[] = []
 ): Promise<T> {
+  if (database == null) {
+    return Promise.reject(new Error('CacheDatabase.runSql: database is null or undefined'));
+  }
   return new Promise((res, rej) => {
     database.transaction(
       (tx: {
@@ -337,13 +340,20 @@ async function getDb(): Promise<{
   ) => void;
 }> {
   if (db) return db;
-  db = await new Promise((resolve, reject) => {
-    const d = SQLite.openDatabase(
+  const opened = await new Promise<typeof db>((resolve, reject) => {
+    SQLite.openDatabase(
       { name: 'datalynkr.db', location: 'default' },
-      () => resolve(d),
+      (d: unknown) => {
+        if (d != null) resolve(d as typeof db);
+        else reject(new Error('SQLite.openDatabase success callback received null/undefined'));
+      },
       (e: unknown) => reject(e)
     );
   });
+  if (opened == null) {
+    throw new Error('Cache database failed to open (null/undefined)');
+  }
+  db = opened;
 
   await runSql(
     db,

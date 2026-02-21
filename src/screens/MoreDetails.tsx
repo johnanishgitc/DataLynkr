@@ -22,7 +22,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, useWindowDimensio
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { MainStackParamList } from '../navigation/types';
+import type { LedgerStackParamList } from '../navigation/types';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
@@ -30,7 +30,7 @@ import { DetailCard } from '../components/DetailCard';
 import { IconAccountVector4 } from '../assets/bill-allocations';
 import { strings } from '../constants/strings';
 
-type Route = RouteProp<MainStackParamList, 'MoreDetails'>;
+type Route = RouteProp<LedgerStackParamList, 'MoreDetails'>;
 
 const STRIP_BG = '#e6ecfd';
 const STRIP_BORDER = '#c4d4ff';

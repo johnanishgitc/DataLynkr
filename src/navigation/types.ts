@@ -21,6 +21,25 @@ export type LedgerStackParamList = {
     from_date?: number;
     to_date?: number;
   };
+  VoucherDetailView: {
+    voucher: object;
+    ledger_name?: string;
+  };
+  BillAllocations: {
+    voucher: object;
+    ledger_name?: string;
+  };
+  MoreDetails: {
+    voucher?: object;
+    ledger_name?: string;
+  };
+  VoucherDetails: {
+    voucher: object;
+    ledger_name?: string;
+    report_name?: string;
+    from_date?: number;
+    to_date?: number;
+  };
 };
 
 /** Item added from Order Entry Item Detail and shown on Order Entry (OE1.2). */
@@ -50,6 +69,7 @@ export type OrdersStackParamList = {
     addedItems?: AddedOrderItemWithStock[];
     replaceOrderItemId?: number;
     clearOrder?: boolean;
+    viewOnly?: boolean;
   };
   OrderEntryItemDetail: {
     item?: AddedOrderItem;
@@ -88,27 +108,6 @@ export type MainTabsParamList = {
 export type MainStackParamList = {
   AdminDashboard: undefined;
   MainTabs: undefined;
-  VoucherDetailView: {
-    voucher: object;
-    ledger_name?: string;
-  };
-  /** Bill Allocations - Figma 3045-58856 */
-  BillAllocations: {
-    voucher: object;
-    ledger_name?: string;
-  };
-  /** More Details - Figma 3045-59118, 3045-59311, 3045-59471 (Buyer/Consignee/Order Details tabs) */
-  MoreDetails: {
-    voucher?: object;
-    ledger_name?: string;
-  };
-  VoucherDetails: {
-    voucher: object;
-    ledger_name?: string;
-    report_name?: string;
-    from_date?: number;
-    to_date?: number;
-  };
   SalesOrderVoucherDetails: {
     row: object;
     ledger_name?: string;
