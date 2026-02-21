@@ -35,7 +35,7 @@ export default function OrderSuccess() {
   const { voucherNumber, reference } = route.params ?? {};
 
   const handleBack = () => navigation.goBack();
-  const handleViewOrder = () => navigation.goBack();
+  const handleViewOrder = () => navigation.navigate('OrderEntry', { viewOnly: true });
   const handlePlaceNewOrder = () => navigation.navigate('OrderEntry', { clearOrder: true });
 
   return (

@@ -41,7 +41,7 @@ import { syncVouchersToNativeDB } from '../services/SyncService';
 // Sidebar menu - same as Sales Dashboard
 const SIDEBAR_MENU = [
   { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard' as const, params: undefined },
-  { id: 'orders', label: strings.place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.place_orders } },
+  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' as const, params: undefined },
   { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.b_commerce_place_orders } },
   { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' as const, params: undefined },
   { id: 'approvals', label: strings.voucher_approvals, target: 'ComingSoon' as const, params: { tab_name: strings.voucher_approvals } },
@@ -455,9 +455,11 @@ export default function DataManagement() {
   const onSidebarItemPress = useCallback(
     (item: (typeof SIDEBAR_MENU)[0]) => {
       closeSidebar();
+      const tab = nav.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
       if (item.target === 'LedgerTab') {
-        const tab = nav.getParent() as { navigate?: (name: string) => void } | undefined;
         tab?.navigate?.('LedgerTab');
+      } else if (item.target === 'OrderEntry') {
+        tab?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
       } else if (item.target === 'DataManagement') {
         // Already here
       } else if (item.params) {

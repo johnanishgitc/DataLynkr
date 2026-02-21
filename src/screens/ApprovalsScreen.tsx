@@ -152,6 +152,15 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         (item: any) => {
             closeSidebar();
             if (item.target === 'ApprovalsTab') return; // already here
+            const tabNav = navigation.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
+            if (item.target === 'OrderEntry') {
+                tabNav?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
+                return;
+            }
+            if (item.target === 'ComingSoon' && item.params) {
+                tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
+                return;
+            }
             (navigation as any).navigate(item.target, item.params);
         },
         [closeSidebar, navigation]
@@ -194,10 +203,13 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const handleDetailNavigation = () => {
         if (!selectedVoucher) return;
         setShowDetailModal(false);
-        // Navigation to universal VoucherDetailView
-        (navigation as any).navigate('VoucherDetailView', {
-            voucher: voucherDetail || selectedVoucher,
-            ledger_name: voucherDetail?.partyledgername ?? selectedVoucher?.SUBMITTER,
+        // Navigate to Ledger tab's VoucherDetailView so tab bar stays visible
+        (navigation as any).navigate('LedgerTab', {
+            screen: 'VoucherDetailView',
+            params: {
+                voucher: voucherDetail || selectedVoucher,
+                ledger_name: voucherDetail?.partyledgername ?? selectedVoucher?.SUBMITTER,
+            },
         });
     };
 

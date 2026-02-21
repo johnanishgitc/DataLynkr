@@ -18,7 +18,7 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { MainStackParamList } from '../navigation/types';
+import type { LedgerStackParamList } from '../navigation/types';
 import type { BillAllocation, LedgerEntryDetail } from '../api/models/ledger';
 import { normalizeToArray } from '../api';
 import { colors } from '../constants/colors';
@@ -28,7 +28,7 @@ import { toNum, fmtNum, getLedgerEntryAmount } from '../components/VoucherDetail
 import { strings } from '../constants/strings';
 import { IconAccountVector4, IconDocumentBill } from '../assets/bill-allocations';
 
-type Route = RouteProp<MainStackParamList, 'BillAllocations'>;
+type Route = RouteProp<LedgerStackParamList, 'BillAllocations'>;
 
 /** Row/section borders and text colors to match design */
 const ROW_BORDER = '#e2eaf2';

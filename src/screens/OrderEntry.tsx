@@ -425,14 +425,7 @@ export default function OrderEntry() {
         return;
       }
 
-      // Check SQLite cache first
-      const cached = await cacheManager.readCache<{ stockItems?: StockItem[]; stockitems?: StockItem[]; data?: StockItem[] }>(key);
-      const cachedList = cached?.stockItems ?? cached?.stockitems ?? (Array.isArray(cached?.data) ? cached.data : undefined);
-      if (Array.isArray(cachedList) && cachedList.length > 0) {
-        setStockItemsList(cachedList as StockItem[]);
-        setStockItemsLoading(false);
-      }
-
+      // Order Entry always fetches stock items from API, not from cache
       const inFlight = stockItemsFetchRef.current;
       if (inFlight?.key === key) {
         await inFlight.promise;
@@ -451,8 +444,12 @@ export default function OrderEntry() {
             (data?.data as Record<string, unknown> | undefined)?.stockitems;
           const items = Array.isArray(list) ? (list as StockItem[]) : [];
 
-          await cacheManager.saveCache(key, res?.data ?? { data: items }, null, { tallylocId: t, company: c, guid: g });
           setStockItemsList(items);
+          try {
+            await cacheManager.saveCache(key, res?.data ?? { data: items }, null, { tallylocId: t, company: c, guid: g });
+          } catch (e) {
+            console.warn('[OrderEntry] saveCache for stock items failed (non-fatal):', e);
+          }
         } catch {
           if (stockItemsList.length === 0) setStockItemsList([]);
         } finally {
@@ -1576,18 +1573,20 @@ export default function OrderEntry() {
         <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
           <Text style={styles.footerBtnText}>{strings.add_details}</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
-          onPress={handlePlaceOrder}
-          activeOpacity={0.8}
-          disabled={placeOrderLoading}
-        >
-          {placeOrderLoading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.footerBtnText}>{strings.place_order}</Text>
-          )}
-        </TouchableOpacity>
+        {!route.params?.viewOnly && (
+          <TouchableOpacity
+            style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
+            onPress={handlePlaceOrder}
+            activeOpacity={0.8}
+            disabled={placeOrderLoading}
+          >
+            {placeOrderLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.footerBtnText}>{strings.place_order}</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Add Details – bottom-to-up slide (Figma 3067-64055, 3067-64383, 3067-63666) */}
