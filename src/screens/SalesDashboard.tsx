@@ -33,6 +33,8 @@ import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 
 import { KPICard, BarChart, PieChart, LineChart } from '../components/charts';
+import { AppSidebar } from '../components/AppSidebar';
+import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import PeriodSelection from '../components/PeriodSelection';
 import { cacheManager, getCorruptedCacheKeys } from '../cache';
 import { getGuid, getTallylocId, getCompany, getUserEmail } from '../store/storage';
@@ -63,16 +65,6 @@ interface SalesDashboardProps {
         navigate: (screen: string, params?: object) => void;
     };
 }
-
-// Sidebar menu - same as Home tab
-const SIDEBAR_MENU = [
-    { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard' as const, params: undefined },
-    { id: 'orders', label: strings.place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.place_orders } },
-    { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.b_commerce_place_orders } },
-    { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' as const, params: undefined },
-    { id: 'approvals', label: strings.voucher_approvals, target: 'ComingSoon' as const, params: { tab_name: strings.voucher_approvals } },
-    { id: 'data', label: strings.cache_management_2, target: 'DataManagement' as const, params: undefined },
-];
 
 // Enable SQLite promises (safe to call multiple times)
 SQLite.enablePromise(true);
@@ -262,7 +254,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     const [sales, setSales] = useState<SalesVoucher[]>([]);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [company, setCompany] = useState('');
-    const sidebarAnim = useRef(new Animated.Value(0)).current;
     const [saleRecords, setSaleRecords] = useState<SaleRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [chartsLoading, setChartsLoading] = useState(true); // Progressive loading for charts
@@ -667,15 +658,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         getCompany().then(setCompany);
     }, []);
 
-    // Sidebar open/close animation
-    useEffect(() => {
-        Animated.timing(sidebarAnim, {
-            toValue: sidebarOpen ? 1 : 0,
-            duration: 200,
-            useNativeDriver: true,
-        }).start();
-    }, [sidebarOpen, sidebarAnim]);
-
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
@@ -687,17 +669,21 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     }, [closeSidebar]);
 
     const onSidebarItemPress = useCallback(
-        (item: (typeof SIDEBAR_MENU)[0]) => {
+        (item: { target: string; params?: object }) => {
             closeSidebar();
+            const tab = nav.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
             if (item.target === 'LedgerTab') {
-                const tab = nav.getParent() as { navigate?: (name: string) => void } | undefined;
                 tab?.navigate?.('LedgerTab');
+            } else if (item.target === 'OrderEntry') {
+                tab?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
+            } else if (item.target === 'ApprovalsTab') {
+                tab?.navigate?.('ApprovalsTab');
             } else if (item.target === 'SalesDashboard') {
                 // Already here
             } else if (item.params) {
-                nav.navigate(item.target, item.params);
+                nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
             } else {
-                (nav.navigate as (name: string) => void)(item.target);
+                tab?.navigate?.(item.target);
             }
         },
         [closeSidebar, nav],
@@ -1112,9 +1098,6 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         );
     }
 
-    const overlayOpacity = sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] });
-    const panelTranslateX = sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [-SIDEBAR_WIDTH, 0] });
-
     return (
         <SafeAreaView style={styles.container}>
             {/* Header */}
@@ -1135,44 +1118,15 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 </TouchableOpacity>
             </View>
 
-            {/* Sidebar */}
-            <Modal visible={sidebarOpen} transparent animationType="none" statusBarTranslucent>
-                <Pressable style={StyleSheet.absoluteFill} onPress={closeSidebar}>
-                    <Animated.View style={[styles.sidebarOverlay, { opacity: overlayOpacity }]} />
-                </Pressable>
-                <Animated.View
-                    style={[
-                        styles.sidebarPanel,
-                        { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] },
-                    ]}>
-                    <View style={styles.sidebarHeader}>
-                        <Text style={styles.sidebarTitle} numberOfLines={1}>{company || 'DataLynkr'}</Text>
-                        <TouchableOpacity onPress={closeSidebar} style={styles.sidebarClose}>
-                            <Icon name="close" size={24} color="#1e293b" />
-                        </TouchableOpacity>
-                    </View>
-                    <TouchableOpacity style={styles.sidebarConnectionsBtn} onPress={goToAdminDashboard} activeOpacity={0.7}>
-                        <Icon name="business" size={20} color={colors.primary_blue} />
-                        <Text style={styles.sidebarConnectionsText}>{strings.list_of_connections}</Text>
-                    </TouchableOpacity>
-                    <FlatList
-                        data={SIDEBAR_MENU}
-                        keyExtractor={(i) => i.id}
-                        style={styles.sidebarList}
-                        contentContainerStyle={styles.sidebarListContent}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity
-                                style={[styles.sidebarRow, item.target === 'SalesDashboard' && styles.sidebarRowActive]}
-                                onPress={() => onSidebarItemPress(item)}
-                                activeOpacity={0.7}>
-                                <Text style={[styles.sidebarRowLabel, item.target === 'SalesDashboard' && styles.sidebarRowLabelActive]}>
-                                    {item.label}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-                    />
-                </Animated.View>
-            </Modal>
+            <AppSidebar
+                visible={sidebarOpen}
+                onClose={closeSidebar}
+                menuItems={SIDEBAR_MENU_SALES}
+                activeTarget="SalesDashboard"
+                companyName={company || undefined}
+                onItemPress={onSidebarItemPress}
+                onConnectionsPress={goToAdminDashboard}
+            />
 
             {/* Period Selection Modal - restrict to available data range when set */}
             <PeriodSelection
@@ -1914,83 +1868,6 @@ const styles = StyleSheet.create({
     },
     bottomPadding: {
         height: 40,
-    },
-    sidebarOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#000',
-    },
-    sidebarPanel: {
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        backgroundColor: colors.white,
-        borderRightWidth: 1,
-        borderRightColor: colors.border_light,
-        paddingTop: 48,
-    },
-    sidebarHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border_light,
-    },
-    sidebarTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: colors.text_primary,
-        flex: 1,
-    },
-    sidebarClose: {
-        padding: 4,
-    },
-    sidebarConnectionsBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        marginHorizontal: 16,
-        marginTop: 16,
-        paddingVertical: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: colors.primary_blue,
-        backgroundColor: colors.card_bg_light,
-    },
-    sidebarConnectionsText: {
-        fontSize: 14,
-        color: colors.primary_blue,
-        fontWeight: '500',
-    },
-    sidebarList: {
-        flex: 1,
-        marginTop: 16,
-    },
-    sidebarListContent: {
-        paddingHorizontal: 16,
-        paddingBottom: 24,
-    },
-    sidebarRow: {
-        backgroundColor: colors.card_bg_light,
-        borderRadius: 8,
-        padding: 16,
-        marginBottom: 12,
-    },
-    sidebarRowActive: {
-        borderWidth: 1,
-        borderColor: colors.primary_blue,
-        backgroundColor: colors.bg_light_blue2,
-    },
-    sidebarRowLabel: {
-        fontSize: 16,
-        color: colors.text_primary,
-    },
-    sidebarRowLabelActive: {
-        color: colors.primary_blue,
-        fontWeight: '600',
     },
 });
 

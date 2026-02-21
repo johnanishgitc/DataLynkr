@@ -11,5 +11,11 @@ export {
   getStockItemName,
   getStockItemNamesFromDataManagementCache,
 } from './stockItemsCacheReader';
+export {
+  getSessionStockItems,
+  setSessionStockItems,
+  getSessionStockItemsKey,
+  clearSessionStockItems,
+} from './sessionStockItemsCache';
 export * from './CacheDatabase';
 export * from './types';

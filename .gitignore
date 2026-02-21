@@ -34,6 +34,11 @@ local.properties
 *.keystore
 !debug.keystore
 
+# Environment (contains secrets)
+.env
+.env.local
+.env.*.local
+
 # node.js
 #
 node_modules/
@@ -75,3 +80,7 @@ yarn-error.log
 
 # Figma codes
 figma_codes/
+PlaceOrder_FigmaScreens/
+
+# API documentation
+api_docs/

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { View } from 'react-native';
 import type { MainTabsParamList } from './types';
 import HomeStack from './HomeStack';
@@ -16,10 +17,17 @@ import ApprovalsIcon from '../components/footer-icons/ApprovalsIcon';
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
 
+/** Hide tab bar (footer) when OrderEntry or OrderEntryItemDetail is focused. */
+function ordersTabBarStyle({ route }: { route: Parameters<typeof getFocusedRouteNameFromRoute>[0] }) {
+  const routeName = getFocusedRouteNameFromRoute(route) ?? 'OrderEntry';
+  const hideFooter = routeName === 'OrderEntry' || routeName === 'OrderEntryItemDetail' || routeName === 'OrderSuccess';
+  return hideFooter ? { display: 'none' as const } : undefined;
+}
+
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   // Icons match Figma SVG files exactly
   const iconColor = focused ? colors.footer_active : colors.footer_text;
-  
+
   switch (name) {
     case 'home':
       return <HomeIcon color={iconColor} size={24} />;
@@ -55,10 +63,11 @@ export default function MainTabs() {
       <Tab.Screen
         name="OrdersTab"
         component={OrdersStack}
-        options={{
+        options={({ route }) => ({
           title: strings.orders,
           tabBarIcon: ({ focused }) => <TabIcon name="orders" focused={focused} />,
-        }}
+          tabBarStyle: ordersTabBarStyle({ route }),
+        })}
       />
       <Tab.Screen
         name="LedgerTab"
@@ -74,6 +83,7 @@ export default function MainTabs() {
         options={{
           title: strings.approvals,
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
+          tabBarStyle: { display: 'none' as const },
         }}
       />
     </Tab.Navigator>

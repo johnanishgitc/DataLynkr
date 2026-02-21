@@ -79,7 +79,7 @@ export default function ClearedOrders({
   const { setScrollDirection } = useScroll();
 
   const topContainerHeight = 110; // 4 rows including User
-  const headerHeight = insets.top + 47 + topContainerHeight;
+  const headerHeight = insets.top + 55 + topContainerHeight;
   const footerHeight = 60;
   const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
 

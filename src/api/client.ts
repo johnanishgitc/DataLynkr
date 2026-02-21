@@ -31,6 +31,20 @@ import type {
   CompanyStockResponse,
   SalesOrderReportRequest,
   SalesOrderReportResponse,
+  VoucherTypeRequest,
+  VoucherTypeResponse,
+  CreditDaysLimitRequest,
+  CreditDaysLimitResponse,
+  GodownListRequest,
+  GodownListResponse,
+  ItemwiseBatchwiseBalRequest,
+  ItemwiseBatchwiseBalResponse,
+  PlaceOrderRequest,
+  PlaceOrderResponse,
+  PendVchAuthRequest,
+  PendVchAuthResponse,
+  VchAuthActionRequest,
+  VchAuthActionResponse,
 } from './models';
 
 const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
@@ -39,7 +53,7 @@ export type GetToken = () => Promise<string | null>;
 export type OnUnauthorized = () => void;
 
 let getToken: GetToken = async () => null;
-let onUnauthorized: OnUnauthorized = () => {};
+let onUnauthorized: OnUnauthorized = () => { };
 
 export function setAuthHandlers(tokenFn: GetToken, unauthFn: OnUnauthorized) {
   getToken = tokenFn;
@@ -59,7 +73,7 @@ function createClient(timeoutMs = 60000): AxiosInstance {
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-      
+
       // Log API request
       const method = config.method?.toUpperCase() || 'GET';
       const url = `${config.baseURL || ''}${config.url || ''}`;
@@ -70,7 +84,7 @@ function createClient(timeoutMs = 60000): AxiosInstance {
         const preview = dataStr.length > 200 ? dataStr.slice(0, 200) + '...' : dataStr;
         console.log(`[API REQUEST] Body: ${preview}`);
       }
-      
+
       return config;
     },
     (e) => Promise.reject(e)
@@ -93,11 +107,11 @@ function createClient(timeoutMs = 60000): AxiosInstance {
       const status = e?.response?.status || 'NO_RESPONSE';
       const message = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Unknown error';
       console.warn(`[API ERROR] ${method} ${url} → ${status}: ${message}`);
-      
+
       // Enhance error object with network error detection
       if (e && typeof e === 'object') {
         // Check for network errors (no response, timeout, connection issues)
-        const isNetworkError = 
+        const isNetworkError =
           status === 'NO_RESPONSE' ||
           e.code === 'ECONNABORTED' ||
           e.code === 'ERR_NETWORK' ||
@@ -106,12 +120,12 @@ function createClient(timeoutMs = 60000): AxiosInstance {
           message.includes('network') ||
           message.includes('timeout') ||
           message.includes('Timeout');
-        
+
         if (isNetworkError) {
           (e as { isNetworkError?: boolean }).isNetworkError = true;
         }
       }
-      
+
       if (e?.response?.status === 401) {
         onUnauthorized();
       }
@@ -224,6 +238,38 @@ export const apiService = {
   /** Past Orders: sales order list by date range */
   getSalesOrderReport: (body: SalesOrderReportRequest) =>
     getApi().post<SalesOrderReportResponse>('api/reports/salesorder', body),
+
+  /** Voucher types list (NAME for dropdown); each has VOUCHERCLASSLIST[].CLASSNAME for Class */
+  getVoucherTypes: (body: VoucherTypeRequest) =>
+    getApi().post<VoucherTypeResponse>('api/tally/vouchertype', body),
+
+  /** Credit limit and closing balance for a ledger (Order Entry) */
+  getCreditDaysLimit: (body: CreditDaysLimitRequest) =>
+    getApi().post<CreditDaysLimitResponse>('api/tally/creditdayslimit', body),
+
+  /** Godown list for Order Entry Item Detail dropdown */
+  getGodownList: (body: GodownListRequest) =>
+    getApi().post<GodownListResponse>('api/tally/godown-list', body),
+
+  /** Item-wise batch-wise balance for Batch dropdown and Mfd/Expiry (Order Entry Item Detail) */
+  getItemwiseBatchwiseBal: (body: ItemwiseBatchwiseBalRequest) =>
+    getApi().post<ItemwiseBatchwiseBalResponse>('api/tally/itemwise-batchwise-bal', body),
+
+  /** Place order – create sales order in Tally */
+  placeOrder: (body: PlaceOrderRequest) =>
+    getApi().post<PlaceOrderResponse>('api/tally/place_order', body),
+
+  /** Pending voucher authorizations (Approvals screen) */
+  getPendVchAuth: (body: PendVchAuthRequest) =>
+    getApi().post<PendVchAuthResponse>('api/tally/pend-vch-auth', body),
+
+  /** Authorize (approve) a voucher */
+  authVoucher: (body: VchAuthActionRequest) =>
+    getApi().post<VchAuthActionResponse>('api/tally/vchauth/auth', body),
+
+  /** Reject a voucher */
+  rejectVoucher: (body: VchAuthActionRequest) =>
+    getApi().post<VchAuthActionResponse>('api/tally/vchauth/reject', body),
 };
 
 export default apiService;

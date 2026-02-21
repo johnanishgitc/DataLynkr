@@ -257,25 +257,35 @@ export const sharedStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     flex: 1,
-    minWidth: 220,
+    minWidth: 0,
     gap: 20,
+  },
+  billWiseTableHeaderRightNarrow: {
+    gap: 10,
   },
   billWiseTableHeaderCell: {
     flex: 1,
-    minWidth: 100,
+    minWidth: 0,
     fontSize: 14,
     fontWeight: '600',
     color: '#0e172b',
     textAlign: 'right',
-    marginLeft: 90,
+    marginLeft: 64,
+  },
+  billWiseTableHeaderCellNarrow: {
+    fontSize: 12,
+    marginLeft: 44,
   },
   billWiseTableHeaderCellLast: {
     flex: 1,
-    minWidth: 100,
+    minWidth: 0,
     fontSize: 14,
     fontWeight: '600',
     color: '#0e172b',
     textAlign: 'right',
+  },
+  billWiseTableHeaderCellLastNarrow: {
+    fontSize: 12,
   },
   cardBillWise: {
     backgroundColor: colors.white,
@@ -301,45 +311,47 @@ export const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    minWidth: 220,
+    minWidth: 0,
     gap: 20,
+  },
+  cardBillWiseAmountsNarrow: {
+    gap: 10,
+    minWidth: 0,
   },
   cardBillWiseAmt: {
     flex: 1,
-    minWidth: 100,
+    minWidth: 0,
     fontSize: 13,
     fontWeight: '600',
     color: '#0e172b',
     textAlign: 'right',
+  },
+  cardBillWiseAmtNarrow: {
+    fontSize: 11,
   },
   cardBillWiseAmtOpening: {
     flex: 1,
-    minWidth: 100,
+    minWidth: 0,
     fontSize: 13,
     fontWeight: '600',
     color: '#0e172b',
     textAlign: 'right',
-    marginLeft: 90,
+    marginLeft: 64,
+  },
+  cardBillWiseAmtOpeningNarrow: {
+    fontSize: 11,
+    marginLeft: 44,
   },
   cardBillWiseSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginTop: 8,
-    gap: 5,
   },
-  cardBillWiseDateRef: {
+  cardBillWiseDateRefLine: {
     fontSize: 13,
     fontWeight: '400',
     color: '#6a7282',
-    paddingRight: 10,
-    borderRightWidth: 1,
-    borderRightColor: '#d3d3d3',
   },
-  cardBillWiseRefNo: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: '#6a7282',
-    paddingLeft: 5,
+  cardBillWiseDateRefLineNarrow: {
+    fontSize: 11,
   },
   // Sales Order styles
   salesOrderTableHeader: {

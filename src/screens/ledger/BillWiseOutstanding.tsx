@@ -10,6 +10,7 @@ import {
   Alert,
   ScrollView,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,6 +59,8 @@ export default function BillWiseOutstanding({
 }: BillWiseOutstandingProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isNarrowScreen = windowWidth < 360;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<LedgerReportData | null>(null);
@@ -236,22 +239,33 @@ export default function BillWiseOutstanding({
     return (
       <TouchableOpacity key={i} style={sharedStyles.cardBillWise} onPress={() => onRow(v)} activeOpacity={0.7}>
         <View style={sharedStyles.cardBillWiseContent}>
-          {/* Line 1: Overdue | Opening Amt | Pending Amt */}
+          {/* Line 1: Overdue | Opening Amt | Pending Amt — responsive for narrow screens */}
           <View style={sharedStyles.cardBillWiseMainRow}>
-            <Text style={sharedStyles.cardBillWiseOverdue}>{overdueStr}</Text>
-            <View style={sharedStyles.cardBillWiseAmounts}>
-              <Text style={sharedStyles.cardBillWiseAmtOpening} numberOfLines={1} ellipsizeMode="clip">
+            <Text style={[sharedStyles.cardBillWiseOverdue, isNarrowScreen && { maxWidth: '28%' }]} numberOfLines={1}>
+              {overdueStr}
+            </Text>
+            <View style={[sharedStyles.cardBillWiseAmounts, isNarrowScreen && sharedStyles.cardBillWiseAmountsNarrow]}>
+              <Text
+                style={[sharedStyles.cardBillWiseAmtOpening, isNarrowScreen && sharedStyles.cardBillWiseAmtOpeningNarrow]}
+                numberOfLines={1}
+                ellipsizeMode="clip"
+              >
                 {openingBalance}
               </Text>
-              <Text style={sharedStyles.cardBillWiseAmt} numberOfLines={1} ellipsizeMode="clip">
+              <Text
+                style={[sharedStyles.cardBillWiseAmt, isNarrowScreen && sharedStyles.cardBillWiseAmtNarrow]}
+                numberOfLines={1}
+                ellipsizeMode="clip"
+              >
                 {pendingBalance}
               </Text>
             </View>
           </View>
-          {/* Line 2: Date (with right border) | #ref — per figma_codes/BillWiseOutstandings */}
+          {/* Line 2: continuous date | #ref */}
           <View style={sharedStyles.cardBillWiseSubRow}>
-            <Text style={sharedStyles.cardBillWiseDateRef}>{dateDueStr}</Text>
-            <Text style={sharedStyles.cardBillWiseRefNo}>#{billRef}</Text>
+            <Text style={[sharedStyles.cardBillWiseDateRefLine, isNarrowScreen && sharedStyles.cardBillWiseDateRefLineNarrow]} numberOfLines={1}>
+              {dateDueStr} | #{billRef}
+            </Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -316,12 +330,16 @@ export default function BillWiseOutstanding({
           </TouchableOpacity>
         </View>
 
-        {/* BWO table header — figma_codes/BillWiseOutstandings: Overdue left, 191px block with Opening/Pending right */}
+        {/* BWO table header — responsive for narrow screens */}
         <View style={sharedStyles.billWiseTableHeader}>
-          <Text style={sharedStyles.billWiseTableHeaderLeft}>Overdue</Text>
-          <View style={sharedStyles.billWiseTableHeaderRight}>
-            <Text style={sharedStyles.billWiseTableHeaderCell}>Opening Amt</Text>
-            <Text style={sharedStyles.billWiseTableHeaderCellLast}>Pending Amt</Text>
+          <Text style={[sharedStyles.billWiseTableHeaderLeft, isNarrowScreen && { maxWidth: '28%' }]}>Overdue</Text>
+          <View style={[sharedStyles.billWiseTableHeaderRight, isNarrowScreen && sharedStyles.billWiseTableHeaderRightNarrow]}>
+            <Text style={[sharedStyles.billWiseTableHeaderCell, isNarrowScreen && sharedStyles.billWiseTableHeaderCellNarrow]}>
+              Opening Amt
+            </Text>
+            <Text style={[sharedStyles.billWiseTableHeaderCellLast, isNarrowScreen && sharedStyles.billWiseTableHeaderCellLastNarrow]}>
+              Pending Amt
+            </Text>
           </View>
         </View>
       </Animated.View>

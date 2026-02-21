@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { StockItem, LedgerItem } from '../api';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -68,12 +69,35 @@ export type LedgerStackParamList = {
   };
 };
 
+/** Item added from Order Entry Item Detail and shown on Order Entry (OE1.2). */
+export type AddedOrderItem = {
+  name: string;
+  qty: number;
+  rate: number;
+  discount: number;
+  total: number;
+  stock: number;
+  tax: number;
+  dueDate?: string;
+  mfgDate?: string;
+  expiryDate?: string;
+};
+
+/** When adding to order, optionally include stockItem so Edit can navigate back to Item Detail. */
+export type AddedOrderItemWithStock = AddedOrderItem & { stockItem?: StockItem };
+
 export type OrdersStackParamList = {
+  /** When navigated back from OrderEntryItemDetail with "Add to Order", addedItems is set. replaceOrderItemId when editing an existing line. clearOrder clears cart when true. */
+  OrderEntry: { addedItems?: AddedOrderItemWithStock[]; replaceOrderItemId?: number; clearOrder?: boolean };
+  /** Order Entry Item Detail - Figma 3067-52684 (OE3). editOrderItem when editing an existing cart line. isBatchWiseOn passed so godown/batch show when "Yes". */
+  OrderEntryItemDetail: { item: StockItem; selectedLedger?: LedgerItem | null; editOrderItem?: AddedOrderItem & { id: number }; isBatchWiseOn?: boolean };
+  /** Order placed successfully – Figma 3067-64915. voucherNumber/reference from place_order API. */
+  OrderSuccess: { voucherNumber?: string; reference?: string };
   ComingSoon: { tab_name: string };
 };
 
 export type ApprovalsStackParamList = {
-  ComingSoon: { tab_name: string };
+  ApprovalsScreen: undefined;
 };
 
 export type MainTabsParamList = {
