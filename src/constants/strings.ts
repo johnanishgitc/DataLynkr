@@ -72,6 +72,8 @@ export const strings = {
   orders: 'Orders',
   ledger: 'Ledger',
   approvals: 'Approvals',
+  summary: 'Summary',
+  stock_summary: 'Stock Summary',
   export: 'Export',
   pdf: 'PDF',
   excel: 'Excel',
@@ -178,6 +180,18 @@ export const strings = {
   country_to: 'Country to',
   shipping_bill_no: 'Shipping Bill No.',
   port_code: 'Port Code',
+  // Stock Summary screens
+  stock_group_summary: 'Stock Group Summary',
+  stock_item_monthly_summary: 'Stock Item Monthly Summary',
+  stock_item_vouchers: 'Stock Item Vouchers',
+  particulars_and_qty: 'Particulars & Qty',
+  rate: 'Rate',
+  value: 'Value',
+  qty: 'Qty',
+  inwards: 'Inwards',
+  outwards: 'Outwards',
+  opening_bal: 'Opening Balance',
+  closing_bal: 'Closing Balance',
 };
 
 export function ledgers_available(n: number): string {

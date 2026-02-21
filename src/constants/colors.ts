@@ -35,6 +35,11 @@ export const colors = {
   approve_green: '#39b57c',
   reject_red: '#eb2122',
   bg_page: '#fafafd',
+  stock_header_bg: '#d3d3d3',
+  stock_border: '#c4d4ff',
+  stock_item_highlight: '#f1c74b33',
+  stock_text_dark: '#0e172b',
+  stock_text_label: '#354152',
 } as const;
 
 export type Colors = typeof colors;

@@ -18,6 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
+import Logo from './Logo';
+import LogoYellowSvg from '../../logosvgyellow.svg';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.78, 320);
 
@@ -25,6 +27,7 @@ export interface AppSidebarMenuItem {
   id: string;
   label: string;
   target: string;
+  icon: string;
   params?: object;
 }
 
@@ -70,38 +73,54 @@ export function AppSidebar({
       <Animated.View
         style={[styles.panel, { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] }]}
       >
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <Text style={styles.title} numberOfLines={1}>
-            {companyName}
-          </Text>
+        <View style={[styles.header, { paddingTop: insets.top + 30 }]}>
+          <View style={styles.headerLeft}>
+            <LogoYellowSvg width={32} height={21} />
+            <Text style={styles.title} numberOfLines={1}>
+              {companyName}
+            </Text>
+          </View>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <Icon name="close" size={24} color="#1e293b" />
+            <Icon name="close" size={24} color={colors.white} />
           </TouchableOpacity>
         </View>
-        {onConnectionsPress ? (
-          <TouchableOpacity style={styles.connectionsBtn} onPress={onConnectionsPress} activeOpacity={0.7}>
-            <Icon name="office-building" size={20} color={colors.primary_blue} />
-            <Text style={styles.connectionsText}>{strings.list_of_connections}</Text>
-          </TouchableOpacity>
-        ) : null}
-        <FlatList
-          data={menuItems}
-          keyExtractor={(i) => i.id}
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => {
-            const isActive = activeTarget != null && item.target === activeTarget;
-            return (
-              <TouchableOpacity
-                style={[styles.row, isActive && styles.rowActive]}
-                onPress={() => onItemPress(item)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.rowLabel, isActive && styles.rowLabelActive]}>{item.label}</Text>
-              </TouchableOpacity>
-            );
-          }}
-        />
+        <View style={styles.mainContent}>
+          {onConnectionsPress ? (
+            <TouchableOpacity style={styles.connectionsBtn} onPress={onConnectionsPress} activeOpacity={0.7}>
+              <View style={styles.connectionsIconCircle}>
+                <Icon name="office-building" size={20} color={colors.primary_blue} />
+              </View>
+              <Text style={styles.connectionsText}>{strings.list_of_connections}</Text>
+              <Icon name="chevron-right" size={20} color={colors.primary_blue} />
+            </TouchableOpacity>
+          ) : null}
+          <FlatList
+            data={menuItems}
+            keyExtractor={(i) => i.id}
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item }) => {
+              const isActive = activeTarget != null && item.target === activeTarget;
+              return (
+                <TouchableOpacity
+                  style={[styles.row, isActive && styles.rowActive]}
+                  onPress={() => onItemPress(item)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.rowIconContainer, isActive && styles.rowIconContainerActive]}>
+                    <Icon
+                      name={item.icon}
+                      size={22}
+                      color={isActive ? colors.primary_blue : colors.text_secondary}
+                    />
+                  </View>
+                  <Text style={[styles.rowLabel, isActive && styles.rowLabelActive]}>{item.label}</Text>
+                  {isActive && <View style={styles.activeDot} />}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
       </Animated.View>
     </Modal>
   );
@@ -126,15 +145,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border_light,
+    paddingVertical: 20,
+    backgroundColor: colors.primary_blue,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  mainContent: {
+    flex: 1,
+    backgroundColor: colors.white,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text_primary,
-    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.white,
+    fontFamily: 'System',
   },
   closeBtn: {
     padding: 4,
@@ -142,47 +170,78 @@ const styles = StyleSheet.create({
   connectionsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    gap: 12,
     marginHorizontal: 16,
-    marginTop: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.primary_blue,
-    backgroundColor: colors.card_bg_light,
+    marginTop: 20,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: colors.bg_light_blue,
+  },
+  connectionsIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.primary_blue,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   connectionsText: {
     fontSize: 14,
     color: colors.primary_blue,
-    fontWeight: '500',
+    fontWeight: '600',
+    flex: 1,
   },
   list: {
     flex: 1,
-    marginTop: 16,
+    marginTop: 20,
   },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,
   },
   row: {
-    backgroundColor: colors.card_bg_light,
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 10,
+    gap: 12,
   },
   rowActive: {
-    borderWidth: 1,
-    borderColor: colors.primary_blue,
+    backgroundColor: colors.bg_light_blue,
+  },
+  rowIconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     backgroundColor: colors.bg_light_blue2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowIconContainerActive: {
+    backgroundColor: colors.white,
   },
   rowLabel: {
-    fontSize: 16,
-    color: colors.text_primary,
+    fontSize: 15,
+    color: colors.text_secondary,
+    fontWeight: '500',
+    flex: 1,
   },
   rowLabelActive: {
     color: colors.primary_blue,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary_blue,
   },
 });
 

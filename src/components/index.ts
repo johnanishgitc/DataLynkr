@@ -2,7 +2,7 @@ export { AppSidebar, SIDEBAR_WIDTH } from './AppSidebar';
 export { QRCodeScanner } from './QRCodeScanner';
 export type { QRCodeScannerProps } from './QRCodeScanner';
 export type { AppSidebarMenuItem, AppSidebarProps } from './AppSidebar';
-export { SIDEBAR_MENU_SALES, SIDEBAR_MENU_ORDER_ENTRY, SIDEBAR_MENU_LEDGER } from './appSidebarMenu';
+export { SIDEBAR_MENU_SALES, SIDEBAR_MENU_ORDER_ENTRY, SIDEBAR_MENU_LEDGER, SIDEBAR_MENU_APPROVALS } from './appSidebarMenu';
 export { default as SearchableDropdown } from './SearchableDropdown';
 export { CustNamesDropdown } from './CustNamesDropdown';
 export { default as Logo } from './Logo';

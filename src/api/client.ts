@@ -45,6 +45,12 @@ import type {
   PendVchAuthResponse,
   VchAuthActionRequest,
   VchAuthActionResponse,
+  StockSummaryRequest,
+  StockSummaryResponse,
+  MonthlySummaryRequest,
+  MonthlySummaryResponse,
+  StockItemVouchersRequest,
+  StockItemVouchersResponse,
 } from './models';
 
 const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
@@ -270,6 +276,18 @@ export const apiService = {
   /** Reject a voucher */
   rejectVoucher: (body: VchAuthActionRequest) =>
     getApi().post<VchAuthActionResponse>('api/tally/vchauth/reject', body),
+
+  /** Stock Summary – groups & items list (drill-down via stockitem param) */
+  getStockSummary: (body: StockSummaryRequest) =>
+    getApi().post<StockSummaryResponse>('api/tally/stocksummary', body),
+
+  /** Stock Item Monthly Summary – monthly breakdown for a stock item */
+  getMonthlySummary: (body: MonthlySummaryRequest) =>
+    getApi().post<MonthlySummaryResponse>('api/tally/monthlysummary', body),
+
+  /** Stock Item Vouchers – voucher list for a stock item */
+  getStockItemVouchers: (body: StockItemVouchersRequest) =>
+    getApi().post<StockItemVouchersResponse>('api/tally/stockitemvouchers', body),
 };
 
 export default apiService;

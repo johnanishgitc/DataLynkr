@@ -7,7 +7,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { LedgerStackParamList } from '../navigation/types';
+import type { MainStackParamList } from '../navigation/types';
 import type { SalesOrderOutstandingRow, SalesOrderOutstandingVoucher } from '../api/models/ledger';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
@@ -15,7 +15,7 @@ import { StatusBarTopBar } from '../components';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { apiService } from '../api';
 
-type Route = RouteProp<LedgerStackParamList, 'ClearedOrderDetails'>;
+type Route = RouteProp<MainStackParamList, 'ClearedOrderDetails'>;
 
 function parseNumFromStr(s: string | null | undefined): number {
   if (!s) return 0;
@@ -201,7 +201,7 @@ export default function ClearedOrderDetails() {
         leftIcon="back"
         onLeftPress={() => (nav as { goBack?: () => void }).goBack?.()}
         rightIcons="share-bell"
-        onRightIconsPress={() => {}}
+        onRightIconsPress={() => { }}
         compact
       />
 

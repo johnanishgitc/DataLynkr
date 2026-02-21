@@ -7,6 +7,7 @@ import HomeStack from './HomeStack';
 import LedgerStack from './LedgerStack';
 import OrdersStack from './OrdersStack';
 import ApprovalsStack from './ApprovalsStack';
+import SummaryStack from './SummaryStack';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import FooterTabBar from '../components/FooterTabBar';
@@ -14,6 +15,7 @@ import HomeIcon from '../components/footer-icons/HomeIcon';
 import OrdersIcon from '../components/footer-icons/OrdersIcon';
 import LedgerIcon from '../components/footer-icons/LedgerIcon';
 import ApprovalsIcon from '../components/footer-icons/ApprovalsIcon';
+import SummaryIcon from '../components/footer-icons/SummaryIcon';
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
 
@@ -37,6 +39,8 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
       return <LedgerIcon color={iconColor} size={24} />;
     case 'approvals':
       return <ApprovalsIcon color={iconColor} size={24} />;
+    case 'summary':
+      return <SummaryIcon color={iconColor} size={24} />;
     default:
       return null;
   }
@@ -84,6 +88,14 @@ export default function MainTabs() {
           title: strings.approvals,
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
           tabBarStyle: { display: 'none' as const },
+        }}
+      />
+      <Tab.Screen
+        name="SummaryTab"
+        component={SummaryStack}
+        options={{
+          title: strings.summary,
+          tabBarIcon: ({ focused }) => <TabIcon name="summary" focused={focused} />,
         }}
       />
     </Tab.Navigator>

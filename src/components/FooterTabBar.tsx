@@ -61,21 +61,11 @@ export default function FooterTabBar({
         })
       : translateY;
 
-  // Tab width and padding mapping from Figma
-  const getTabStyle = (routeName: string) => {
-    switch (routeName) {
-      case 'HomeTab':
-        return { width: 41, paddingHorizontal: 5 };
-      case 'OrdersTab':
-        return { width: 51, paddingHorizontal: 9 };
-      case 'LedgerTab':
-        return { width: 41, paddingHorizontal: 5 };
-      case 'ApprovalsTab':
-        return { width: 64, paddingHorizontal: 9 };
-      default:
-        return { width: 41, paddingHorizontal: 5 };
-    }
-  };
+  // Equal flex for all tabs; padding for tap target (gaps handled by tabsRow gap)
+  const getTabStyle = (_routeName: string) => ({
+    flex: 1,
+    paddingHorizontal: 4,
+  });
 
   // Font weight mapping from Figma: Orders uses font-normal (400) when inactive, others use font-light (300)
   const getFontWeight = (routeName: string, focused: boolean) => {
@@ -83,7 +73,7 @@ export default function FooterTabBar({
       return '500'; // font-medium for active
     }
     // Inactive state: Orders uses font-normal (400), others use font-light (300)
-    return routeName === 'OrdersTab' ? '400' : '300';
+    return routeName === 'OrdersTab' || routeName === 'SummaryTab' ? '400' : '300';
   };
 
   if (isHidden) {
@@ -146,7 +136,7 @@ export default function FooterTabBar({
               key={route.key}
               onPress={onPress}
               onLongPress={onLongPress}
-              style={[styles.tab, { width: tabStyle.width, paddingHorizontal: tabStyle.paddingHorizontal }]}
+              style={[styles.tab, { flex: tabStyle.flex, paddingHorizontal: tabStyle.paddingHorizontal }]}
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               accessibilityLabel={
@@ -211,32 +201,31 @@ const styles = StyleSheet.create({
     }),
   },
   tabsRow: {
-    // inline-flex items-start gap-[42px]
     flexDirection: 'row',
-    alignItems: 'flex-start', // items-start
-    gap: 42, // gap-[42px]
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 8, // uniform gap between all tab icons
   },
   tab: {
-    // flex flex-col items-center
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'flex-start',
+    minWidth: 0, // allow flex shrink so gap is preserved
   },
   iconWrap: {
-    // w-6 h-6 (24x24)
     width: 24,
     height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   label: {
-    // [font-family:'Roboto',Helvetica] text-[10px] text-center tracking-[0] leading-[14px]
-    fontSize: 10, // text-[10px]
-    lineHeight: 14, // leading-[14px]
+    fontSize: 10,
+    lineHeight: 14,
     textAlign: 'center',
     fontFamily: Platform.select({ ios: 'Roboto', android: 'Roboto' }),
-    letterSpacing: 0, // tracking-[0]
-    marginTop: 2, // reduced gap between icon and label
+    letterSpacing: 0,
+    marginTop: 2,
     paddingBottom: 8,
   },
 });

@@ -5,3 +5,4 @@ export * from './voucher';
 export * from './reports';
 export * from './misc';
 export * from './approvals';
+export * from './stockSummary';

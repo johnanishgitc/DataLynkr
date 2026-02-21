@@ -13,7 +13,7 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { LedgerStackParamList } from '../navigation/types';
+import type { MainStackParamList } from '../navigation/types';
 import type { VoucherEntry } from '../api/models/ledger';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
@@ -29,7 +29,7 @@ const FIGMA = {
   tableGrayColor: '#d3d3d3',
 } as const;
 
-type Route = RouteProp<LedgerStackParamList, 'VoucherDetails'>;
+type Route = RouteProp<MainStackParamList, 'VoucherDetails'>;
 
 export default function VoucherDetails() {
   const route = useRoute<Route>();
@@ -65,7 +65,7 @@ export default function VoucherDetails() {
         leftIcon="back"
         onLeftPress={() => (nav as { goBack?: () => void }).goBack?.()}
         rightIcons="share-bell"
-        onRightIconsPress={() => {}}
+        onRightIconsPress={() => { }}
         compact
       />
 
