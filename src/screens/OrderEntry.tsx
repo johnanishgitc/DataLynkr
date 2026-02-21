@@ -57,10 +57,6 @@ import type {
 } from '../api';
 import {
   cacheManager,
-  getSessionStockItems,
-  setSessionStockItems,
-  getSessionStockItemsKey,
-  clearSessionStockItems,
 } from '../cache';
 import { isBatchWiseOnFromItem } from '../utils/orderEntryBatchWise';
 import { toYyyyMmDdStr, formatDateFromYyyyMmDd, toYyyyMmDdHhMmSs, formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
@@ -228,14 +224,38 @@ export default function OrderEntry() {
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return ledgerNames;
     const q = customerSearch.trim().toLowerCase();
-    return ledgerNames.filter((n) => n.toLowerCase().includes(q));
-  }, [ledgerNames, customerSearch]);
+    return ledgerItems
+      .filter((item) => {
+        const name = (item.NAME ?? '').trim().toLowerCase();
+        const alias = (item.ALIAS ?? '').trim().toLowerCase();
+        return name.includes(q) || alias.includes(q);
+      })
+      .map((i) => (i.NAME ?? '').trim())
+      .filter(Boolean);
+  }, [ledgerItems, ledgerNames, customerSearch]);
 
   useEffect(() => {
     let cancel = false;
     (async () => {
       const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
       if (t === 0 || !c || !g) return;
+
+      const key = `ledgerlist-w-addrs_${t}_${c}`;
+
+      // Attempt to load from cache first for immediate display
+      try {
+        const cached = await cacheManager.readCache<LedgerListResponse>(key);
+        const raw = (cached as LedgerListResponse | null)?.ledgers ?? (cached as LedgerListResponse | null)?.data ?? (Array.isArray(cached) ? cached : []);
+        const list = Array.isArray(raw) ? (raw as LedgerItem[]) : [];
+        if (!cancel && list.length > 0) {
+          setLedgerItems(list);
+          setLedgerNames(list.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
+        }
+      } catch (e) {
+        // Ignore cache read errors
+      }
+
+      // Then fetch from API to update cache and state
       try {
         const { data: listRes } = await apiService.getLedgerList({ tallyloc_id: t, company: c, guid: g });
         const res = listRes as LedgerListResponse;
@@ -244,23 +264,11 @@ export default function OrderEntry() {
         if (!cancel) {
           setLedgerItems(items);
           setLedgerNames(items.map((i) => (i.NAME ?? '').trim()).filter(Boolean));
+          // Save to SQLite
+          await cacheManager.saveCache(key, listRes, null, { tallylocId: t, company: c, guid: g });
         }
       } catch {
-        try {
-          const key = `ledgerlist-w-addrs_${t}_${c}`;
-          const cached = await cacheManager.readCache<LedgerListResponse>(key);
-          const raw = (cached as LedgerListResponse | null)?.ledgers ?? (cached as LedgerListResponse | null)?.data ?? (Array.isArray(cached) ? cached : []);
-          const list = Array.isArray(raw) ? (raw as LedgerItem[]) : [];
-          if (!cancel) {
-            setLedgerItems(list);
-            setLedgerNames(list.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
-          }
-        } catch {
-          if (!cancel) {
-            setLedgerItems([]);
-            setLedgerNames([]);
-          }
-        }
+        // If API fails, we already attempted to load from cache
       }
     })();
     return () => { cancel = true; };
@@ -409,18 +417,25 @@ export default function OrderEntry() {
         setStockItemsLoading(false);
         return;
       }
-      const cached = getSessionStockItems(t, c, g);
-      if (cached != null) {
-        setStockItemsList(cached);
+
+      const key = `stockitems_${t}_${c}`;
+
+      if (stockItemsList.length > 0) {
         setStockItemsLoading(false);
         return;
       }
-      const key = getSessionStockItemsKey(t, c, g);
+
+      // Check SQLite cache first
+      const cached = await cacheManager.readCache<{ stockItems?: StockItem[]; stockitems?: StockItem[]; data?: StockItem[] }>(key);
+      const cachedList = cached?.stockItems ?? cached?.stockitems ?? (Array.isArray(cached?.data) ? cached.data : undefined);
+      if (Array.isArray(cachedList) && cachedList.length > 0) {
+        setStockItemsList(cachedList as StockItem[]);
+        setStockItemsLoading(false);
+      }
+
       const inFlight = stockItemsFetchRef.current;
       if (inFlight?.key === key) {
         await inFlight.promise;
-        const cachedAfter = getSessionStockItems(t, c, g);
-        if (cachedAfter != null) setStockItemsList(cachedAfter);
         setStockItemsLoading(false);
         return;
       }
@@ -435,10 +450,11 @@ export default function OrderEntry() {
             (data?.data as Record<string, unknown> | undefined)?.stockItems ??
             (data?.data as Record<string, unknown> | undefined)?.stockitems;
           const items = Array.isArray(list) ? (list as StockItem[]) : [];
-          setSessionStockItems(t, c, g, items);
+
+          await cacheManager.saveCache(key, res?.data ?? { data: items }, null, { tallylocId: t, company: c, guid: g });
           setStockItemsList(items);
         } catch {
-          setStockItemsList([]);
+          if (stockItemsList.length === 0) setStockItemsList([]);
         } finally {
           setStockItemsLoading(false);
           stockItemsFetchRef.current = null;
@@ -447,15 +463,22 @@ export default function OrderEntry() {
       stockItemsFetchRef.current = { key, promise };
       await promise;
     } catch {
-      setStockItemsList([]);
+      if (stockItemsList.length === 0) setStockItemsList([]);
       setStockItemsLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchStockItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleRefreshSessionCache = useCallback(async () => {
-    const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-    if (t && c && g) {
-      clearSessionStockItems(t, c, g);
+    const [t, c] = await Promise.all([getTallylocId(), getCompany()]);
+    if (t && c) {
+      const key = `stockitems_${t}_${c}`;
+      await cacheManager.deleteCacheKey(key);
+      setStockItemsList([]);
       await fetchStockItems();
     }
   }, []);
@@ -469,8 +492,9 @@ export default function OrderEntry() {
     if (!itemSearch.trim()) return stockItemsList;
     const q = itemSearch.trim().toLowerCase();
     return stockItemsList.filter((item) => {
-      const name = (item.NAME ?? '').trim();
-      return name.toLowerCase().includes(q);
+      const name = (item.NAME ?? '').trim().toLowerCase();
+      const alias = (item.ALIAS ?? '').trim().toLowerCase();
+      return name.includes(q) || alias.includes(q);
     });
   }, [stockItemsList, itemSearch]);
 
@@ -547,11 +571,28 @@ export default function OrderEntry() {
   };
   const handleScanClick = () => setShowQRScanner(true);
   const handleQRScanned = useCallback((text: string) => {
-    setSelectedItem(text);
-    setItemSearch('');
-    setItemDropdownOpen(false);
     setShowQRScanner(false);
-  }, []);
+    const scanned = text.trim();
+    if (!scanned) return;
+
+    // Check for exact match against NAME or ALIAS
+    const exactMatch = stockItemsList.find((item) => {
+      const nameMatch = (item.NAME ?? '').trim().toLowerCase() === scanned.toLowerCase();
+      const aliasMatch = (item.ALIAS ?? '').trim().toLowerCase() === scanned.toLowerCase();
+      return nameMatch || aliasMatch;
+    });
+
+    if (exactMatch && exactMatch.NAME) {
+      // Direct selection
+      setSelectedItem(exactMatch.NAME);
+      setItemSearch('');
+      setItemDropdownOpen(false);
+    } else {
+      // Open dropdown with search term
+      setItemSearch(scanned);
+      setItemDropdownOpen(true);
+    }
+  }, [stockItemsList]);
   const handleQRCancel = useCallback(() => setShowQRScanner(false), []);
   const handleAttachment = () => setClipPopupVisible(true);
 
@@ -1176,18 +1217,18 @@ export default function OrderEntry() {
               {creditLimitLoading
                 ? '...'
                 : (() => {
-                    const bal = creditLimitInfo?.CLOSINGBALANCE;
-                    if (bal == null || (typeof bal === 'number' && Number.isNaN(bal))) {
-                      const fallback = ledgerField(selectedLedger, 'CLOSINGBALANCE', 'closingbalance');
-                      const type = ledgerField(selectedLedger, 'BALANCETYPE', 'balancetype');
-                      if (fallback === '-') return '-';
-                      return `${fallback} ${type !== '-' ? type : 'Dr'}`;
-                    }
-                    const n = Number(bal);
-                    const abs = Math.abs(n);
-                    const str = abs.toFixed(2);
-                    return n < 0 ? `${str} Dr` : `${str} Cr`;
-                  })()}
+                  const bal = creditLimitInfo?.CLOSINGBALANCE;
+                  if (bal == null || (typeof bal === 'number' && Number.isNaN(bal))) {
+                    const fallback = ledgerField(selectedLedger, 'CLOSINGBALANCE', 'closingbalance');
+                    const type = ledgerField(selectedLedger, 'BALANCETYPE', 'balancetype');
+                    if (fallback === '-') return '-';
+                    return `${fallback} ${type !== '-' ? type : 'Dr'}`;
+                  }
+                  const n = Number(bal);
+                  const abs = Math.abs(n);
+                  const str = abs.toFixed(2);
+                  return n < 0 ? `${str} Dr` : `${str} Cr`;
+                })()}
             </Text>
           </TouchableOpacity>
           <Text style={styles.creditLimitText} numberOfLines={1}>
@@ -1196,14 +1237,14 @@ export default function OrderEntry() {
               {creditLimitLoading
                 ? '...'
                 : (() => {
-                    const cr = creditLimitInfo?.CREDITLIMIT;
-                    if (cr == null || (typeof cr === 'number' && Number.isNaN(cr))) {
-                      const fallback = ledgerField(selectedLedger, 'CREDITLIMIT', 'creditlimit');
-                      const num = fallback !== '-' ? Number(fallback) : NaN;
-                      return Number.isFinite(num) ? `₹${num.toFixed(2)}` : '₹0.00';
-                    }
-                    return `₹${Number(cr).toFixed(2)}`;
-                  })()}{' '}
+                  const cr = creditLimitInfo?.CREDITLIMIT;
+                  if (cr == null || (typeof cr === 'number' && Number.isNaN(cr))) {
+                    const fallback = ledgerField(selectedLedger, 'CREDITLIMIT', 'creditlimit');
+                    const num = fallback !== '-' ? Number(fallback) : NaN;
+                    return Number.isFinite(num) ? `₹${num.toFixed(2)}` : '₹0.00';
+                  }
+                  return `₹${Number(cr).toFixed(2)}`;
+                })()}{' '}
               Cr
             </Text>
           </Text>
@@ -1271,7 +1312,7 @@ export default function OrderEntry() {
                 ) : filteredStockItems.length === 0 ? (
                   <Text style={styles.stockDropdownEmpty}>No matching items</Text>
                 ) : (
-                  filteredStockItems.map((item) => {
+                  filteredStockItems.slice(0, 100).map((item) => {
                     const name = (item.NAME ?? '').trim() || '-';
                     const closing = item.CLOSINGSTOCK ?? 0;
                     const stockAvailable = closing >= 0 ? 'Yes' : 'No';
@@ -1303,6 +1344,13 @@ export default function OrderEntry() {
                       </TouchableOpacity>
                     );
                   })
+                )}
+                {filteredStockItems.length > 100 && (
+                  <View style={[styles.stockDropdownItemWrap, { paddingVertical: 12 }]}>
+                    <Text style={[styles.stockDropdownItemName, { textAlign: 'center', color: LABEL_GRAY, fontStyle: 'italic', fontSize: 13 }]}>
+                      Type to search for more items...
+                    </Text>
+                  </View>
                 )}
               </ScrollView>
             </View>
@@ -2383,35 +2431,35 @@ export default function OrderEntry() {
                 <>
                   <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.overdueBillsTableScroll}>
                     <View style={styles.overdueBillsTable}>
-                    <View style={styles.overdueBillsTableHeader}>
-                      <Text style={[styles.overdueBillsTh, styles.overdueBillsColRef]}>{strings.bill_reference}</Text>
-                      <Text style={[styles.overdueBillsTh, styles.overdueBillsColDate]}>{strings.bill_date}</Text>
-                      <Text style={[styles.overdueBillsTh, styles.overdueBillsColAmt]}>{strings.opening_balance}</Text>
-                      <Text style={[styles.overdueBillsTh, styles.overdueBillsColAmt]}>{strings.closing_balance}</Text>
-                      <Text style={[styles.overdueBillsTh, styles.overdueBillsColDate]}>{strings.due_date}</Text>
-                      <Text style={[styles.overdueBillsTh, styles.overdueBillsColDays]}>{strings.days_overdue}</Text>
-                    </View>
-                    {(overdueBills ?? []).map((row, idx) => {
-                      const openBal = row.OPENINGBALANCE != null ? Number(row.OPENINGBALANCE) : NaN;
-                      const closeBal = row.CLOSINGBALANCE != null ? Number(row.CLOSINGBALANCE) : NaN;
-                      const openStr = Number.isFinite(openBal)
-                        ? `₹${Math.abs(openBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${openBal < 0 ? 'Dr' : 'Cr'}`
-                        : '—';
-                      const closeStr = Number.isFinite(closeBal)
-                        ? `₹${Math.abs(closeBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${closeBal < 0 ? 'Dr' : 'Cr'}`
-                        : '—';
-                      const daysOverdue = row.OVERDUEDAYS != null ? Number(row.OVERDUEDAYS) : 0;
-                      return (
-                        <View key={idx} style={styles.overdueBillsTableRow}>
-                          <Text style={[styles.overdueBillsTd, styles.overdueBillsColRef]} numberOfLines={1}>{row.REFNO ?? '—'}</Text>
-                          <Text style={[styles.overdueBillsTd, styles.overdueBillsColDate]}>{row.DATE ?? '—'}</Text>
-                          <Text style={[styles.overdueBillsTd, styles.overdueBillsColAmt, openBal < 0 ? styles.overdueBillsDr : styles.overdueBillsCr]}>{openStr}</Text>
-                          <Text style={[styles.overdueBillsTd, styles.overdueBillsColAmt, closeBal < 0 ? styles.overdueBillsDr : styles.overdueBillsCr]}>{closeStr}</Text>
-                          <Text style={[styles.overdueBillsTd, styles.overdueBillsColDate]}>{row.DUEON ?? '—'}</Text>
-                          <Text style={[styles.overdueBillsTd, styles.overdueBillsColDays, styles.overdueBillsDr]}>{Number.isFinite(daysOverdue) ? `${daysOverdue} days` : '—'}</Text>
-                        </View>
-                      );
-                    })}
+                      <View style={styles.overdueBillsTableHeader}>
+                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColRef]}>{strings.bill_reference}</Text>
+                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColDate]}>{strings.bill_date}</Text>
+                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColAmt]}>{strings.opening_balance}</Text>
+                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColAmt]}>{strings.closing_balance}</Text>
+                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColDate]}>{strings.due_date}</Text>
+                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColDays]}>{strings.days_overdue}</Text>
+                      </View>
+                      {(overdueBills ?? []).map((row, idx) => {
+                        const openBal = row.OPENINGBALANCE != null ? Number(row.OPENINGBALANCE) : NaN;
+                        const closeBal = row.CLOSINGBALANCE != null ? Number(row.CLOSINGBALANCE) : NaN;
+                        const openStr = Number.isFinite(openBal)
+                          ? `₹${Math.abs(openBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${openBal < 0 ? 'Dr' : 'Cr'}`
+                          : '—';
+                        const closeStr = Number.isFinite(closeBal)
+                          ? `₹${Math.abs(closeBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${closeBal < 0 ? 'Dr' : 'Cr'}`
+                          : '—';
+                        const daysOverdue = row.OVERDUEDAYS != null ? Number(row.OVERDUEDAYS) : 0;
+                        return (
+                          <View key={idx} style={styles.overdueBillsTableRow}>
+                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColRef]} numberOfLines={1}>{row.REFNO ?? '—'}</Text>
+                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColDate]}>{row.DATE ?? '—'}</Text>
+                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColAmt, openBal < 0 ? styles.overdueBillsDr : styles.overdueBillsCr]}>{openStr}</Text>
+                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColAmt, closeBal < 0 ? styles.overdueBillsDr : styles.overdueBillsCr]}>{closeStr}</Text>
+                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColDate]}>{row.DUEON ?? '—'}</Text>
+                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColDays, styles.overdueBillsDr]}>{Number.isFinite(daysOverdue) ? `${daysOverdue} days` : '—'}</Text>
+                          </View>
+                        );
+                      })}
                     </View>
                   </ScrollView>
                   <View style={styles.overdueBillsTotalWrap}>
@@ -2478,8 +2526,8 @@ export default function OrderEntry() {
               value={
                 editingDueDateOrderItemId != null
                   ? (parseDateDmmmYy(
-                      orderItems.find((i) => i.id === editingDueDateOrderItemId)?.dueDate ?? formatDateDmmmYy(Date.now())
-                    ) ?? new Date())
+                    orderItems.find((i) => i.id === editingDueDateOrderItemId)?.dueDate ?? formatDateDmmmYy(Date.now())
+                  ) ?? new Date())
                   : new Date()
               }
               onSelect={handleOrderItemDueDateSelect}
@@ -2555,7 +2603,7 @@ const styles = StyleSheet.create({
   },
   partyDetailsExpand: {
     backgroundColor: SECTION_BG,
-    paddingHorizontal:0,
+    paddingHorizontal: 0,
     paddingTop: 12,
     paddingBottom: 16,
   },

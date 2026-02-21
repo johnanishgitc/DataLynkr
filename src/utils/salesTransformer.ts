@@ -77,7 +77,10 @@ export interface SaleRecord {
 /**
  * Get nested field value with case-insensitive matching
  */
-function getField(obj: Record<string, unknown>, ...keys: string[]): unknown {
+/**
+ * Get nested field value with case-insensitive matching
+ */
+export function getField(obj: Record<string, unknown>, ...keys: string[]): unknown {
     for (const key of keys) {
         const val = obj[key] ?? obj[key.toLowerCase()] ?? obj[key.toUpperCase()];
         if (val !== undefined && val !== null && val !== '') {
@@ -90,7 +93,10 @@ function getField(obj: Record<string, unknown>, ...keys: string[]): unknown {
 /**
  * Get string field value
  */
-function getString(obj: Record<string, unknown>, ...keys: string[]): string {
+/**
+ * Get string field value
+ */
+export function getString(obj: Record<string, unknown>, ...keys: string[]): string {
     const val = getField(obj, ...keys);
     return val !== undefined ? String(val) : '';
 }
@@ -98,7 +104,10 @@ function getString(obj: Record<string, unknown>, ...keys: string[]): string {
 /**
  * Get number field value
  */
-function getNumber(obj: Record<string, unknown>, ...keys: string[]): number {
+/**
+ * Get number field value
+ */
+export function getNumber(obj: Record<string, unknown>, ...keys: string[]): number {
     const val = getField(obj, ...keys);
     if (val === undefined || val === null || val === '') return 0;
     const num = typeof val === 'number' ? val : parseFloat(String(val));
@@ -109,7 +118,11 @@ function getNumber(obj: Record<string, unknown>, ...keys: string[]): number {
  * Parse amount with Tally isDeemedPositive sign handling (matches web transformVouchersToSales).
  * Returns signed value: credit/returns are negative, sales are positive.
  */
-function parseAmount(amountStr: unknown, isDeemedPositiveFlag: unknown): number {
+/**
+ * Parse amount with Tally isDeemedPositive sign handling (matches web transformVouchersToSales).
+ * Returns signed value: credit/returns are negative, sales are positive.
+ */
+export function parseAmount(amountStr: unknown, isDeemedPositiveFlag: unknown): number {
     if (amountStr === undefined || amountStr === null || amountStr === '') return 0;
     const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
     const rawNum = parseFloat(cleaned) || 0;
@@ -131,20 +144,28 @@ function parseAmount(amountStr: unknown, isDeemedPositiveFlag: unknown): number 
  * 3. iscancelled = "No"
  * 4. Must have at least one ledger entry with ispartyledger = "Yes"
  */
-function isSalesVoucher(voucher: SalesVoucher): boolean {
+export function isSalesVoucher(voucher: SalesVoucher): boolean {
     const voucherObj = voucher as unknown as Record<string, unknown>;
-    const reservedname = (getString(voucherObj, 'reservedname', 'RESERVEDNAME') || '').toLowerCase().trim();
+    const reservedname = (getString(voucherObj, 'vouchertypereservedname', 'RESERVEDNAME', 'reservedname', 'vchreservedname') || '').toLowerCase().trim();
     const isoptional = (getField(voucherObj, 'isoptional', 'isOptional', 'ISOPTIONAL') ?? '').toString().toLowerCase().trim();
-    const iscancelled = (getField(voucherObj, 'iscancelled', 'isCancelled', 'ISCANCELLED') ?? '').toString().toLowerCase().trim();
-    const ledgerEntries = (voucherObj.ledgerentries ?? voucherObj.LEDGERENTRIES ?? voucherObj.ledgers ?? []) as Array<Record<string, unknown>>;
+    const iscancelled = (getField(voucherObj, 'iscancelled', 'isCancelled', 'ISCANCELLED', 'is_cancelled') ?? '').toString().toLowerCase().trim();
+    const ledgerEntries = (voucherObj.ledgerentries ?? voucherObj.LEDGERENTRIES ?? voucherObj.ledgers ?? voucherObj.LEDGERS ?? []) as Array<Record<string, unknown>>;
+
+    // Robust check for party ledger: some APIs don't send ispartyledger, but we can infer from partyledgername on voucher
+    const voucherPartyName = getString(voucherObj, 'partyledgername', 'PARTYLEDGERNAME', 'customer', 'party').toLowerCase().trim();
+
     const hasPartyLedger = Array.isArray(ledgerEntries) && ledgerEntries.some(ledger => {
         const ispartyledger = (getField(ledger, 'ispartyledger', 'isPartyLedger', 'ISPARTYLEDGER') ?? '').toString().toLowerCase().trim();
-        return ispartyledger === 'yes';
+        const lName = (getString(ledger, 'ledgername', 'LEDGERNAME', 'name') || '').toLowerCase().trim();
+        return ispartyledger === 'yes' || (voucherPartyName !== '' && lName === voucherPartyName);
     });
-    const reservednameMatch = reservedname === 'sales' || reservedname === 'credit note';
-    const isoptionalMatch = isoptional === 'no';
-    const iscancelledMatch = iscancelled === 'no';
-    return reservednameMatch && isoptionalMatch && iscancelledMatch && hasPartyLedger;
+
+    // leniency for reserved name: some APIs send full name like "Sales Invoice"
+    const reservednameMatch = reservedname.includes('sales') || reservedname.includes('credit note');
+    const isoptionalMatch = isoptional === 'no' || isoptional === 'false' || isoptional === '';
+    const iscancelledMatch = iscancelled === 'no' || iscancelled === 'false' || iscancelled === '';
+
+    return reservednameMatch && isoptionalMatch && iscancelledMatch && (hasPartyLedger || voucherPartyName !== '');
 }
 
 /** Month names for DD-Mon-YYYY (web parseDateFromNewFormat) */
@@ -177,7 +198,11 @@ function parseDateFromNewFormat(dateStr: string): string {
  * Normalize date to YYYY-MM-DD format (matches web and Data Management).
  * Handles YYYYMMDD, YYYY-MM-DD, DD-MM-YYYY, DD-Mon-YYYY (web), Unix timestamp, and API formats.
  */
-function normalizeDate(dateStr: string): string {
+/**
+ * Normalize date to YYYY-MM-DD format (matches web and Data Management).
+ * Handles YYYYMMDD, YYYY-MM-DD, DD-MM-YYYY, DD-Mon-YYYY (web), Unix timestamp, and API formats.
+ */
+export function normalizeDate(dateStr: string): string {
     if (!dateStr || typeof dateStr !== 'string') return '';
     const s = dateStr.trim();
     if (!s) return '';
@@ -233,21 +258,25 @@ function normalizeDate(dateStr: string): string {
  */
 function extractLedgerGroup(voucher: SalesVoucher): string {
     const v = voucher as unknown as Record<string, unknown>;
-    const ledgerEntries = (v.ledgerentries ?? v.LEDGERENTRIES ?? []) as Array<Record<string, unknown>>;
+    const ledgerEntries = (v.ledgerentries ?? v.LEDGERENTRIES ?? v.ledgers ?? v.LEDGERS ?? []) as Array<Record<string, unknown>>;
     if (!Array.isArray(ledgerEntries) || ledgerEntries.length === 0) {
         return 'Unknown';
     }
 
+    const voucherPartyName = getString(v, 'partyledgername', 'PARTYLEDGERNAME', 'customer', 'party').toLowerCase().trim();
+
     for (const entry of ledgerEntries) {
         const ispartyledger = (getField(entry, 'ispartyledger', 'isPartyLedger', 'ISPARTYLEDGER') ?? '').toString().toLowerCase().trim();
-        if (ispartyledger !== 'yes') continue;
+        const lName = (getString(entry, 'ledgername', 'LEDGERNAME', 'name') || '').toLowerCase().trim();
+
+        if (ispartyledger !== 'yes' && (voucherPartyName === '' || lName !== voucherPartyName)) continue;
 
         const ledgerObj = entry.ledger ?? entry.LEDGER;
         if (ledgerObj && typeof ledgerObj === 'object') {
-            const group = getField(ledgerObj as Record<string, unknown>, 'group', 'GROUP', 'ledgergroup', 'LEDGERGROUP');
+            const group = getField(ledgerObj as Record<string, unknown>, 'group', 'GROUP', 'ledgergroup', 'LEDGERGROUP', 'ledgergroupidentify');
             if (group) return String(group);
         }
-        const group = getField(entry, 'ledgergroupidentify', 'ledgergroup', 'LEDGERGROUPIDENTIFY', 'LEDGERGROUP');
+        const group = getField(entry, 'ledgergroupidentify', 'ledgergroup', 'LEDGERGROUPIDENTIFY', 'LEDGERGROUP', 'groupname', 'GROUPNAME');
         if (group) return String(group);
     }
 

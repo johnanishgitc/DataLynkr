@@ -1,0 +1,199 @@
+﻿src/cache/CacheDatabase.ts(608,9): error TS2554: Expected 1-2 arguments, but got 3.
+src/cache/CacheSyncManager.ts(463,47): error TS2339: Property 'trim' does not exist on type 'never'.
+src/cache/ledgerListCacheReader.ts(52,12): error TS2322: Type 'unknown[]' is not assignable to type 'LedgerItem[]'.
+  Type 'unknown' is not assignable to type 'LedgerItem'.
+src/components/charts/BarChart.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/KPICard.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/LineChart.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/MetricCard.tsx(9,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/charts/PieChart.tsx(10,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/components/ClipDocsPopup.tsx(33,5): error TS2322: Type 'FC<SvgProps>' is not assignable to type 'FC<{ width: number; height: number; }>'.
+  Types of property 'propTypes' are incompatible.
+    Type 'WeakValidationMap<SvgProps> | undefined' is not assignable to type 'WeakValidationMap<{ width: number; height: number; }> | undefined'.
+      Type 'WeakValidationMap<SvgProps>' is not assignable to type 'WeakValidationMap<{ width: number; height: number; }>'.
+        Types of property 'width' are incompatible.
+          Type 'Validator<NumberProp | null | undefined> | undefined' is not assignable to type 'Validator<number> | undefined'.
+            Type 'Validator<NumberProp | null | undefined>' is not assignable to type 'Validator<number>'.
+              Type 'NumberProp | null | undefined' is not assignable to type 'number'.
+                Type 'undefined' is not assignable to type 'number'.
+src/components/ClipDocsPopup.tsx(39,5): error TS2322: Type 'FC<SvgProps>' is not assignable to type 'FC<{ width: number; height: number; }>'.
+src/components/ClipDocsPopup.tsx(45,5): error TS2322: Type 'FC<SvgProps>' is not assignable to type 'FC<{ width: number; height: number; }>'.
+src/components/Logo.tsx(24,34): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ImageProps): Image', gave the following error.
+    Type 'ViewStyle | undefined' is not assignable to type 'Falsy | ImageStyle | RegisteredStyle<ImageStyle> | RecursiveArray<Falsy | ImageStyle | RegisteredStyle<ImageStyle>> | readonly (Falsy | ... 1 more ... | RegisteredStyle<...>)[]'.
+      Type 'ViewStyle' is not assignable to type 'Falsy | ImageStyle | RegisteredStyle<ImageStyle> | RecursiveArray<Falsy | ImageStyle | RegisteredStyle<ImageStyle>> | readonly (Falsy | ... 1 more ... | RegisteredStyle<...>)[]'.
+        Type 'ViewStyle' is not assignable to type 'ImageStyle'.
+          Types of property 'overflow' are incompatible.
+            Type '"visible" | "hidden" | "scroll" | undefined' is not assignable to type '"visible" | "hidden" | undefined'.
+              Type '"scroll"' is not assignable to type '"visible" | "hidden" | undefined'.
+  Overload 2 of 2, '(props: ImageProps, context: any): Image', gave the following error.
+    Type 'ViewStyle | undefined' is not assignable to type 'Falsy | ImageStyle | RegisteredStyle<ImageStyle> | RecursiveArray<Falsy | ImageStyle | RegisteredStyle<ImageStyle>> | readonly (Falsy | ... 1 more ... | RegisteredStyle<...>)[]'.
+src/navigation/ApprovalsStack.tsx(9,61): error TS2322: Type '"ApprovalsScreen"' is not assignable to type '"Approvals"'.
+src/navigation/ApprovalsStack.tsx(11,9): error TS2322: Type '"ApprovalsScreen"' is not assignable to type '"Approvals"'.
+src/navigation/OrdersStack.tsx(18,9): error TS2322: Type '"ComingSoon"' is not assignable to type 'keyof OrdersStackParamList'.
+src/navigation/OrdersStack.tsx(19,9): error TS2322: Type '({ route }: { route: { params?: P | undefined; }; }) => Element' is not assignable to type 'ScreenComponentType<OrdersStackParamList, keyof OrdersStackParamList> | undefined'.
+  Type '({ route }: { route: { params?: P | undefined; }; }) => Element' is not assignable to type 'FunctionComponent<{}>'.
+    Types of parameters '__0' and 'props' are incompatible.
+      Property 'route' is missing in type '{}' but required in type '{ route: { params?: P | undefined; }; }'.
+src/navigation/OrdersStack.tsx(20,26): error TS2322: Type '{ tab_name: string; }' is not assignable to type 'Partial<{ editItem?: AddedOrderItem | undefined; editIndex?: number | undefined; addedItems?: AddedOrderItemWithStock[] | undefined; replaceOrderItemId?: number | undefined; clearOrder?: boolean | undefined; } | { ...; } | { ...; }> | undefined'.
+  Object literal may only specify known properties, and 'tab_name' does not exist in type 'Partial<{ editItem?: AddedOrderItem | undefined; editIndex?: number | undefined; addedItems?: AddedOrderItemWithStock[] | undefined; replaceOrderItemId?: number | undefined; clearOrder?: boolean | undefined; } | { ...; } | { ...; }>'.
+src/screens/ApprovalsScreen.tsx(991,83): error TS2339: Property 'tab_active_bg' does not exist on type '{ readonly primary_blue: "#1e488f"; readonly yellow_accent: "#f1c74b"; readonly bg_light_blue: "#e6ecfd"; readonly bg_light_blue2: "#e8eeff"; readonly white: "#ffffff"; readonly text_primary: "#131313"; ... 31 more ...; readonly stock_text_label: "#354152"; }'.
+src/screens/CacheManagement2.tsx(29,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/screens/ClearedOrderDetails.tsx(131,26): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/ClearedOrderDetails.tsx(147,28): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/ClearedOrderDetails.tsx(160,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/ClearedOrderDetails.tsx(161,42): error TS18048: 'body' is possibly 'undefined'.
+src/screens/ClearedOrderDetails.tsx(174,28): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/ClearedOrderDetails.tsx(187,26): error TS2339: Property 'amount' does not exist on type '{ row: SalesOrderOutstandingRow; voucher: SalesOrderOutstandingVoucher; }'.
+src/screens/OrderEntry.tsx(430,101): error TS18047: 'cached' is possibly 'null'.
+src/screens/OrderEntry.tsx(449,43): error TS18048: 'data' is possibly 'undefined'.
+src/screens/OrderEntry.tsx(711,56): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(callbackfn: (previousValue: OrderEntryOrderItem, currentValue: OrderEntryOrderItem, currentIndex: number, array: OrderEntryOrderItem[]) => OrderEntryOrderItem, initialValue: OrderEntryOrderItem): OrderEntryOrderItem', gave the following error.
+    Type 'string' is not assignable to type 'OrderEntryOrderItem'.
+      Type 'string' is not assignable to type 'AddedOrderItem'.
+  Overload 2 of 3, '(callbackfn: (previousValue: number, currentValue: OrderEntryOrderItem, currentIndex: number, array: OrderEntryOrderItem[]) => number, initialValue: number): number', gave the following error.
+    Type 'string' is not assignable to type 'number'.
+src/screens/OrderEntry.tsx(717,19): error TS2362: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+src/screens/OrderEntry.tsx(781,46): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(885,22): error TS2339: Property 'discount' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(886,17): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(923,11): error TS2345: Argument of type '{ voucherNumber: string; reference: string; }' is not assignable to parameter of type '{ orderNo: string; }'.
+  Object literal may only specify known properties, and 'voucherNumber' does not exist in type '{ orderNo: string; }'.
+src/screens/OrderEntry.tsx(1006,11): error TS2739: Type 'StockItem' is missing the following properties from type 'AddedOrderItem': name, qty, rate, total, unit
+src/screens/OrderEntry.tsx(1008,95): error TS2339: Property 'discount' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,132): error TS2339: Property 'stock' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,147): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,164): error TS2339: Property 'dueDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,185): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1008,209): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1327,29): error TS2322: Type 'StockItem' is not assignable to type 'AddedOrderItem'.
+src/screens/OrderEntry.tsx(1420,58): error TS2339: Property 'discount' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1427,73): error TS2339: Property 'stock' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1430,70): error TS2339: Property 'tax' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1447,84): error TS2339: Property 'dueDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1450,30): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1450,44): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1452,33): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1453,90): error TS2339: Property 'mfgDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1455,33): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(1456,93): error TS2339: Property 'expiryDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntry.tsx(2529,81): error TS2339: Property 'dueDate' does not exist on type 'OrderEntryOrderItem'.
+src/screens/OrderEntryItemDetail.tsx(208,40): error TS2339: Property 'selectedLedger' does not exist on type 'Readonly<{ item?: AddedOrderItem | undefined; index?: number | undefined; }>'.
+src/screens/OrderEntryItemDetail.tsx(209,39): error TS2339: Property 'editOrderItem' does not exist on type 'Readonly<{ item?: AddedOrderItem | undefined; index?: number | undefined; }>'.
+src/screens/OrderEntryItemDetail.tsx(223,39): error TS2339: Property 'isBatchWiseOn' does not exist on type 'Readonly<{ item?: AddedOrderItem | undefined; index?: number | undefined; }>'.
+src/screens/OrderEntryItemDetail.tsx(324,13): error TS2339: Property 'MASTERID' does not exist on type 'AddedOrderItem'.
+src/screens/OrderEntryItemDetail.tsx(324,31): error TS2551: Property 'NAME' does not exist on type 'AddedOrderItem'. Did you mean 'name'?
+src/screens/OrderEntryItemDetail.tsx(422,13): error TS2339: Property 'MASTERID' does not exist on type 'AddedOrderItem'.
+src/screens/OrderEntryItemDetail.tsx(422,31): error TS2551: Property 'NAME' does not exist on type 'AddedOrderItem'. Did you mean 'name'?
+src/screens/OrderEntryItemDetail.tsx(546,7): error TS2322: Type 'number' is not assignable to type 'string'.
+src/screens/OrderEntryItemDetail.tsx(547,7): error TS2322: Type 'number' is not assignable to type 'string'.
+src/screens/OrderEntryItemDetail.tsx(555,11): error TS2322: Type 'AddedOrderItemWithStock[] | { name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }[]' is not assignable to type 'AddedOrderItemWithStock[]'.
+  Type '{ name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }[]' is not assignable to type 'AddedOrderItemWithStock[]'.
+    Type '{ name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }' is not assignable to type 'AddedOrderItemWithStock'.
+      Property 'unit' is missing in type '{ name: string; qty: number; rate: number; discount: number; total: number; stock: number; tax: number; dueDate: string; mfgDate: string | undefined; expiryDate: string | undefined; stockItem: AddedOrderItem | undefined; }' but required in type 'AddedOrderItem'.
+src/screens/OrderSuccess.tsx(35,11): error TS2339: Property 'voucherNumber' does not exist on type 'Readonly<{ orderNo: string; }>'.
+src/screens/OrderSuccess.tsx(35,26): error TS2339: Property 'reference' does not exist on type 'Readonly<{ orderNo: string; }>'.
+src/screens/OrderSuccess.tsx(53,91): error TS2322: Type '{ source: any; style: { width: number; height: number; }; loop: false; autoPlay: true; }' is not assignable to type 'IntrinsicAttributes & { source: object; style?: object | undefined; loop?: boolean | undefined; }'.
+  Property 'autoPlay' does not exist on type 'IntrinsicAttributes & { source: object; style?: object | undefined; loop?: boolean | undefined; }'.
+src/screens/SalesDashboard.tsx(25,18): error TS7016: Could not find a declaration file for module 'react-native-vector-icons/MaterialIcons'. 'C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/react-native-vector-icons/MaterialIcons.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/react-native-vector-icons` if it exists or add a new declaration (.d.ts) file containing `declare module 'react-native-vector-icons/MaterialIcons';`
+src/screens/SalesDashboard.tsx(122,66): error TS2304: Cannot find name 'AllDashboardAggregations'.
+src/screens/SalesDashboard.tsx(137,67): error TS2304: Cannot find name 'AllDashboardAggregations'.
+src/screens/SalesDashboard.tsx(148,19): error TS2304: Cannot find name 'AllDashboardAggregations'.
+src/screens/SalesDashboard.tsx(273,59): error TS2304: Cannot find name 'SaleRecord'.
+src/screens/SalesDashboard.tsx(354,36): error TS2448: Block-scoped variable 'getFilterValues' used before its declaration.
+src/screens/SalesDashboard.tsx(354,36): error TS2454: Variable 'getFilterValues' is used before being assigned.
+src/screens/SalesDashboard.tsx(395,13): error TS2304: Cannot find name 'setLoading'.
+src/screens/SalesDashboard.tsx(396,13): error TS2304: Cannot find name 'setChartsLoading'.
+src/screens/SalesDashboard.tsx(404,17): error TS2304: Cannot find name 'interactionTaskRef'.
+src/screens/SalesDashboard.tsx(405,17): error TS2304: Cannot find name 'interactionTaskRef'.
+src/screens/SalesDashboard.tsx(413,9): error TS2304: Cannot find name 'setChartsLoading'.
+src/screens/SalesDashboard.tsx(440,15): error TS2304: Cannot find name 'filterSaleRecordsByFilters'.
+src/screens/SalesDashboard.tsx(440,42): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(441,10): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(460,13): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(461,31): error TS2304: Cannot find name 'filterSaleRecordsByFilters'.
+src/screens/SalesDashboard.tsx(461,58): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(467,9): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(471,70): error TS2304: Cannot find name 'AllDashboardAggregations'.
+src/screens/SalesDashboard.tsx(480,37): error TS2304: Cannot find name 'computeAllDashboardAggregations'.
+src/screens/SalesDashboard.tsx(487,34): error TS2304: Cannot find name 'computeAllDashboardAggregationsAsync'.
+src/screens/SalesDashboard.tsx(507,10): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(507,37): error TS2304: Cannot find name 'aggregations'.
+src/screens/SalesDashboard.tsx(508,70): error TS2304: Cannot find name 'aggregations'.
+src/screens/SalesDashboard.tsx(508,85): error TS2304: Cannot find name 'aggregations'.
+src/screens/SalesDashboard.tsx(561,13): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(562,48): error TS2304: Cannot find name 'SaleRecord'.
+src/screens/SalesDashboard.tsx(584,53): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(584,69): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(585,63): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/screens/SalesDashboard.tsx(587,70): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/screens/SalesDashboard.tsx(587,129): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/screens/SalesDashboard.tsx(589,17): error TS2322: Type 'unknown' is not assignable to type 'FilterDimensionValue | undefined'.
+src/screens/SalesDashboard.tsx(595,9): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(631,51): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(637,51): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(645,45): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(651,22): error TS2339: Property 'value' does not exist on type '{ label: string; }'.
+src/screens/SalesDashboard.tsx(658,47): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(664,55): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(670,54): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(676,49): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(682,50): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(689,51): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(695,22): error TS2339: Property 'value' does not exist on type '{ label: string; }'.
+src/screens/SalesDashboard.tsx(702,59): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(708,53): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(761,9): error TS2304: Cannot find name 'loading'.
+src/screens/SalesDashboard.tsx(838,17): error TS2322: Type '{ visible: boolean; onClose: () => void; fromDate: number; toDate: number; onApply: (fromTimestamp: number, toTimestamp: number) => void; minDate: number | undefined; maxDate: number | undefined; }' is not assignable to type 'IntrinsicAttributes & PeriodSelectionProps'.
+  Property 'minDate' does not exist on type 'IntrinsicAttributes & PeriodSelectionProps'.
+src/screens/SalesDashboard.tsx(880,41): error TS2304: Cannot find name 'saleRecords'.
+src/screens/SalesDashboard.tsx(1062,34): error TS2339: Property 'salesByLedgerGroup' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1062,63): error TS2339: Property 'salesByLedgerGroup' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1062,103): error TS2339: Property 'salesByLedgerGroup' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1066,50): error TS2339: Property 'salesByLedgerGroup' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1078,34): error TS2339: Property 'salesByRegion' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1078,58): error TS2339: Property 'salesByRegion' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1078,93): error TS2339: Property 'salesByRegion' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1082,50): error TS2339: Property 'salesByRegion' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1094,34): error TS2339: Property 'salesByCountry' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1094,59): error TS2339: Property 'salesByCountry' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1098,50): error TS2339: Property 'salesByCountry' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1110,34): error TS2339: Property 'salesByMonth' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1114,50): error TS2339: Property 'salesByMonth' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1129,34): error TS2339: Property 'topItemsByRevenue' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1133,50): error TS2339: Property 'topItemsByRevenue' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1145,34): error TS2339: Property 'topItemsByQuantity' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1149,50): error TS2339: Property 'topItemsByQuantity' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1160,34): error TS2339: Property 'salesByStockGroup' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1164,50): error TS2339: Property 'salesByStockGroup' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1176,34): error TS2339: Property 'profitByMonth' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1176,58): error TS2339: Property 'profitByMonth' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1176,77): error TS7006: Parameter 'd' implicitly has an 'any' type.
+src/screens/SalesDashboard.tsx(1180,50): error TS2339: Property 'profitByMonth' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1196,34): error TS2339: Property 'topProfitableItems' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1196,63): error TS2339: Property 'topProfitableItems' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1200,50): error TS2339: Property 'topProfitableItems' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1212,34): error TS2339: Property 'topLossItems' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1212,57): error TS2339: Property 'topLossItems' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1216,50): error TS2339: Property 'topLossItems' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1228,34): error TS2339: Property 'salesByPeriod' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1232,50): error TS2339: Property 'salesByPeriod' does not exist on type '{ topCustomers: any[]; }'.
+src/screens/SalesDashboard.tsx(1247,21): error TS2304: Cannot find name 'aggregations'.
+src/screens/SalesOrderLineDetail.tsx(96,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderLineDetail.tsx(97,42): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderOrderDetails.tsx(128,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderOrderDetails.tsx(129,42): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderVoucherDetails.tsx(291,46): error TS18048: 'body' is possibly 'undefined'.
+src/screens/SalesOrderVoucherDetails.tsx(292,42): error TS18048: 'body' is possibly 'undefined'.
+src/services/DashboardService.ts(17,15): error TS2488: Type 'QueryResult' must have a '[Symbol.iterator]()' method that returns an iterator.
+src/services/DashboardService.ts(25,15): error TS2488: Type 'QueryResult' must have a '[Symbol.iterator]()' method that returns an iterator.
+src/services/DashboardService.ts(58,19): error TS2488: Type 'QueryResult' must have a '[Symbol.iterator]()' method that returns an iterator.
+src/services/DashboardService.ts(70,19): error TS2488: Type 'QueryResult' must have a '[Symbol.iterator]()' method that returns an iterator.
+src/utils/permissions.ts(174,9): error TS2365: Operator '>=' cannot be applied to types 'string | number' and 'number'.

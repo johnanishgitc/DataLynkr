@@ -24,7 +24,7 @@ import type { HomeStackParamList } from '../navigation/types';
 import { navigationRef } from '../navigation/navigationRef';
 import RNFS from 'react-native-fs';
 import JSONTree from 'react-native-json-tree';
-import SQLite from 'react-native-sqlite-storage';
+import SQLite from '../database/SqliteShim';
 import KeepAwake from 'react-native-keep-awake';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { colors } from '../constants/colors';
@@ -36,10 +36,7 @@ import {
   getCompany,
   getGuid,
 } from '../store/storage';
-import {
-  transformVouchersToSaleRecordsAsync,
-  computeAllDashboardAggregationsAsync,
-} from '../utils/salesTransformer';
+import { syncVouchersToNativeDB } from '../services/SyncService';
 
 // Sidebar menu - same as Sales Dashboard
 const SIDEBAR_MENU = [
@@ -54,207 +51,6 @@ const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.78, 320);
 
 // Enable SQLite promises
 SQLite.enablePromise(true);
-
-// Dashboard aggregations cache - same as in SalesDashboard
-const DASHBOARD_CACHE_TABLE = 'dashboard_aggregations_cache';
-const SALE_RECORDS_TABLE = 'sale_records';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let dashboardCacheDb: any | null = null;
-
-async function getDashboardCacheDatabase(): Promise<any> {
-    if (dashboardCacheDb) return dashboardCacheDb;
-    
-    dashboardCacheDb = await SQLite.openDatabase({
-        name: 'dashboard_cache.db',
-        location: 'default',
-    });
-    
-    // Table for pre-computed dashboard aggregations (KPI + chart data)
-    await dashboardCacheDb.executeSql(`
-        CREATE TABLE IF NOT EXISTS ${DASHBOARD_CACHE_TABLE} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cache_key TEXT NOT NULL UNIQUE,
-            aggregations_json TEXT NOT NULL,
-            voucher_count INTEGER NOT NULL,
-            record_count INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            file_timestamp TEXT
-        )
-    `);
-
-    // Table for normalized item-level sale records (used for fast filtering)
-    await dashboardCacheDb.executeSql(`
-        CREATE TABLE IF NOT EXISTS ${SALE_RECORDS_TABLE} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cache_key TEXT NOT NULL,
-            date TEXT NOT NULL,
-            masterid TEXT,
-            vouchernumber TEXT,
-            vouchertype TEXT,
-            customer TEXT,
-            customerid TEXT,
-            gstin TEXT,
-            item TEXT,
-            itemid TEXT,
-            category TEXT,
-            uom TEXT,
-            quantity REAL,
-            amount REAL,
-            profit REAL,
-            cgst REAL,
-            sgst REAL,
-            igst REAL,
-            ledgerGroup TEXT,
-            region TEXT,
-            country TEXT,
-            pincode TEXT,
-            salesperson TEXT,
-            issales INTEGER,
-            sourceCompany TEXT
-        )
-    `);
-
-    // Indexes to speed up typical dashboard filters (date + dimensions)
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_key ON ${SALE_RECORDS_TABLE} (cache_key)`
-    );
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_date ON ${SALE_RECORDS_TABLE} (cache_key, date)`
-    );
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_customer ON ${SALE_RECORDS_TABLE} (cache_key, customer)`
-    );
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_item ON ${SALE_RECORDS_TABLE} (cache_key, item)`
-    );
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_ledger ON ${SALE_RECORDS_TABLE} (cache_key, ledgerGroup)`
-    );
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_region ON ${SALE_RECORDS_TABLE} (cache_key, region)`
-    );
-    await dashboardCacheDb.executeSql(
-        `CREATE INDEX IF NOT EXISTS idx_${SALE_RECORDS_TABLE}_cache_country ON ${SALE_RECORDS_TABLE} (cache_key, country)`
-    );
-    
-    return dashboardCacheDb;
-}
-
-// Helper: Yield control to allow UI updates during long operations
-const yieldToUI = (): Promise<void> => {
-    return new Promise(resolve => {
-        // Use requestAnimationFrame or setTimeout to yield
-        if (typeof requestAnimationFrame !== 'undefined') {
-            requestAnimationFrame(() => resolve());
-        } else {
-            setTimeout(() => resolve(), 0);
-        }
-    });
-};
-
-// Chunk size for indexed transform/aggregation (yields to UI, keeps loading fast)
-const INDEX_CHUNK_SIZE = 1000;
-
-async function saveDashboardAggregationsCache(
-    cacheKey: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vouchers: any[]
-): Promise<void> {
-    try {
-        console.log('[CacheManagement2] Indexing dashboard aggregations...');
-        console.log('[CacheManagement2] Cache key:', cacheKey);
-        console.log('[CacheManagement2] Input vouchers count:', vouchers.length);
-        const startTime = Date.now();
-
-        // Always use async transform/aggregation so UI stays responsive (indexing path)
-        const transformStart = Date.now();
-        const records = await transformVouchersToSaleRecordsAsync(vouchers, INDEX_CHUNK_SIZE);
-        console.log('[CacheManagement2] Transformed to', records.length, 'records in', Date.now() - transformStart, 'ms');
-
-        const aggStart = Date.now();
-        const aggregations = await computeAllDashboardAggregationsAsync(records, INDEX_CHUNK_SIZE);
-        console.log('[CacheManagement2] Computed aggregations in', Date.now() - aggStart, 'ms');
-        
-        // Save to SQLite
-        const db = await getDashboardCacheDatabase();
-        const aggregationsJson = JSON.stringify(aggregations);
-        const createdAt = new Date().toISOString();
-        
-        console.log('[CacheManagement2] Aggregations JSON size:', aggregationsJson.length, 'chars');
-        
-        await db.executeSql(
-            `INSERT OR REPLACE INTO ${DASHBOARD_CACHE_TABLE} 
-             (cache_key, aggregations_json, voucher_count, record_count, created_at, file_timestamp) 
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [cacheKey, aggregationsJson, vouchers.length, records.length, createdAt, null],
-        );
-
-        // Persist normalized sale records for this cache key into SQLite (used for fast dashboard loading/filtering)
-        console.log('[CacheManagement2] Saving sale records to SQLite for cache key:', cacheKey);
-        const recordsStart = Date.now();
-
-        // Remove any existing records for this cache (fresh snapshot)
-        await db.executeSql(`DELETE FROM ${SALE_RECORDS_TABLE} WHERE cache_key = ?`, [cacheKey]);
-
-        // Batch insert: multiple rows per INSERT to reduce round-trips (SQLite limit 999 params; 25 cols => 39 rows max)
-        await db.executeSql('BEGIN TRANSACTION');
-        const COLS = 25;
-        const ROWS_PER_BATCH = 39; // 39 * 25 = 975 < 999
-        const oneRowPlaceholders = '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)';
-        const insertColumns = `(cache_key,date,masterid,vouchernumber,vouchertype,customer,customerid,gstin,item,itemid,category,uom,quantity,amount,profit,cgst,sgst,igst,ledgerGroup,region,country,pincode,salesperson,issales,sourceCompany)`;
-
-        for (let i = 0; i < records.length; i += ROWS_PER_BATCH) {
-            const batch = records.slice(i, i + ROWS_PER_BATCH);
-            const valuesPlaceholders = batch.map(() => oneRowPlaceholders).join(',');
-            const batchSql = `INSERT INTO ${SALE_RECORDS_TABLE} ${insertColumns} VALUES ${valuesPlaceholders}`;
-            const flatValues: (string | number | null)[] = [];
-            for (const r of batch) {
-                flatValues.push(
-                    cacheKey,
-                    r.date ?? '',
-                    r.masterid ?? null,
-                    r.vouchernumber ?? null,
-                    r.vouchertype ?? null,
-                    r.customer ?? null,
-                    r.customerid ?? null,
-                    r.gstin ?? null,
-                    r.item ?? null,
-                    r.itemid ?? null,
-                    r.category ?? null,
-                    r.uom ?? null,
-                    r.quantity ?? 0,
-                    r.amount ?? 0,
-                    r.profit ?? 0,
-                    r.cgst ?? 0,
-                    r.sgst ?? 0,
-                    r.igst ?? 0,
-                    r.ledgerGroup ?? null,
-                    r.region ?? null,
-                    r.country ?? null,
-                    r.pincode ?? null,
-                    r.salesperson ?? null,
-                    r.issales ? 1 : 0,
-                    r.sourceCompany ?? null,
-                );
-            }
-            await db.executeSql(batchSql, flatValues);
-
-            if (i > 0 && i % (ROWS_PER_BATCH * 10) === 0) {
-                await yieldToUI();
-                console.log('[CacheManagement2] Saved', Math.min(i + ROWS_PER_BATCH, records.length), '/', records.length, 'sale records...');
-            }
-        }
-        await db.executeSql('COMMIT');
-
-        console.log('[CacheManagement2] Saved', records.length, 'sale records in', Date.now() - recordsStart, 'ms');
-        console.log('[CacheManagement2] Dashboard cache saved! Total time:', Date.now() - startTime, 'ms');
-        console.log('[CacheManagement2] Metrics - Vouchers:', vouchers.length, 'Records:', records.length, 'Revenue:', aggregations.metrics?.totalRevenue);
-    } catch (error) {
-        console.error('[CacheManagement2] Failed to save dashboard aggregations:', error);
-        throw error; // Re-throw so caller knows it failed
-    }
-}
 
 // Types
 interface CacheEntry {
@@ -614,17 +410,17 @@ export default function DataManagement() {
 
   // State for interrupted download resume
   const [interruptedDownload, setInterruptedDownload] = useState<InterruptedDownloadState | null>(null);
-  
+
   // State for preview loading (for View Raw progressive loading)
   const [previewLoading, setPreviewLoading] = useState(false);
-  
+
   // Track InteractionManager tasks for cleanup
   const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
 
   // Load entries on mount
   useEffect(() => {
     refreshEntries();
-    
+
     // Cleanup InteractionManager task on unmount
     return () => {
       if (interactionTaskRef.current) {
@@ -697,15 +493,15 @@ export default function DataManagement() {
       // For large files we intentionally do NOT pre-cache to avoid OutOfMemory
       if (entriesWithSize.length > 0) {
         // Sort by created_at descending to get the most recent
-        const sortedEntries = [...entriesWithSize].sort((a, b) => 
+        const sortedEntries = [...entriesWithSize].sort((a, b) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
-        
+
         const mostRecentEntry = sortedEntries[0];
         if (mostRecentEntry.json_path && !sessionCache.has(mostRecentEntry.json_path)) {
           const fileSize = mostRecentEntry.sizeBytes || 0;
           const isSmallFile = fileSize < 1024 * 1024; // Less than 1MB
-          
+
           if (isSmallFile) {
             // For very small files, cache immediately (fast enough not to block)
             (async () => {
@@ -980,7 +776,7 @@ export default function DataManagement() {
     } catch (statError) {
       console.warn('[CacheManagement2] Failed to stat cache file:', statError);
     }
-    
+
     // Only cache small files in memory (<10MB) for instant "View Raw" access
     // Large files will use chunked reading instead
     if (fileSizeMB > 0 && fileSizeMB < 10) {
@@ -1009,25 +805,13 @@ export default function DataManagement() {
     // Refresh entries list
     await refreshEntries();
 
-    // Pre-compute dashboard aggregations for instant loading
-    // Use the in-memory responses we already have (no need to read/parse file)
+    // Sync to native SQLite for the new Sales Dashboard
     try {
-      if (fileSizeMB > 50) {
-        setStatusMessage(`Large file detected (${fileSizeMB.toFixed(1)}MB). Pre-computing dashboard cache (this may take a minute)...`);
-      } else {
-        setStatusMessage('Pre-computing dashboard aggregations...');
-      }
-      
-      console.log('[CacheManagement2] Pre-computing dashboard aggregations...');
-      console.log('[CacheManagement2] File size:', fileSizeMB.toFixed(2), 'MB');
-      
-      // Extract vouchers using the same logic as SalesDashboard, but directly from allResponses
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setStatusMessage('Syncing to native database...');
+      // Extract vouchers from all responses
       let allVouchers: any[] = [];
-      
       for (const item of allResponses) {
         if (item && typeof item === 'object') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const anyItem = item as any;
           if (Array.isArray(anyItem.vouchers)) {
             allVouchers.push(...anyItem.vouchers);
@@ -1036,26 +820,14 @@ export default function DataManagement() {
           }
         }
       }
-      
-      console.log('[CacheManagement2] Extracted', allVouchers.length, 'vouchers for dashboard cache');
-      
+
       if (allVouchers.length > 0) {
-        // For large datasets, show progress updates
-        if (allVouchers.length > 10000) {
-          setStatusMessage(`Processing ${allVouchers.length.toLocaleString()} vouchers in batches...`);
-        }
-        
-        // Run async, don't block - but await to ensure it completes before user navigates
-        await saveDashboardAggregationsCache(cacheKey, allVouchers);
-        console.log('[CacheManagement2] Dashboard cache saved successfully for key:', cacheKey);
-        
-        if (fileSizeMB > 50) {
-          setStatusMessage(`Dashboard cache saved! Large file (${fileSizeMB.toFixed(1)}MB) - future loads will be instant.`);
-        }
+        await syncVouchersToNativeDB(allVouchers, guid);
+        console.log('[CacheManagement2] Native SQLite sync successful');
       }
-    } catch (precomputeError) {
-      console.warn('[CacheManagement2] Failed to pre-compute dashboard:', precomputeError);
-      setStatusMessage('Warning: Dashboard cache pre-computation failed. Dashboard may load slowly.');
+    } catch (syncError) {
+      console.warn('[CacheManagement2] Native SQLite sync failed:', syncError);
+      setStatusMessage('Warning: Native sync failed. Dashboard may not show new data.');
     }
 
     // Clear interrupted state on success
@@ -1292,7 +1064,7 @@ export default function DataManagement() {
 
       // Check if there's already cached data for this key
       const cachedRanges = await getCachedDateRanges(cacheKey);
-      
+
       // Create all date chunks (2-day windows)
       const allChunks = createDateChunks(fromDate, toDate);
 
@@ -1302,12 +1074,12 @@ export default function DataManagement() {
 
       if (cachedRanges.length > 0) {
         console.log(`Found ${cachedRanges.length} cached date range(s) for this key`);
-        
+
         for (const chunk of allChunks) {
           // Check if this chunk's date range is fully covered by any cached range
           const chunkStartCovered = isDateCovered(chunk.from, cachedRanges);
           const chunkEndCovered = isDateCovered(chunk.to, cachedRanges);
-          
+
           if (chunkStartCovered && chunkEndCovered) {
             // This chunk is already cached, skip it
             skippedChunks++;
@@ -1668,7 +1440,7 @@ export default function DataManagement() {
       const updatedContent = JSON.stringify(updatedData, null, 2);
       const fileSizeBytes = new Blob([updatedContent]).size || updatedContent.length * 2;
       const fileSizeMB = fileSizeBytes / 1024 / 1024;
-      
+
       await RNFS.writeFile(existingEntry.json_path, updatedContent, 'utf8');
 
       // Only cache small files in memory (<10MB) for instant "View Raw" access
@@ -1692,22 +1464,15 @@ export default function DataManagement() {
       // Refresh entries list
       await refreshEntries();
 
-      // Pre-compute dashboard aggregations for instant loading after update
+      // Sync to native SQLite for the new Sales Dashboard
       if (updatedVouchers.length > 0) {
         try {
-          if (fileSizeMB > 50 || updatedVouchers.length > 10000) {
-            setStatusMessage(`Pre-computing dashboard cache for ${updatedVouchers.length.toLocaleString()} vouchers (this may take a minute)...`);
-          } else {
-            setStatusMessage('Pre-computing dashboard aggregations...');
-          }
-          
-          console.log('[CacheManagement2] Pre-computing dashboard aggregations after update...');
-          console.log('[CacheManagement2] Vouchers:', updatedVouchers.length, 'File size:', fileSizeMB.toFixed(2), 'MB');
-          await saveDashboardAggregationsCache(cacheKey, updatedVouchers);
-          console.log('[CacheManagement2] Dashboard cache updated successfully for key:', cacheKey);
+          setStatusMessage('Syncing to native database...');
+          await syncVouchersToNativeDB(updatedVouchers, guid);
+          console.log('[CacheManagement2] Native SQLite sync successful');
         } catch (err) {
-          console.warn('[CacheManagement2] Failed to pre-compute dashboard after update:', err);
-          setStatusMessage('Warning: Dashboard cache update failed. Dashboard may load slowly.');
+          console.warn('[CacheManagement2] Native SQLite sync failed:', err);
+          setStatusMessage('Warning: Native sync failed. Dashboard may not be updated.');
         }
       }
 
@@ -1746,7 +1511,7 @@ export default function DataManagement() {
       // Read full file (unavoidable with RNFS limitation)
       // For 100MB files, this will take time, but we show loading state
       const fullContent = await RNFS.readFile(filePath, 'utf8');
-      
+
       // Return only the page we need
       const startIdx = (page - 1) * PAGE_SIZE_CHARS;
       const endIdx = Math.min(startIdx + PAGE_SIZE_CHARS, fullContent.length);
@@ -1762,22 +1527,22 @@ export default function DataManagement() {
     const fileSize = await getFileSize(filePath);
     const fileSizeMB = fileSize / 1024 / 1024;
     const isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
-    
+
     if (isLargeFile) {
       // For large files: read full file (RNFS limitation) but only return the page needed
       // Don't cache in memory to save RAM
       console.log('[CacheManagement2] Large file detected (', fileSizeMB.toFixed(2), 'MB), reading for page', page);
       console.log('[CacheManagement2] Note: RNFS requires full file read, but only page', page, 'will be returned');
-      
+
       const startTime = Date.now();
       const content = await readFileChunk(filePath, page);
       const readTime = Date.now() - startTime;
       console.log('[CacheManagement2] File read took', readTime, 'ms for', fileSizeMB.toFixed(2), 'MB file');
-      
+
       // Estimate total pages based on file size (approximate: 2 bytes per UTF-8 char)
       const estimatedChars = Math.floor(fileSize / 2);
       const totalPages = Math.ceil(estimatedChars / PAGE_SIZE_CHARS);
-      
+
       return { content, totalPages, fileSize };
     } else {
       // For small files: use session cache (existing behavior)
@@ -1792,10 +1557,10 @@ export default function DataManagement() {
       const startTime = Date.now();
       const fullContent = await RNFS.readFile(filePath, 'utf8');
       console.log('[CacheManagement2] File read took', Date.now() - startTime, 'ms, size:', fullContent.length, 'chars');
-      
+
       // Only cache small files in memory
       sessionCache.set(filePath, fullContent);
-      
+
       const totalPages = Math.ceil(fullContent.length / PAGE_SIZE_CHARS);
       const pageContent = getPaginatedContent(fullContent, page);
       return { content: pageContent, totalPages, fileSize };
@@ -1806,13 +1571,13 @@ export default function DataManagement() {
   const loadFullContentToSessionCache = async (filePath: string): Promise<string> => {
     const fileSize = await getFileSize(filePath);
     const isLargeFile = fileSize > LARGE_FILE_THRESHOLD;
-    
+
     // For large files, don't cache in memory - return empty and use chunked reading
     if (isLargeFile) {
       console.log('[CacheManagement2] Large file (', (fileSize / 1024 / 1024).toFixed(2), 'MB) - not caching in memory');
       return ''; // Return empty, caller should use loadContentForPage instead
     }
-    
+
     // For small files, use existing cache logic
     if (sessionCache.has(filePath)) {
       const cached = sessionCache.get(filePath)!;
@@ -1895,7 +1660,7 @@ export default function DataManagement() {
         try {
           console.log('[CacheManagement2] Starting deferred file read for tree view...');
           const startTime = Date.now();
-          
+
           // Load full content to session cache
           const contentStr = await loadFullContentToSessionCache(entry.json_path);
           console.log('[CacheManagement2] File read completed in', Date.now() - startTime, 'ms');
@@ -1990,18 +1755,18 @@ export default function DataManagement() {
       interactionTaskRef.current = InteractionManager.runAfterInteractions(async () => {
         try {
           console.log('[CacheManagement2] Starting deferred file read...');
-          
+
           // Check file size first
           const fileSize = await getFileSize(entry.json_path);
           const fileSizeMB = fileSize / 1024 / 1024;
           const isLarge = fileSize > LARGE_FILE_THRESHOLD;
-          
+
           setIsLargeFile(isLarge);
           setCurrentFileSizeMB(fileSizeMB);
-          
+
           // Use chunked reading for large files, full read for small files
           const { content, totalPages } = await loadContentForPage(entry.json_path, 1);
-          
+
           console.log('[CacheManagement2] Loaded page 1 of', totalPages, 'for file size:', fileSizeMB.toFixed(2), 'MB');
 
           // Update state with loaded content
@@ -2031,7 +1796,7 @@ export default function DataManagement() {
       if (isLargeFile) {
         // For large files: use chunked reading
         const { content } = await loadContentForPage(currentFilePath, page);
-        
+
         if (previewMode === 'raw') {
           setPreviewRaw(content);
         } else {
@@ -2625,7 +2390,7 @@ export default function DataManagement() {
                 <View style={styles.previewContentWrapper}>
                   {totalPages > 1 ? (
                     <Text style={styles.previewNotice}>
-                      {isLargeFile 
+                      {isLargeFile
                         ? `Showing page ${currentPage} of ${totalPages} (Large file: ${currentFileSizeMB.toFixed(1)}MB - page navigation may take a few seconds)`
                         : `Showing page ${currentPage} of ${totalPages} (Full file is cached in memory for instant navigation)`
                       }
@@ -2655,7 +2420,7 @@ export default function DataManagement() {
       <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
       {/* Keep screen awake during downloads/updates */}
       {(isDownloading || isUpdating) && <KeepAwake />}
-      
+
       {/* Header - same style as Sales Dashboard */}
       <SafeAreaView edges={['top']} style={styles.headerWrapper}>
         <View style={styles.header}>
@@ -2714,153 +2479,153 @@ export default function DataManagement() {
         showsVerticalScrollIndicator={true}
         keyboardShouldPersistTaps="handled"
       >
-      {/* Date Range Section */}
-      <View style={styles.dateSection}>
-        <Text style={styles.sectionTitle}>Select Date Range</Text>
+        {/* Date Range Section */}
+        <View style={styles.dateSection}>
+          <Text style={styles.sectionTitle}>Select Date Range</Text>
 
-        <View style={styles.dateRow}>
-          <View style={styles.dateField}>
-            <Text style={styles.dateLabel}>From Date:</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => openCalendar('from')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.dateButtonText}>{formatDateToDisplay(fromDate)}</Text>
-            </TouchableOpacity>
-          </View>
+          <View style={styles.dateRow}>
+            <View style={styles.dateField}>
+              <Text style={styles.dateLabel}>From Date:</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => openCalendar('from')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.dateButtonText}>{formatDateToDisplay(fromDate)}</Text>
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.dateField}>
-            <Text style={styles.dateLabel}>To Date:</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => openCalendar('to')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.dateButtonText}>{formatDateToDisplay(toDate)}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-
-      {/* Action Buttons */}
-      <View style={styles.actionSection}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.downloadButton, (isDownloading || isUpdating) && styles.disabledButton]}
-          onPress={handleDownload}
-          disabled={isDownloading || isUpdating}
-          activeOpacity={0.7}
-        >
-          {isDownloading ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Text style={styles.actionButtonText}>Download</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionButton, styles.updateButton, (isDownloading || isUpdating) && styles.disabledButton]}
-          onPress={handleUpdate}
-          disabled={isDownloading || isUpdating}
-          activeOpacity={0.7}
-        >
-          {isUpdating ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Text style={styles.actionButtonText}>Update</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Interrupted Download Banner */}
-      {interruptedDownload && !isDownloading ? (
-        <View style={styles.interruptedBanner}>
-          <Text style={styles.interruptedBannerText}>
-            Interrupted download: {interruptedDownload.completedChunkIndex + 1}/{interruptedDownload.chunks.length} chunks completed
-          </Text>
-          <View style={styles.interruptedBannerButtons}>
-            <TouchableOpacity
-              style={styles.interruptedResumeButton}
-              onPress={handleResumeDownload}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.interruptedResumeButtonText}>Resume</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.interruptedDiscardButton}
-              onPress={() => {
-                setInterruptedDownload(null);
-                setStatusMessage('');
-                setErrorMessage('');
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.interruptedDiscardButtonText}>Discard</Text>
-            </TouchableOpacity>
+            <View style={styles.dateField}>
+              <Text style={styles.dateLabel}>To Date:</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => openCalendar('to')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.dateButtonText}>{formatDateToDisplay(toDate)}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      ) : null}
 
-      {/* Status/Error Messages */}
-      {statusMessage ? (
-        <Text style={styles.statusMessage}>{statusMessage}</Text>
-      ) : null}
-      {errorMessage ? (
-        <Text style={styles.errorMessage}>{errorMessage}</Text>
-      ) : null}
-
-      {/* View Cache Content Section */}
-      <View style={styles.cacheSection}>
-        <View style={styles.cacheHeaderRow}>
-          <Text style={styles.sectionTitle}>View Cache Content</Text>
+        {/* Action Buttons */}
+        <View style={styles.actionSection}>
           <TouchableOpacity
-            style={[
-              styles.clearAllButton,
-              !entries.length && styles.clearAllButtonDisabled,
-            ]}
-            onPress={handleClearAllCache}
-            disabled={!entries.length}
+            style={[styles.actionButton, styles.downloadButton, (isDownloading || isUpdating) && styles.disabledButton]}
+            onPress={handleDownload}
+            disabled={isDownloading || isUpdating}
             activeOpacity={0.7}
           >
-            <Text style={styles.clearAllButtonText}>Clear All</Text>
+            {isDownloading ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <Text style={styles.actionButtonText}>Download</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionButton, styles.updateButton, (isDownloading || isUpdating) && styles.disabledButton]}
+            onPress={handleUpdate}
+            disabled={isDownloading || isUpdating}
+            activeOpacity={0.7}
+          >
+            {isUpdating ? (
+              <ActivityIndicator size="small" color={colors.white} />
+            ) : (
+              <Text style={styles.actionButtonText}>Update</Text>
+            )}
           </TouchableOpacity>
         </View>
 
-        {entries.length === 0 ? (
-          <Text style={styles.emptyText}>No cached data yet. Download some data to see it here.</Text>
-        ) : (
-          <View style={styles.entriesList}>
-            {entries.map((item) => (
-              <View key={String(item.id)}>{renderCacheEntry({ item })}</View>
-            ))}
+        {/* Interrupted Download Banner */}
+        {interruptedDownload && !isDownloading ? (
+          <View style={styles.interruptedBanner}>
+            <Text style={styles.interruptedBannerText}>
+              Interrupted download: {interruptedDownload.completedChunkIndex + 1}/{interruptedDownload.chunks.length} chunks completed
+            </Text>
+            <View style={styles.interruptedBannerButtons}>
+              <TouchableOpacity
+                style={styles.interruptedResumeButton}
+                onPress={handleResumeDownload}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.interruptedResumeButtonText}>Resume</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.interruptedDiscardButton}
+                onPress={() => {
+                  setInterruptedDownload(null);
+                  setStatusMessage('');
+                  setErrorMessage('');
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.interruptedDiscardButtonText}>Discard</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
+        ) : null}
 
-        {/* Reference data: Stock Items & Customers (Ledger List) */}
-        <View style={styles.referenceDataSection}>
-          <Text style={styles.referenceDataTitle}>Reference data</Text>
-          <View style={styles.referenceDataRow}>
-            <Text style={styles.referenceDataLabel}>Stock Items</Text>
+        {/* Status/Error Messages */}
+        {statusMessage ? (
+          <Text style={styles.statusMessage}>{statusMessage}</Text>
+        ) : null}
+        {errorMessage ? (
+          <Text style={styles.errorMessage}>{errorMessage}</Text>
+        ) : null}
+
+        {/* View Cache Content Section */}
+        <View style={styles.cacheSection}>
+          <View style={styles.cacheHeaderRow}>
+            <Text style={styles.sectionTitle}>View Cache Content</Text>
             <TouchableOpacity
-              style={styles.viewRawButton}
-              onPress={handleViewStockItems}
+              style={[
+                styles.clearAllButton,
+                !entries.length && styles.clearAllButtonDisabled,
+              ]}
+              onPress={handleClearAllCache}
+              disabled={!entries.length}
               activeOpacity={0.7}
             >
-              <Text style={styles.viewRawButtonText}>View</Text>
+              <Text style={styles.clearAllButtonText}>Clear All</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.referenceDataRow}>
-            <Text style={styles.referenceDataLabel}>Customers (Ledger List)</Text>
-            <TouchableOpacity
-              style={styles.viewRawButton}
-              onPress={handleViewCustomers}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.viewRawButtonText}>View</Text>
-            </TouchableOpacity>
+
+          {entries.length === 0 ? (
+            <Text style={styles.emptyText}>No cached data yet. Download some data to see it here.</Text>
+          ) : (
+            <View style={styles.entriesList}>
+              {entries.map((item) => (
+                <View key={String(item.id)}>{renderCacheEntry({ item })}</View>
+              ))}
+            </View>
+          )}
+
+          {/* Reference data: Stock Items & Customers (Ledger List) */}
+          <View style={styles.referenceDataSection}>
+            <Text style={styles.referenceDataTitle}>Reference data</Text>
+            <View style={styles.referenceDataRow}>
+              <Text style={styles.referenceDataLabel}>Stock Items</Text>
+              <TouchableOpacity
+                style={styles.viewRawButton}
+                onPress={handleViewStockItems}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.viewRawButtonText}>View</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.referenceDataRow}>
+              <Text style={styles.referenceDataLabel}>Customers (Ledger List)</Text>
+              <TouchableOpacity
+                style={styles.viewRawButton}
+                onPress={handleViewCustomers}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.viewRawButtonText}>View</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
 
       </ScrollView>
       {renderCalendar()}

@@ -9,6 +9,7 @@ import Line25Svg from '../assets/clipPopup/line-25.svg';
 import CloseSvg from '../assets/clipPopup/close.svg';
 import VectorGallerySvg from '../assets/clipPopup/vector.svg';
 import VectorFilesSvg from '../assets/clipPopup/vector-1.svg';
+import type { SvgProps } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -24,27 +25,27 @@ const UPLOAD_OPTIONS: Array<{
   id: ClipDocsOptionId;
   label: string;
   bgColor: string;
-  IconComponent: React.FC<{ width: number; height: number }>;
+  IconComponent: React.FC<SvgProps>;
 }> = [
-  {
-    id: 'camera',
-    label: 'Camera',
-    bgColor: '#ff4444',
-    IconComponent: FrameCameraSvg,
-  },
-  {
-    id: 'gallery',
-    label: 'Gallery',
-    bgColor: '#3cb77e',
-    IconComponent: VectorGallerySvg,
-  },
-  {
-    id: 'files',
-    label: 'Files',
-    bgColor: '#91b3fa',
-    IconComponent: VectorFilesSvg,
-  },
-];
+    {
+      id: 'camera',
+      label: 'Camera',
+      bgColor: '#ff4444',
+      IconComponent: FrameCameraSvg,
+    },
+    {
+      id: 'gallery',
+      label: 'Gallery',
+      bgColor: '#3cb77e',
+      IconComponent: VectorGallerySvg,
+    },
+    {
+      id: 'files',
+      label: 'Files',
+      bgColor: '#91b3fa',
+      IconComponent: VectorFilesSvg,
+    },
+  ];
 
 export function ClipDocsPopup({ visible, onClose, onOptionClick }: ClipDocsPopupProps) {
   return (

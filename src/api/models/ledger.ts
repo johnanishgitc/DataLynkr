@@ -8,6 +8,7 @@ export interface LedgerListRequest {
 
 export interface LedgerItem {
   NAME?: string | null;
+  ALIAS?: string | null;
   [key: string]: unknown;
 }
 

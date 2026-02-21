@@ -3,7 +3,7 @@
  * Use this to populate the products dropdown in Order Details and other screens
  * without making API calls.
  */
-import SQLite from 'react-native-sqlite-storage';
+import SQLite from '../database/SqliteShim';
 import { getUserEmail, getTallylocId, getGuid } from '../store/storage';
 
 SQLite.enablePromise(true);

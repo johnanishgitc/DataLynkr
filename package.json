@@ -30,15 +30,16 @@
     "react-native-linear-gradient": "^2.8.3",
     "react-native-permissions": "^5.4.4",
     "react-native-print": "^0.11.0",
+    "react-native-quick-sqlite": "^8.2.7",
     "react-native-safe-area-context": "^4.14.0",
     "react-native-screens": "^4.4.0",
     "react-native-share": "^12.2.4",
-    "react-native-sqlite-storage": "^6.0.1",
     "react-native-svg": "^15.15.1",
     "react-native-vector-icons": "^10.2.0",
     "react-native-vision-camera": "^4.7.3",
     "react-native-webview": "^13.16.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
