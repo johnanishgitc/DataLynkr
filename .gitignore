@@ -81,6 +81,11 @@ yarn-error.log
 # Figma codes
 figma_codes/
 PlaceOrder_FigmaScreens/
+ApprovalScreens_FigmaScreens/
+StockSummary_Figma/
 
 # API documentation
 api_docs/
+
+#builddocs
+build_docs/
