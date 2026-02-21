@@ -1,1 +1,0 @@
-export { StockGroupSummary } from "./StockGroupSummary";
