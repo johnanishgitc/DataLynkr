@@ -65,7 +65,7 @@ export default function LedgerEntries() {
   const [periodSelectionOpen, setPeriodSelectionOpen] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
   const [reportSearch, setReportSearch] = useState('');
-  
+
   // For export functionality - we need to track data from child components
   const [exportData, setExportData] = useState<LedgerReportData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -258,10 +258,21 @@ export default function LedgerEntries() {
     <View style={sharedStyles.root}>
       {renderReportComponent()}
 
-      {/* Customer dropdown modal */}
       <Modal visible={customerDropdownOpen} transparent animationType="fade">
         <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setCustomerDropdownOpen(false); setCustomerSearch(''); }}>
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Customer</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setCustomerDropdownOpen(false);
+                  setCustomerSearch('');
+                }}
+                style={sharedStyles.modalHeaderClose}
+              >
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <View style={sharedStyles.modalSearchRow}>
               <TextInput
                 style={sharedStyles.modalSearchInput}
@@ -301,10 +312,21 @@ export default function LedgerEntries() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Report dropdown modal */}
       <Modal visible={reportDropdownOpen} transparent animationType="fade">
         <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setReportDropdownOpen(false); setReportSearch(''); }}>
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Report</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setReportDropdownOpen(false);
+                  setReportSearch('');
+                }}
+                style={sharedStyles.modalHeaderClose}
+              >
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <View style={sharedStyles.modalSearchRow}>
               <TextInput
                 style={sharedStyles.modalSearchInput}

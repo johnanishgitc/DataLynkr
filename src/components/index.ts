@@ -12,6 +12,7 @@ export { default as CalendarPicker } from './CalendarPicker';
 export { default as PeriodSelection } from './PeriodSelection';
 export { default as ExportMenu } from './ExportMenu';
 export { default as VoucherTypeDropdown } from './VoucherTypeDropdown';
+export { DeleteConfirmationModal } from './DeleteConfirmationModal';
 export {
   toNum,
   fmtNum,

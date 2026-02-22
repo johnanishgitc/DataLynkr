@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -43,6 +43,7 @@ import type { Voucher } from '../api/models/voucher';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { toYyyyMmDd } from '../utils/dateUtils';
 import PeriodSelection from '../components/PeriodSelection';
+import { useScroll } from '../store/ScrollContext';
 
 // Lottie animations
 const SuccessLottieSource = require('../assets/animations/Success_animation_short.json');
@@ -88,8 +89,38 @@ function fmtDateInt(n: number): string {
 // Component
 // ---------------------------------------------------------------------------
 
+const SCROLL_UP_THRESHOLD = 10;
+
 export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const insets = useSafeAreaInsets();
+    const { setScrollDirection } = useScroll();
+    const lastScrollY = useRef(0);
+    const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
+
+    // Reset footer to visible when entering Approvals; scroll handler will update on scroll
+    useEffect(() => {
+        setScrollDirection(null);
+        return () => setScrollDirection(null);
+    }, [setScrollDirection]);
+
+    const handleScroll = useCallback(
+        (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+            const currentY = event.nativeEvent.contentOffset.y;
+            const diff = currentY - lastScrollY.current;
+            lastScrollY.current = currentY;
+            let next: 'up' | 'down' | null = scrollDirectionRef.current;
+            if (diff > 0 && currentY > 10) {
+                next = 'down';
+            } else if (diff < -SCROLL_UP_THRESHOLD || currentY <= 10) {
+                next = 'up';
+            }
+            if (next !== scrollDirectionRef.current) {
+                scrollDirectionRef.current = next;
+                setScrollDirection(next);
+            }
+        },
+        [setScrollDirection],
+    );
 
     // Date range – default to current financial year start-to-today
     const now = new Date();
@@ -622,6 +653,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         renderItem={renderCard}
                         contentContainerStyle={styles.list}
                         showsVerticalScrollIndicator={false}
+                        onScroll={handleScroll}
+                        scrollEventThrottle={16}
                     />
                 )}
             </View>
