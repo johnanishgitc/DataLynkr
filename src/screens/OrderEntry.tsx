@@ -22,6 +22,8 @@ import {
   ActivityIndicator,
   Platform,
   PermissionsAndroid,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import DocumentPicker from 'react-native-document-picker/lib/commonjs';
@@ -36,7 +38,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { navigationRef } from '../navigation/navigationRef';
 import { AppSidebar, type AppSidebarMenuItem } from '../components/AppSidebar';
 import { SIDEBAR_MENU_ORDER_ENTRY } from '../components/appSidebarMenu';
-import { StockBreakdownModal } from '../components';
+import { StockBreakdownModal, DeleteConfirmationModal } from '../components';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
@@ -74,7 +76,6 @@ import {
 } from '../assets/OrderEntryIcons';
 import ItemSvg from '../assets/orderEntryOE3/Item.svg';
 import IconSvg from '../assets/orderEntryOE3/icon.svg';
-import { RefreshIcon } from '../assets/connections';
 import { QRCodeScanner } from '../components/QRCodeScanner';
 import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
@@ -90,7 +91,9 @@ const FOOTER_ADD_BG = '#0e172b';
 const FOOTER_PLACE_BG = '#39b57c';
 const ATTACH_BG = '#f1c74b';
 const BALANCE_RED = '#eb2122';
+const BALANCE_GREEN = '#0d7a3e';
 const BALANCE_PILL_BG = '#eb21221a';
+const BALANCE_PILL_BG_GREEN = '#0d7a3e1a';
 const EDIT_DETAILS_BG = '#3352B4';
 
 /** Show "-" when value is null, undefined, or empty string. */
@@ -112,6 +115,11 @@ function ledgerField(ledger: LedgerItem | null | undefined, ...keys: string[]): 
 }
 
 type OrderEntryOrderItem = AddedOrderItem & { id: number; stockItem?: StockItem };
+
+const OVERDUE_BANNER_BG = '#fef2f2';
+const OVERDUE_BANNER_BORDER = '#ffc9c9';
+const OVERDUE_BANNER_TEXT_DARK = '#9f0712';
+const OVERDUE_BANNER_TEXT_LIGHT = '#c10007';
 
 export default function OrderEntry() {
   const insets = useSafeAreaInsets();
@@ -154,6 +162,7 @@ export default function OrderEntry() {
   const [stockBreakdownItem, setStockBreakdownItem] = useState<string | null>(null);
   const [expandedOrderItemIds, setExpandedOrderItemIds] = useState<Set<number>>(() => new Set());
   const [editingDueDateOrderItemId, setEditingDueDateOrderItemId] = useState<number | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<OrderEntryOrderItem | null>(null);
   const [orderItemDueDatePickerVisible, setOrderItemDueDatePickerVisible] = useState(false);
   const [ledgerDetailsExpanded, setLedgerDetailsExpanded] = useState(false);
   /** Per-ledger amount strings for METHODTYPE "As User Defined Value" (key = ledger NAME). */
@@ -208,6 +217,7 @@ export default function OrderEntry() {
   });
   const [addDetailsDateField, setAddDetailsDateField] = useState<'contact' | 'dispatch' | 'export' | null>(null);
   const [placeOrderLoading, setPlaceOrderLoading] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const addDetailsPagerRef = useRef<ScrollView>(null);
   const addDetailsTabOrder: ('buyer' | 'consignee' | 'order')[] = ['buyer', 'consignee', 'order'];
   const itemInputRef = useRef<TextInput>(null);
@@ -216,10 +226,24 @@ export default function OrderEntry() {
   const addDetailsPageWidth = Dimensions.get('window').width;
 
   useEffect(() => {
-    if (!addDetailsModalVisible) return;
     const index = addDetailsTabOrder.indexOf(addDetailsTab);
     addDetailsPagerRef.current?.scrollTo({ x: index * addDetailsPageWidth, animated: true });
   }, [addDetailsModalVisible, addDetailsTab]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'android' ? 'keyboardDidShow' : 'keyboardWillShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'android' ? 'keyboardDidHide' : 'keyboardWillHide',
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return ledgerNames;
@@ -470,15 +494,8 @@ export default function OrderEntry() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleRefreshSessionCache = useCallback(async () => {
-    const [t, c] = await Promise.all([getTallylocId(), getCompany()]);
-    if (t && c) {
-      const key = `stockitems_${t}_${c}`;
-      await cacheManager.deleteCacheKey(key);
-      setStockItemsList([]);
-      await fetchStockItems();
-    }
-  }, []);
+  /** No-op for backwards compatibility if anything still references the removed refresh button. */
+  const handleRefreshSessionCache = useCallback(async () => { }, []);
 
   const canSelectItem =
     !!selectedCustomer &&
@@ -534,17 +551,10 @@ export default function OrderEntry() {
 
   const handleSelectItemClick = () => {
     if (!canSelectItem) return;
-    setItemSearch(selectedItem);
+    setItemSearch('');
     setItemDropdownOpen(true);
     fetchStockItems();
   };
-
-  useEffect(() => {
-    if (itemDropdownOpen) {
-      const t = setTimeout(() => itemInputRef.current?.focus(), 100);
-      return () => clearTimeout(t);
-    }
-  }, [itemDropdownOpen]);
 
   const handleVoucherTypeClick = () => setVoucherTypeDropdownOpen(true);
   const handleClassClick = () => {
@@ -1011,9 +1021,16 @@ export default function OrderEntry() {
   );
 
   const handleOrderItemDelete = useCallback((oi: OrderEntryOrderItem) => {
-    setOrderItems((prev) => prev.filter((i) => i.id !== oi.id));
     setOrderItemMenuId(null);
+    setItemToDelete(oi);
   }, []);
+
+  const confirmOrderItemDelete = useCallback(() => {
+    if (itemToDelete) {
+      setOrderItems((prev) => prev.filter((i) => i.id !== itemToDelete.id));
+      setItemToDelete(null);
+    }
+  }, [itemToDelete]);
 
   const handleOrderItemEditDueDate = useCallback((oi: OrderEntryOrderItem) => {
     setOrderItemMenuId(null);
@@ -1040,432 +1057,377 @@ export default function OrderEntry() {
   return (
     <View style={styles.root}>
       <StatusBar backgroundColor={HEADER_BG} barStyle="light-content" />
-      {/* Header - Figma 3067-41966: bg #1e488f, menu.svg + Order Entry 17px semibold white */}
-      <View style={[styles.header, { paddingTop: insets.top || 0 }]}>
-        <View style={styles.headerBar}>
-          <TouchableOpacity
-            onPress={openSidebar}
-            style={styles.menuBtn}
-            hitSlop={12}
-            accessibilityLabel="Open menu"
-          >
-            <OrderEntryMenuIcon width={20} height={16} color={colors.white} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>{strings.order_entry}</Text>
-          </View>
-          <TouchableOpacity
-            onPress={handleRefreshSessionCache}
-            style={styles.headerRefreshBtn}
-            hitSlop={12}
-            accessibilityLabel="Refresh session cache"
-          >
-            <RefreshIcon width={24} height={24} color={colors.white} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Section - OrdEnt1: bg #e6ecfd, gap-2 pt-1 pb-0 px-4 */}
-      <View style={styles.sectionWrap}>
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.cardRow}
-            onPress={handleCustomerClick}
-            activeOpacity={0.7}
-            accessibilityLabel={strings.select_customer}
-          >
-            <View style={styles.cardRowLeft}>
-              <View style={styles.iconWrap18}>
-                <OrderEntryPersonIcon width={16} height={16} color="#6A7282" />
-              </View>
-              <Text style={styles.rowLabel} numberOfLines={1}>
-                {selectedCustomer || strings.select_customer}
-              </Text>
-            </View>
-            <View style={styles.iconWrap20}>
-              <OrderEntrySearchIcon width={14} height={15} color="#0E172B" />
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.cardRow}
-            onPress={handleVoucherTypeClick}
-            activeOpacity={0.7}
-            accessibilityLabel={strings.voucher_type}
-          >
-            <View style={styles.cardRowLeft}>
-              <View style={styles.iconWrap18}>
-                <Icon name="file-document-outline" size={16} color="#6A7282" />
-              </View>
-              <Text style={styles.rowLabel} numberOfLines={1}>
-                {displayValue(selectedVoucherType) !== '-' ? selectedVoucherType : strings.voucher_type}
-              </Text>
-            </View>
-            <View style={styles.iconWrap20}>
-              <OrderEntryChevronDownIcon width={14} height={8} color="#6A7282" />
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={[styles.cardRow, classOptions.length === 0 && styles.rowDisabled]}
-            onPress={handleClassClick}
-            activeOpacity={0.7}
-            accessibilityLabel={strings.class_label}
-            accessibilityState={{ disabled: classOptions.length === 0 }}
-          >
-            <View style={styles.cardRowLeft}>
-              <View style={styles.iconWrap18}>
-                <Icon name="tag-outline" size={16} color={classOptions.length === 0 ? '#9ca3af' : '#6A7282'} />
-              </View>
-              <Text style={[styles.rowLabel, classOptions.length === 0 && styles.rowLabelDisabled]} numberOfLines={1}>
-                {displayValue(selectedClass) !== '-' ? selectedClass : strings.class_label}
-              </Text>
-            </View>
-            <View style={styles.iconWrap20}>
-              <OrderEntryChevronDownIcon width={14} height={8} color={classOptions.length === 0 ? '#9ca3af' : '#6A7282'} />
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={[styles.cardRow, partyDetailsExpanded && styles.cardRowNoBorder]}
-            onPress={handlePartyDetailsClick}
-            activeOpacity={0.7}
-            accessibilityLabel={strings.party_details}
-            accessibilityState={{ expanded: partyDetailsExpanded }}
-          >
-            <View style={styles.cardRowLeft}>
-              <View style={styles.iconWrap18}>
-                <OrderEntryListIcon width={15} height={12} color="#6A7282" />
-              </View>
-              <Text style={styles.rowLabel}>{strings.party_details}</Text>
-            </View>
-            <View style={[styles.iconWrap20, partyDetailsExpanded && styles.chevronDownWrap]}>
-              <OrderEntryChevronRightIcon width={8} height={14} color="#0E172B" />
-            </View>
-          </TouchableOpacity>
-
-          {/* Expanded Party Details - label/value rows from API; "-" when not available */}
-          {partyDetailsExpanded && (
-            <View style={styles.partyDetailsExpand}>
-              <View style={styles.partyDetailRow}>
-                <Text style={styles.partyDetailLabel}>{strings.price_level}</Text>
-                <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, 'PRICELEVEL')}</Text>
-              </View>
-              {!selectedClass ? (
-                <View style={styles.partyDetailRow}>
-                  <Text style={styles.partyDetailLabel}>{strings.sales_ledger}</Text>
-                  <Text style={styles.partyDetailValue}>{(v => v !== '-' ? v : displayValue(selectedLedger?.NAME))(ledgerField(selectedLedger, 'SALESLEDGER', 'salesledger'))}</Text>
-                </View>
-              ) : null}
-              <View style={styles.partyDetailRow}>
-                <Text style={styles.partyDetailLabel}>{strings.order_no}</Text>
-                <Text style={styles.partyDetailValue}>{autoOrderNo}</Text>
-              </View>
-              <View style={styles.partyDetailRow}>
-                <Text style={styles.partyDetailLabel}>{strings.order_date}</Text>
-                <Text style={styles.partyDetailValue}>{formatDateDmmmYy(Date.now())}</Text>
-              </View>
-              <View style={styles.partyDetailRow}>
-                <Text style={styles.partyDetailLabel}>{strings.place_of_supply}</Text>
-                <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, "STATENAME")}</Text>
-              </View>
-              <View style={styles.partyDetailRow}>
-                <Text style={styles.partyDetailLabel}>{strings.godown}</Text>
-                <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, 'GODOWN', 'GODOWNNAME', 'godown', 'godownname')}</Text>
-              </View>
-              <View style={styles.partyDetailRow}>
-                <Text style={styles.partyDetailLabel}>{strings.batch_no}</Text>
-                <TextInput
-                  style={styles.partyDetailInput}
-                  value={batchNo}
-                  onChangeText={setBatchNo}
-                  placeholder="-"
-                  placeholderTextColor={LABEL_GRAY}
-                  editable
-                />
-              </View>
-              <TouchableOpacity style={styles.editDetailsBtn} onPress={handleEditDetails} activeOpacity={0.8}>
-                <View style={styles.editDetailsIcon}>
-                  <OrderEntryEditIcon width={16} height={16} color={colors.white} />
-                </View>
-                <Text style={styles.editDetailsText}>{strings.edit_details}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </View>
-
-      {/* Closing Balance / Credit Limit row - from api/tally/creditdayslimit when customer selected */}
-      {selectedCustomer ? (
-        <View style={styles.balanceCreditRow}>
-          <TouchableOpacity
-            style={styles.closingBalancePill}
-            onPress={() => setOverdueBillsModalVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.closingBalanceLabel}>{strings.closing_balance}:</Text>
-            <Text style={styles.closingBalanceValue} numberOfLines={1}>
-              {creditLimitLoading
-                ? '...'
-                : (() => {
-                  const bal = creditLimitInfo?.CLOSINGBALANCE;
-                  if (bal == null || (typeof bal === 'number' && Number.isNaN(bal))) {
-                    const fallback = ledgerField(selectedLedger, 'CLOSINGBALANCE', 'closingbalance');
-                    const type = ledgerField(selectedLedger, 'BALANCETYPE', 'balancetype');
-                    if (fallback === '-') return '-';
-                    return `${fallback} ${type !== '-' ? type : 'Dr'}`;
-                  }
-                  const n = Number(bal);
-                  const abs = Math.abs(n);
-                  const str = abs.toFixed(2);
-                  return n < 0 ? `${str} Dr` : `${str} Cr`;
-                })()}
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.creditLimitText} numberOfLines={1}>
-            <Text style={styles.creditLimitLabel}>{strings.credit_limit}: </Text>
-            <Text style={styles.creditLimitValue}>
-              {creditLimitLoading
-                ? '...'
-                : (() => {
-                  const cr = creditLimitInfo?.CREDITLIMIT;
-                  if (cr == null || (typeof cr === 'number' && Number.isNaN(cr))) {
-                    const fallback = ledgerField(selectedLedger, 'CREDITLIMIT', 'creditlimit');
-                    const num = fallback !== '-' ? Number(fallback) : NaN;
-                    return Number.isFinite(num) ? `₹${num.toFixed(2)}` : '₹0.00';
-                  }
-                  return `₹${Number(cr).toFixed(2)}`;
-                })()}{' '}
-              Cr
-            </Text>
-          </Text>
-        </View>
-      ) : null}
-
-      {/* Select Item - dropdown expands inline below the input (not a popup) */}
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        onScrollBeginDrag={() => itemDropdownOpen && setItemDropdownOpen(false)}
-        scrollEventThrottle={16}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? (insets.top || 0) : 0}
       >
-        <View style={[styles.itemBlock, !canSelectItem && styles.itemBlockDisabled]}>
-          <Text style={styles.itemLabel}>{strings.select_item}</Text>
-          <View style={styles.itemRow}>
+        {/* Header - Figma 3067-41966: bg #1e488f, menu.svg + Order Entry 17px semibold white */}
+        <View style={[styles.header, { paddingTop: insets.top || 0 }]}>
+          <View style={styles.headerBar}>
             <TouchableOpacity
-              style={styles.inputWrap}
-              onPress={() => !itemDropdownOpen && handleSelectItemClick()}
-              activeOpacity={0.9}
-              disabled={!canSelectItem}
-              accessibilityLabel={strings.select_item}
-              accessibilityState={{ disabled: !canSelectItem }}
+              onPress={openSidebar}
+              style={styles.menuBtn}
+              hitSlop={12}
+              accessibilityLabel="Open menu"
             >
-              <TextInput
-                ref={itemInputRef}
-                style={[styles.itemInput, !canSelectItem && styles.itemInputDisabled]}
-                placeholder={canSelectItem ? strings.select_item_name : (classOptions.length > 0 ? strings.select_customer_voucher_class_first : strings.select_customer_voucher_first)}
-                placeholderTextColor={LABEL_GRAY}
-                value={itemDropdownOpen ? itemSearch : selectedItem}
-                onChangeText={(text) => itemDropdownOpen && setItemSearch(text)}
-                editable={itemDropdownOpen}
-                pointerEvents={itemDropdownOpen ? 'auto' : 'none'}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <View style={[styles.inputArrow, itemDropdownOpen && styles.inputArrowOpen]} pointerEvents="none">
+              <OrderEntryMenuIcon width={20} height={16} color={colors.white} />
+            </TouchableOpacity>
+            <View style={styles.headerTitleWrap}>
+              <Text style={styles.headerTitle}>{strings.order_entry}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Section - OrdEnt1: bg #e6ecfd, gap-2 pt-1 pb-0 px-4 */}
+        <View style={styles.sectionWrap}>
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.cardRow}
+              onPress={handleCustomerClick}
+              activeOpacity={0.7}
+              accessibilityLabel={strings.select_customer}
+            >
+              <View style={styles.cardRowLeft}>
+                <View style={styles.iconWrap18}>
+                  <OrderEntryPersonIcon width={16} height={16} color="#6A7282" />
+                </View>
+                <Text style={styles.rowLabel} numberOfLines={1}>
+                  {selectedCustomer || strings.select_customer}
+                </Text>
+              </View>
+              <View style={styles.iconWrap20}>
+                <OrderEntrySearchIcon width={14} height={15} color="#0E172B" />
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.cardRow}
+              onPress={handleVoucherTypeClick}
+              activeOpacity={0.7}
+              accessibilityLabel={strings.voucher_type}
+            >
+              <View style={styles.cardRowLeft}>
+                <View style={styles.iconWrap18}>
+                  <Icon name="file-document-outline" size={16} color="#6A7282" />
+                </View>
+                <Text style={styles.rowLabel} numberOfLines={1}>
+                  {displayValue(selectedVoucherType) !== '-' ? selectedVoucherType : strings.voucher_type}
+                </Text>
+              </View>
+              <View style={styles.iconWrap20}>
                 <OrderEntryChevronDownIcon width={14} height={8} color="#6A7282" />
               </View>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.section}>
             <TouchableOpacity
-              style={[styles.qrBtn, !canSelectItem && styles.itemBlockDisabled]}
-              onPress={handleScanClick}
-              disabled={!canSelectItem}
-              accessibilityLabel="Scan QR code"
+              style={[styles.cardRow, classOptions.length === 0 && styles.rowDisabled]}
+              onPress={handleClassClick}
+              activeOpacity={0.7}
+              accessibilityLabel={strings.class_label}
+              accessibilityState={{ disabled: classOptions.length === 0 }}
             >
-              <OrderEntryQRIcon width={20} height={21} color="#0E172B" />
+              <View style={styles.cardRowLeft}>
+                <View style={styles.iconWrap18}>
+                  <Icon name="tag-outline" size={16} color={classOptions.length === 0 ? '#9ca3af' : '#6A7282'} />
+                </View>
+                <Text style={[styles.rowLabel, classOptions.length === 0 && styles.rowLabelDisabled]} numberOfLines={1}>
+                  {displayValue(selectedClass) !== '-' ? selectedClass : strings.class_label}
+                </Text>
+              </View>
+              <View style={styles.iconWrap20}>
+                <OrderEntryChevronDownIcon width={14} height={8} color={classOptions.length === 0 ? '#9ca3af' : '#6A7282'} />
+              </View>
             </TouchableOpacity>
           </View>
-          {itemDropdownOpen ? (
-            <View style={[styles.stockDropdownInline, { maxHeight: Dimensions.get('window').height - 200 }]}>
-              <ScrollView
-                style={styles.stockDropdownList}
-                contentContainerStyle={styles.stockDropdownListContent}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-                showsVerticalScrollIndicator={true}
+
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={[styles.cardRow, partyDetailsExpanded && styles.cardRowNoBorder]}
+              onPress={handlePartyDetailsClick}
+              activeOpacity={0.7}
+              accessibilityLabel={strings.party_details}
+              accessibilityState={{ expanded: partyDetailsExpanded }}
+            >
+              <View style={styles.cardRowLeft}>
+                <View style={styles.iconWrap18}>
+                  <OrderEntryListIcon width={15} height={12} color="#6A7282" />
+                </View>
+                <Text style={styles.rowLabel}>{strings.party_details}</Text>
+              </View>
+              <View style={[styles.iconWrap20, partyDetailsExpanded && styles.chevronDownWrap]}>
+                <OrderEntryChevronRightIcon width={8} height={14} color="#0E172B" />
+              </View>
+            </TouchableOpacity>
+
+            {/* Expanded Party Details - label/value rows from API; "-" when not available */}
+            {partyDetailsExpanded && (
+              <View style={styles.partyDetailsExpand}>
+                <View style={styles.partyDetailRow}>
+                  <Text style={styles.partyDetailLabel}>{strings.price_level}</Text>
+                  <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, 'PRICELEVEL')}</Text>
+                </View>
+                {!selectedClass ? (
+                  <View style={styles.partyDetailRow}>
+                    <Text style={styles.partyDetailLabel}>{strings.sales_ledger}</Text>
+                    <Text style={styles.partyDetailValue}>{(v => v !== '-' ? v : displayValue(selectedLedger?.NAME))(ledgerField(selectedLedger, 'SALESLEDGER', 'salesledger'))}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.partyDetailRow}>
+                  <Text style={styles.partyDetailLabel}>{strings.order_no}</Text>
+                  <Text style={styles.partyDetailValue}>{autoOrderNo}</Text>
+                </View>
+                <View style={styles.partyDetailRow}>
+                  <Text style={styles.partyDetailLabel}>{strings.order_date}</Text>
+                  <Text style={styles.partyDetailValue}>{formatDateDmmmYy(Date.now())}</Text>
+                </View>
+                <View style={styles.partyDetailRow}>
+                  <Text style={styles.partyDetailLabel}>{strings.place_of_supply}</Text>
+                  <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, "STATENAME")}</Text>
+                </View>
+                <View style={styles.partyDetailRow}>
+                  <Text style={styles.partyDetailLabel}>{strings.godown}</Text>
+                  <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, 'GODOWN', 'GODOWNNAME', 'godown', 'godownname')}</Text>
+                </View>
+                <View style={styles.partyDetailRow}>
+                  <Text style={styles.partyDetailLabel}>{strings.batch_no}</Text>
+                  <Text style={styles.partyDetailValue}>{batchNo || '-'}</Text>
+                </View>
+                <TouchableOpacity style={styles.editDetailsBtn} onPress={handleEditDetails} activeOpacity={0.8}>
+                  <View style={styles.editDetailsIcon}>
+                    <OrderEntryEditIcon width={16} height={16} color={colors.white} />
+                  </View>
+                  <Text style={styles.editDetailsText}>{strings.edit_details}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Closing Balance / Credit Limit row - from api/tally/creditdayslimit when customer selected */}
+        {selectedCustomer ? (
+          <View style={styles.balanceCreditRow}>
+            {(() => {
+              const bal = creditLimitInfo?.CLOSINGBALANCE;
+              const hasNumericBal = bal != null && typeof bal === 'number' && !Number.isNaN(Number(bal));
+              const n = hasNumericBal ? Number(bal) : 0;
+              const isNegative = hasNumericBal && n < 0;
+              const isPayable = hasNumericBal && !isNegative;
+              const pillStyle = isPayable
+                ? [styles.closingBalancePill, { backgroundColor: BALANCE_PILL_BG_GREEN, borderColor: BALANCE_GREEN }]
+                : styles.closingBalancePill;
+              return (
+                <TouchableOpacity
+                  style={pillStyle}
+                  onPress={() => setOverdueBillsModalVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  {creditLimitLoading ? (
+                    <>
+                      <Text style={styles.closingBalanceLabel}>{strings.closing_balance}:</Text>
+                      <Text style={styles.closingBalanceValue} numberOfLines={1}>...</Text>
+                    </>
+                  ) : hasNumericBal ? (
+                    <>
+                      <Text style={styles.closingBalanceLabel}>{isNegative ? strings.receivable : strings.payable}:</Text>
+                      <Text style={[styles.closingBalanceValue, { color: isNegative ? BALANCE_RED : BALANCE_GREEN }]} numberOfLines={1}>
+                        {Math.abs(n).toFixed(2)}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.closingBalanceLabel}>{strings.closing_balance}:</Text>
+                      <Text style={styles.closingBalanceValue} numberOfLines={1}>
+                        {(() => {
+                          const fallback = ledgerField(selectedLedger, 'CLOSINGBALANCE', 'closingbalance');
+                          const type = ledgerField(selectedLedger, 'BALANCETYPE', 'balancetype');
+                          return fallback === '-' ? '-' : `${fallback} ${type !== '-' ? type : 'Dr'}`;
+                        })()}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              );
+            })()}
+            <Text style={styles.creditLimitText} numberOfLines={1}>
+              <Text style={styles.creditLimitLabel}>{strings.credit_limit}: </Text>
+              <Text style={styles.creditLimitValue}>
+                {creditLimitLoading
+                  ? '...'
+                  : (() => {
+                    const cr = creditLimitInfo?.CREDITLIMIT;
+                    if (cr == null || (typeof cr === 'number' && Number.isNaN(cr))) {
+                      const fallback = ledgerField(selectedLedger, 'CREDITLIMIT', 'creditlimit');
+                      const num = fallback !== '-' ? Number(fallback) : NaN;
+                      return Number.isFinite(num) ? `₹${num.toFixed(2)}` : '₹0.00';
+                    }
+                    return `₹${Number(cr).toFixed(2)}`;
+                  })()}{' '}
+                Cr
+              </Text>
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Select Item - dropdown expands inline below the input (not a popup) */}
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => itemDropdownOpen && setItemDropdownOpen(false)}
+          scrollEventThrottle={16}
+        >
+          <View style={[styles.itemBlock, !canSelectItem && styles.itemBlockDisabled]}>
+            <Text style={styles.itemLabel}>{strings.select_item}</Text>
+            <View style={styles.itemRow}>
+              <TouchableOpacity
+                style={styles.inputWrap}
+                onPress={handleSelectItemClick}
+                activeOpacity={0.9}
+                disabled={!canSelectItem}
+                accessibilityLabel={strings.select_item}
               >
-                {stockItemsLoading ? (
-                  <Text style={styles.stockDropdownEmpty}>{strings.loading}</Text>
-                ) : stockItemsList.length === 0 ? (
-                  <Text style={styles.stockDropdownEmpty}>No items</Text>
-                ) : filteredStockItems.length === 0 ? (
-                  <Text style={styles.stockDropdownEmpty}>No matching items</Text>
-                ) : (
-                  filteredStockItems.slice(0, 100).map((item) => {
-                    const name = (item.NAME ?? '').trim() || '-';
-                    const closing = item.CLOSINGSTOCK ?? 0;
-                    const stockAvailable = closing >= 0 ? 'Yes' : 'No';
-                    return (
+                <TextInput
+                  style={[styles.itemInput, !canSelectItem && styles.itemInputDisabled]}
+                  placeholder={canSelectItem ? strings.select_item_name : (classOptions.length > 0 ? strings.select_customer_voucher_class_first : strings.select_customer_voucher_first)}
+                  placeholderTextColor={LABEL_GRAY}
+                  value={selectedItem}
+                  editable={false}
+                  pointerEvents="none"
+                />
+                <View style={styles.inputArrow} pointerEvents="none">
+                  <OrderEntryChevronDownIcon width={14} height={8} color="#6A7282" />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.qrBtn, !canSelectItem && styles.itemBlockDisabled]}
+                onPress={handleScanClick}
+                disabled={!canSelectItem}
+                accessibilityLabel="Scan QR code"
+              >
+                <OrderEntryQRIcon width={20} height={21} color="#0E172B" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Items list — same as OrderEntryItemDetail (after Add Item is clicked) */}
+          {orderItems.length > 0 ? (
+            <View style={styles.orderItemsSectionWrap}>
+              <View style={styles.orderItemsSection}>
+                <View style={styles.orderItemsSectionHeader}>
+                  <ItemSvg width={20} height={20} style={styles.orderItemsSectionIcon} />
+                  <Text style={styles.orderItemsSectionTitle}>Items ({orderItems.length})</Text>
+                </View>
+                {orderItems.map((oi) => {
+                  const isExpanded = expandedOrderItemIds.has(oi.id);
+                  return (
+                    <View key={oi.id} style={styles.orderItemCard}>
                       <TouchableOpacity
-                        key={String(item.MASTERID ?? item.NAME ?? Math.random())}
-                        style={styles.stockDropdownItemWrap}
+                        style={styles.orderItemTop}
                         onPress={() => {
-                          setItemSearch('');
-                          setItemDropdownOpen(false);
-                          navigation.navigate('OrderEntryItemDetail', {
-                            item,
-                            selectedLedger: selectedLedger ?? undefined,
-                            isBatchWiseOn: isBatchWiseOnFromItem(item),
+                          setExpandedOrderItemIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(oi.id)) next.delete(oi.id);
+                            else next.add(oi.id);
+                            return next;
                           });
                         }}
                         activeOpacity={0.7}
                       >
-                        <View style={styles.stockDropdownItem}>
-                          <Text style={styles.stockDropdownItemName} numberOfLines={2}>
-                            {name}
-                          </Text>
-                          <View style={styles.stockDropdownStockRow}>
-                            <Text style={styles.stockDropdownStockLabel}>Stock Available</Text>
-                            <Text style={styles.stockDropdownStockColon}> : </Text>
-                            <Text style={styles.stockDropdownStockValue}>{stockAvailable}</Text>
-                          </View>
-                        </View>
+                        <Text style={styles.orderItemName} numberOfLines={1}>{oi.name}</Text>
+                        <TouchableOpacity
+                          style={styles.orderItemOptionsBtn}
+                          onPress={() => setOrderItemMenuId((prev) => (prev === oi.id ? null : oi.id))}
+                          accessibilityLabel="Item options"
+                        >
+                          <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
+                        </TouchableOpacity>
                       </TouchableOpacity>
-                    );
-                  })
-                )}
-                {filteredStockItems.length > 100 && (
-                  <View style={[styles.stockDropdownItemWrap, { paddingVertical: 12 }]}>
-                    <Text style={[styles.stockDropdownItemName, { textAlign: 'center', color: LABEL_GRAY, fontStyle: 'italic', fontSize: 13 }]}>
-                      Type to search for more items...
-                    </Text>
-                  </View>
-                )}
-              </ScrollView>
+                      {orderItemMenuId === oi.id ? (
+                        <View style={styles.orderItemMenuOverlay}>
+                          <TouchableOpacity
+                            style={styles.orderItemMenuItem}
+                            onPress={() => handleOrderItemEdit(oi)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.orderItemMenuItemText}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.orderItemMenuItem}
+                            onPress={() => handleOrderItemDelete(oi)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.orderItemMenuItemText}>Delete</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.orderItemMenuItem}
+                            onPress={() => handleOrderItemEditDueDate(oi)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                      <View style={styles.orderItemMeta}>
+                        <Text style={styles.orderItemQty}>
+                          Qty : {oi.qty} x ₹{oi.rate} ({oi.discount}%) ={' '}
+                          <Text style={styles.orderItemTotal}>₹{oi.total.toFixed(2)}</Text>
+                        </Text>
+                        <View style={styles.orderItemRight}>
+                          <View style={styles.orderItemStockRow}>
+                            <Text style={styles.orderItemStock}>Stock : </Text>
+                            <TouchableOpacity onPress={() => setStockBreakdownItem(oi.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
+                              <Text style={styles.orderItemStockLink}>{oi.stock}</Text>
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={styles.orderItemTax}>Tax% : {oi.tax}%</Text>
+                        </View>
+                      </View>
+                      {isExpanded ? (
+                        <View style={styles.orderItemExpanded}>
+                          <View style={styles.orderItemExpandedTop}>
+                            <Text style={styles.orderItemExpandedName} numberOfLines={1}>{oi.name}</Text>
+                            <TouchableOpacity
+                              style={styles.orderItemOptionsBtn}
+                              onPress={() => setOrderItemMenuId((prev) => (prev === oi.id ? null : oi.id))}
+                              accessibilityLabel="Item options"
+                            >
+                              <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.orderItemExpandedRow}>
+                            <Text style={styles.orderItemExpandedQty}>Qty : <Text style={styles.orderItemStockLink}>{oi.qty}</Text></Text>
+                            <Text style={styles.orderItemExpandedDue}>Due date : {oi.dueDate ?? '-'}</Text>
+                            <Text style={styles.orderItemExpandedTotal}>₹{oi.total.toFixed(2)}</Text>
+                          </View>
+                          {(oi.mfgDate || oi.expiryDate) ? (
+                            <View style={styles.orderItemExpandedRow}>
+                              {oi.mfgDate ? (
+                                <Text style={styles.orderItemExpandedLabel}>Mfg Date : {oi.mfgDate}</Text>
+                              ) : null}
+                              {oi.expiryDate ? (
+                                <Text style={styles.orderItemExpandedLabel}>Expiry date : {oi.expiryDate}</Text>
+                              ) : null}
+                            </View>
+                          ) : null}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
             </View>
           ) : null}
-        </View>
-
-        {/* Items list — same as OrderEntryItemDetail (after Add Item is clicked) */}
-        {orderItems.length > 0 ? (
-          <View style={styles.orderItemsSectionWrap}>
-            <View style={styles.orderItemsSection}>
-              <View style={styles.orderItemsSectionHeader}>
-                <ItemSvg width={20} height={20} style={styles.orderItemsSectionIcon} />
-                <Text style={styles.orderItemsSectionTitle}>Items ({orderItems.length})</Text>
-              </View>
-              {orderItems.map((oi) => {
-                const isExpanded = expandedOrderItemIds.has(oi.id);
-                return (
-                  <View key={oi.id} style={styles.orderItemCard}>
-                    <TouchableOpacity
-                      style={styles.orderItemTop}
-                      onPress={() => {
-                        setExpandedOrderItemIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(oi.id)) next.delete(oi.id);
-                          else next.add(oi.id);
-                          return next;
-                        });
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.orderItemName} numberOfLines={1}>{oi.name}</Text>
-                      <TouchableOpacity
-                        style={styles.orderItemOptionsBtn}
-                        onPress={() => setOrderItemMenuId((prev) => (prev === oi.id ? null : oi.id))}
-                        accessibilityLabel="Item options"
-                      >
-                        <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                    {orderItemMenuId === oi.id ? (
-                      <View style={styles.orderItemMenuOverlay}>
-                        <TouchableOpacity
-                          style={styles.orderItemMenuItem}
-                          onPress={() => handleOrderItemEdit(oi)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.orderItemMenuItemText}>Edit</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.orderItemMenuItem}
-                          onPress={() => handleOrderItemDelete(oi)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.orderItemMenuItemText}>Delete</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.orderItemMenuItem}
-                          onPress={() => handleOrderItemEditDueDate(oi)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : null}
-                    <View style={styles.orderItemMeta}>
-                      <Text style={styles.orderItemQty}>
-                        Qty : {oi.qty} x ₹{oi.rate} ({oi.discount}%) ={' '}
-                        <Text style={styles.orderItemTotal}>₹{oi.total.toFixed(2)}</Text>
-                      </Text>
-                      <View style={styles.orderItemRight}>
-                        <View style={styles.orderItemStockRow}>
-                          <Text style={styles.orderItemStock}>Stock : </Text>
-                          <TouchableOpacity onPress={() => setStockBreakdownItem(oi.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
-                            <Text style={styles.orderItemStockLink}>{oi.stock}</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.orderItemTax}>Tax% : {oi.tax}%</Text>
-                      </View>
-                    </View>
-                    {isExpanded ? (
-                      <View style={styles.orderItemExpanded}>
-                        <View style={styles.orderItemExpandedTop}>
-                          <Text style={styles.orderItemExpandedName} numberOfLines={1}>{oi.name}</Text>
-                          <TouchableOpacity
-                            style={styles.orderItemOptionsBtn}
-                            onPress={() => setOrderItemMenuId((prev) => (prev === oi.id ? null : oi.id))}
-                            accessibilityLabel="Item options"
-                          >
-                            <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
-                          </TouchableOpacity>
-                        </View>
-                        <View style={styles.orderItemExpandedRow}>
-                          <Text style={styles.orderItemExpandedQty}>Qty : <Text style={styles.orderItemStockLink}>{oi.qty}</Text></Text>
-                          <Text style={styles.orderItemExpandedDue}>Due date : {oi.dueDate ?? '-'}</Text>
-                          <Text style={styles.orderItemExpandedTotal}>₹{oi.total.toFixed(2)}</Text>
-                        </View>
-                        {(oi.mfgDate || oi.expiryDate) ? (
-                          <View style={styles.orderItemExpandedRow}>
-                            {oi.mfgDate ? (
-                              <Text style={styles.orderItemExpandedLabel}>Mfg Date : {oi.mfgDate}</Text>
-                            ) : null}
-                            {oi.expiryDate ? (
-                              <Text style={styles.orderItemExpandedLabel}>Expiry date : {oi.expiryDate}</Text>
-                            ) : null}
-                          </View>
-                        ) : null}
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        ) : null}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* LEDGER DETAILS → Grand Total: fixed above footer when items in cart (order as in image) */}
-      {orderItems.length > 0 ? (
+      {orderItems.length > 0 && !isKeyboardVisible ? (
         <>
           <View style={styles.ledgerDetailsWrap}>
             <TouchableOpacity
@@ -1562,32 +1524,34 @@ export default function OrderEntry() {
       ) : null}
 
       {/* Footer - OrdEnt1: bg white, gap-2.5 px-4. Attach #f1c74b w-10 rounded-[100px]. Add #0e172b, Place #39b57c, text 15px font-medium */}
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        <TouchableOpacity
-          style={styles.footerAttach}
-          onPress={handleAttachment}
-          accessibilityLabel="Attach file"
-        >
-          <OrderEntryPaperclipIcon width={21} height={22} color="#0E172B" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
-          <Text style={styles.footerBtnText}>{strings.add_details}</Text>
-        </TouchableOpacity>
-        {!route.params?.viewOnly && (
+      {!isKeyboardVisible && (
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
           <TouchableOpacity
-            style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
-            onPress={handlePlaceOrder}
-            activeOpacity={0.8}
-            disabled={placeOrderLoading}
+            style={styles.footerAttach}
+            onPress={handleAttachment}
+            accessibilityLabel="Attach file"
           >
-            {placeOrderLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.footerBtnText}>{strings.place_order}</Text>
-            )}
+            <OrderEntryPaperclipIcon width={21} height={22} color="#0E172B" />
           </TouchableOpacity>
-        )}
-      </View>
+          <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
+            <Text style={styles.footerBtnText}>{strings.add_details}</Text>
+          </TouchableOpacity>
+          {!route.params?.viewOnly && (
+            <TouchableOpacity
+              style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
+              onPress={handlePlaceOrder}
+              activeOpacity={0.8}
+              disabled={placeOrderLoading}
+            >
+              {placeOrderLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.footerBtnText}>{strings.place_order}</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       {/* Add Details – bottom-to-up slide (Figma 3067-64055, 3067-64383, 3067-63666) */}
       <Modal
@@ -2165,6 +2129,12 @@ export default function OrderEntry() {
           }}
         >
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Customer</Text>
+              <TouchableOpacity onPress={() => { setCustomerDropdownOpen(false); setCustomerSearch(''); }} style={sharedStyles.modalHeaderClose}>
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <View style={sharedStyles.modalSearchRow}>
               <TextInput
                 style={sharedStyles.modalSearchInput}
@@ -2209,6 +2179,12 @@ export default function OrderEntry() {
           onPress={() => setVoucherTypeDropdownOpen(false)}
         >
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Voucher Type</Text>
+              <TouchableOpacity onPress={() => setVoucherTypeDropdownOpen(false)} style={sharedStyles.modalHeaderClose}>
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <FlatList
               data={voucherTypeOptions}
               keyExtractor={(i) => i}
@@ -2249,6 +2225,12 @@ export default function OrderEntry() {
           onPress={() => setClassDropdownOpen(false)}
         >
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Class</Text>
+              <TouchableOpacity onPress={() => setClassDropdownOpen(false)} style={sharedStyles.modalHeaderClose}>
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <FlatList
               data={classOptions}
               keyExtractor={(i) => i}
@@ -2267,6 +2249,85 @@ export default function OrderEntry() {
                   <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
                 </TouchableOpacity>
               )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Select Item modal */}
+      <Modal visible={itemDropdownOpen} transparent animationType="fade">
+        <TouchableOpacity
+          style={sharedStyles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setItemDropdownOpen(false);
+            setItemSearch('');
+          }}
+        >
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Item</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setItemDropdownOpen(false);
+                  setItemSearch('');
+                }}
+                style={sharedStyles.modalHeaderClose}
+              >
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput
+                style={sharedStyles.modalSearchInput}
+                placeholder="Search items…"
+                placeholderTextColor={colors.text_secondary}
+                value={itemSearch}
+                onChangeText={setItemSearch}
+                autoFocus
+              />
+              <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredStockItems}
+              keyExtractor={(item) => String(item.MASTERID ?? item.NAME ?? Math.random())}
+              style={sharedStyles.modalList}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <Text style={sharedStyles.modalEmpty}>
+                  {stockItemsLoading ? strings.loading : 'No items found'}
+                </Text>
+              }
+              renderItem={({ item }) => {
+                const name = (item.NAME ?? '').trim() || '-';
+                const closing = (item.CLOSINGSTOCK ?? (item as any).closingstock ?? 0) || 0;
+                return (
+                  <TouchableOpacity
+                    style={sharedStyles.modalOpt}
+                    onPress={() => {
+                      setItemSearch('');
+                      setItemDropdownOpen(false);
+                      navigation.navigate('OrderEntryItemDetail', {
+                        item,
+                        selectedLedger: selectedLedger ?? undefined,
+                        isBatchWiseOn: isBatchWiseOnFromItem(item),
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={sharedStyles.modalOptTxt} numberOfLines={2}>
+                        {name}
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                        <Text style={{ fontSize: 12, color: colors.text_gray }}>Stock Available</Text>
+                        <Text style={{ fontSize: 12, color: colors.text_gray }}> : </Text>
+                        <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>{String(closing)}</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
             />
           </View>
         </TouchableOpacity>
@@ -2404,7 +2465,10 @@ export default function OrderEntry() {
             onPress={() => setOverdueBillsModalVisible(false)}
             activeOpacity={1}
           />
-          <View style={[styles.overdueBillsCard, { maxHeight: Dimensions.get('window').height * 0.85 }]}>
+          <View style={[styles.overdueBillsCard, { maxHeight: Dimensions.get('window').height * 0.95, paddingBottom: insets.bottom ? insets.bottom + 5 : 20 }]}>
+            <View style={styles.overdueBillsDragHandleWrap}>
+              <View style={styles.overdueBillsDragHandle} />
+            </View>
             <View style={styles.overdueBillsHeader}>
               <Text style={styles.overdueBillsTitle}>{strings.overdue_bills_details}</Text>
               <TouchableOpacity
@@ -2418,7 +2482,9 @@ export default function OrderEntry() {
             <View style={styles.overdueBillsHeaderLine} />
             <ScrollView style={styles.overdueBillsScroll} contentContainerStyle={styles.overdueBillsScrollContent} showsVerticalScrollIndicator={true}>
               <View style={styles.overdueBillsBanner}>
-                <Icon name="alert" size={20} color={colors.white} style={styles.overdueBillsBannerIcon} />
+                <View style={styles.overdueBillsBannerIconWrap}>
+                  <Icon name="alert" size={16} color={OVERDUE_BANNER_TEXT_DARK} />
+                </View>
                 <View style={styles.overdueBillsBannerTextWrap}>
                   <Text style={styles.overdueBillsBannerTitle}>
                     {(overdueBills?.length ?? 0)} {strings.overdue_bills_found}
@@ -2428,41 +2494,52 @@ export default function OrderEntry() {
               </View>
               {(overdueBills?.length ?? 0) > 0 ? (
                 <>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.overdueBillsTableScroll}>
-                    <View style={styles.overdueBillsTable}>
-                      <View style={styles.overdueBillsTableHeader}>
-                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColRef]}>{strings.bill_reference}</Text>
-                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColDate]}>{strings.bill_date}</Text>
-                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColAmt]}>{strings.opening_balance}</Text>
-                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColAmt]}>{strings.closing_balance}</Text>
-                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColDate]}>{strings.due_date}</Text>
-                        <Text style={[styles.overdueBillsTh, styles.overdueBillsColDays]}>{strings.days_overdue}</Text>
-                      </View>
-                      {(overdueBills ?? []).map((row, idx) => {
-                        const openBal = row.OPENINGBALANCE != null ? Number(row.OPENINGBALANCE) : NaN;
-                        const closeBal = row.CLOSINGBALANCE != null ? Number(row.CLOSINGBALANCE) : NaN;
-                        const openStr = Number.isFinite(openBal)
-                          ? `₹${Math.abs(openBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${openBal < 0 ? 'Dr' : 'Cr'}`
-                          : '—';
-                        const closeStr = Number.isFinite(closeBal)
-                          ? `₹${Math.abs(closeBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${closeBal < 0 ? 'Dr' : 'Cr'}`
-                          : '—';
-                        const daysOverdue = row.OVERDUEDAYS != null ? Number(row.OVERDUEDAYS) : 0;
-                        return (
-                          <View key={idx} style={styles.overdueBillsTableRow}>
-                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColRef]} numberOfLines={1}>{row.REFNO ?? '—'}</Text>
-                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColDate]}>{row.DATE ?? '—'}</Text>
-                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColAmt, openBal < 0 ? styles.overdueBillsDr : styles.overdueBillsCr]}>{openStr}</Text>
-                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColAmt, closeBal < 0 ? styles.overdueBillsDr : styles.overdueBillsCr]}>{closeStr}</Text>
-                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColDate]}>{row.DUEON ?? '—'}</Text>
-                            <Text style={[styles.overdueBillsTd, styles.overdueBillsColDays, styles.overdueBillsDr]}>{Number.isFinite(daysOverdue) ? `${daysOverdue} days` : '—'}</Text>
+                  <View style={styles.overdueBillsList}>
+                    {(overdueBills ?? []).map((row, idx) => {
+                      const openBal = row.OPENINGBALANCE != null ? Number(row.OPENINGBALANCE) : NaN;
+                      const closeBal = row.CLOSINGBALANCE != null ? Number(row.CLOSINGBALANCE) : NaN;
+                      const openStr = Number.isFinite(openBal)
+                        ? `₹${Math.abs(openBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${openBal < 0 ? 'Dr' : 'Cr'}`
+                        : '—';
+                      const closeStr = Number.isFinite(closeBal)
+                        ? `₹${Math.abs(closeBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${closeBal < 0 ? 'Dr' : 'Cr'}`
+                        : '—';
+                      const daysOverdue = row.OVERDUEDAYS != null ? Number(row.OVERDUEDAYS) : 0;
+                      return (
+                        <View key={idx} style={styles.overdueBillsCardItem}>
+                          <View style={styles.overdueBillsCardTop}>
+                            <View style={styles.overdueBillsCardTopLeft}>
+                              <Text style={styles.overdueBillsCardRef} numberOfLines={1}>{row.REFNO ?? '—'}</Text>
+                              <View style={styles.overdueBillsCardDateRow}>
+                                <Text style={styles.overdueBillsCardDateLabel}>{strings.bill_date}: </Text>
+                                <Text style={styles.overdueBillsCardDateValue}>{row.DATE ?? '—'}</Text>
+                              </View>
+                            </View>
+                            <View style={styles.overdueBillsCardDaysPill}>
+                              <Text style={styles.overdueBillsCardDaysText}>{Number.isFinite(daysOverdue) ? `${daysOverdue} Days` : '—'}</Text>
+                            </View>
                           </View>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
+
+                          <View style={styles.overdueBillsCardBalRow}>
+                            <Text style={styles.overdueBillsCardBalLabel}>{strings.opening_balance}: </Text>
+                            <Text style={styles.overdueBillsCardBalValue}>{openStr}</Text>
+                          </View>
+
+                          <View style={styles.overdueBillsCardBalRow}>
+                            <Text style={styles.overdueBillsCardBalLabel}>{strings.closing_balance}: </Text>
+                            <Text style={styles.overdueBillsCardBalValue}>{closeStr}</Text>
+                          </View>
+
+                          <View style={styles.overdueBillsCardDueRow}>
+                            <Text style={styles.overdueBillsCardDueLabel}>{strings.due_date}: </Text>
+                            <Text style={styles.overdueBillsCardDueValue}>{row.DUEON ?? '—'}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
                   <View style={styles.overdueBillsTotalWrap}>
-                    <Icon name="information" size={20} color={colors.white} style={styles.overdueBillsTotalIcon} />
+                    <Icon name="information" size={20} color="#1e488f" style={styles.overdueBillsTotalIcon} />
                     <View style={styles.overdueBillsTotalTextWrap}>
                       <Text style={styles.overdueBillsTotalLabel}>{strings.total_overdue_amount}</Text>
                       <Text style={styles.overdueBillsTotalAmt}>
@@ -2535,12 +2612,19 @@ export default function OrderEntry() {
           </View>
         </View>
       </Modal>
+
+      <DeleteConfirmationModal
+        visible={!!itemToDelete}
+        onCancel={() => setItemToDelete(null)}
+        onConfirm={confirmOrderItemDelete}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
+  keyboardAvoid: { flex: 1 },
   header: {
     backgroundColor: HEADER_BG,
     paddingHorizontal: 10,
@@ -2562,10 +2646,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 17,
     color: colors.white,
-  },
-  headerRefreshBtn: {
-    padding: 2,
-    marginLeft: 6,
   },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 2 },
@@ -3063,13 +3143,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: HEADER_BG,
-    paddingVertical: 10,
+    paddingVertical: 6,
     paddingHorizontal: 12,
   },
   ledgerDetailsHeaderTitle: {
     fontFamily: 'Roboto',
     fontWeight: '600',
-    fontSize: 15,
+    fontSize: 14,
     color: '#fff',
   },
   ledgerDetailsChevron: {},
@@ -3147,7 +3227,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#ffffff',
-    paddingVertical: 12,
+    paddingVertical: 6,
     paddingHorizontal: 16,
     borderTopWidth: 1,
     borderTopColor: ROW_BORDER,
@@ -3155,13 +3235,13 @@ const styles = StyleSheet.create({
   grandTotalBarLabel: {
     fontFamily: 'Roboto',
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 15,
     color: TEXT_ROW,
   },
   grandTotalBarAmt: {
     fontFamily: 'Roboto',
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 15,
     color: TEXT_ROW,
   },
   // Edit Details bottom sheet (Figma 3067-58011)
@@ -3191,65 +3271,213 @@ const styles = StyleSheet.create({
   overdueBillsOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    justifyContent: 'flex-end',
   },
   overdueBillsCard: {
-    backgroundColor: colors.white,
-    borderRadius: 8,
     width: '100%',
-    maxWidth: 520,
-    overflow: 'hidden',
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 8,
+  },
+  overdueBillsDragHandleWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  overdueBillsDragHandle: {
+    width: 48,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#d3d3d3',
   },
   overdueBillsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingBottom: 8,
   },
-  overdueBillsTitle: { fontFamily: 'Roboto', fontSize: 18, fontWeight: '700', color: TEXT_ROW },
+  overdueBillsTitle: {
+    fontFamily: 'Roboto',
+    fontWeight: '700',
+    fontSize: 14,
+    color: '#131313',
+  },
   overdueBillsCloseBtn: { padding: 4 },
-  overdueBillsHeaderLine: { height: 2, backgroundColor: HEADER_BG, marginTop: 12 },
-  overdueBillsScroll: { maxHeight: 420 },
-  overdueBillsScrollContent: { paddingHorizontal: 16, paddingVertical: 16, paddingBottom: 24 },
+  overdueBillsHeaderLine: {
+    height: 1,
+    backgroundColor: ROW_BORDER,
+    width: '100%',
+  },
+  overdueBillsScroll: { flexShrink: 1 },
+  overdueBillsScrollContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 14,
+  },
   overdueBillsBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: BALANCE_RED,
+    backgroundColor: OVERDUE_BANNER_BG,
+    borderWidth: 1.18,
+    borderColor: OVERDUE_BANNER_BORDER,
+    borderRadius: 10,
     padding: 12,
-    borderRadius: 6,
-    marginBottom: 16,
+    gap: 6,
   },
-  overdueBillsBannerIcon: { marginRight: 8, marginTop: 2 },
-  overdueBillsBannerTextWrap: { flex: 1 },
-  overdueBillsBannerTitle: { fontFamily: 'Roboto', fontWeight: '700', fontSize: 14, color: colors.white, marginBottom: 4 },
-  overdueBillsBannerMessage: { fontFamily: 'Roboto', fontSize: 13, color: colors.white, opacity: 0.95 },
-  overdueBillsTableScroll: { marginBottom: 16 },
-  overdueBillsTable: { marginBottom: 0, minWidth: 480 },
-  overdueBillsTableHeader: { flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: ROW_BORDER },
-  overdueBillsTh: { fontFamily: 'Roboto', fontWeight: '600', fontSize: 12, color: TEXT_ROW },
-  overdueBillsTableRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-  overdueBillsTd: { fontFamily: 'Roboto', fontSize: 12, color: TEXT_ROW },
-  overdueBillsColRef: { flex: 1.2, minWidth: 0 },
-  overdueBillsColDate: { width: 72 },
-  overdueBillsColAmt: { width: 88 },
-  overdueBillsColDays: { width: 64 },
-  overdueBillsDr: { color: BALANCE_RED, fontWeight: '500' },
-  overdueBillsCr: { color: FOOTER_PLACE_BG, fontWeight: '500' },
-  overdueBillsTotalWrap: {
+  overdueBillsBannerIconWrap: {
+    marginTop: 2,
+  },
+  overdueBillsBannerTextWrap: {
+    flex: 1,
+    gap: 4,
+  },
+  overdueBillsBannerTitle: {
+    fontFamily: 'Roboto',
+    fontWeight: '500',
+    fontSize: 14,
+    color: OVERDUE_BANNER_TEXT_DARK,
+  },
+  overdueBillsBannerMessage: {
+    fontFamily: 'Roboto',
+    fontWeight: '400',
+    fontSize: 12,
+    color: OVERDUE_BANNER_TEXT_LIGHT,
+    lineHeight: 16,
+  },
+  overdueBillsList: {
+    gap: 14,
+  },
+  overdueBillsCardItem: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: INPUT_BORDER,
+    borderRadius: 8,
+    padding: 12,
+    gap: 6,
+  },
+  overdueBillsCardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  overdueBillsCardTopLeft: {
+    flex: 1,
+    gap: 6,
+  },
+  overdueBillsCardRef: {
+    fontFamily: 'Roboto',
+    fontWeight: '600',
+    fontSize: 13,
+    color: TEXT_ROW,
+  },
+  overdueBillsCardDateRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+  },
+  overdueBillsCardDateLabel: {
+    fontFamily: 'Roboto',
+    fontWeight: '400',
+    fontSize: 12,
+    color: TEXT_ROW,
+  },
+  overdueBillsCardDateValue: {
+    fontFamily: 'Roboto',
+    fontWeight: '600',
+    fontSize: 12,
+    color: '#101828',
+  },
+  overdueBillsCardDaysPill: {
+    backgroundColor: OVERDUE_BANNER_BG,
+    borderRadius: 50,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginLeft: 8,
+  },
+  overdueBillsCardDaysText: {
+    fontFamily: 'Roboto',
+    fontWeight: '600',
+    fontSize: 13,
+    color: OVERDUE_BANNER_TEXT_DARK,
+  },
+  overdueBillsCardBalRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: HEADER_BG,
-    padding: 12,
-    borderRadius: 6,
+    justifyContent: 'space-between',
   },
-  overdueBillsTotalIcon: { marginRight: 8 },
-  overdueBillsTotalTextWrap: { flex: 1 },
-  overdueBillsTotalLabel: { fontFamily: 'Roboto', fontWeight: '700', fontSize: 14, color: colors.white, marginBottom: 4 },
-  overdueBillsTotalAmt: { fontFamily: 'Roboto', fontSize: 18, fontWeight: '600', color: colors.white },
-  overdueBillsEmpty: { fontFamily: 'Roboto', fontSize: 14, color: LABEL_GRAY, textAlign: 'center', paddingVertical: 24 },
+  overdueBillsCardBalLabel: {
+    fontFamily: 'Roboto',
+    fontWeight: '400',
+    fontSize: 13,
+    color: LABEL_GRAY,
+  },
+  overdueBillsCardBalValue: {
+    fontFamily: 'Roboto',
+    fontWeight: '500',
+    fontSize: 13,
+    color: TEXT_ROW,
+  },
+  overdueBillsCardDueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: INPUT_BORDER,
+    paddingTop: 6,
+  },
+  overdueBillsCardDueLabel: {
+    fontFamily: 'Roboto',
+    fontWeight: '400',
+    fontSize: 12,
+    color: LABEL_GRAY,
+  },
+  overdueBillsCardDueValue: {
+    fontFamily: 'Roboto',
+    fontWeight: '500',
+    fontSize: 12,
+    color: TEXT_ROW,
+  },
+  overdueBillsTotalWrap: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: SECTION_BG,
+    borderWidth: 1.18,
+    borderColor: INPUT_BORDER,
+    borderRadius: 10,
+    padding: 12,
+    gap: 6,
+    marginTop: 10,
+  },
+  overdueBillsTotalIcon: {
+    marginTop: 2,
+  },
+  overdueBillsTotalTextWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  overdueBillsTotalLabel: {
+    fontFamily: 'Roboto',
+    fontWeight: '400',
+    fontSize: 14,
+    color: HEADER_BG,
+  },
+  overdueBillsTotalAmt: {
+    fontFamily: 'Roboto',
+    fontWeight: '600',
+    fontSize: 15,
+    color: BALANCE_RED,
+  },
+  overdueBillsEmpty: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: LABEL_GRAY,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
   editDetailsScroll: { maxHeight: 420 },
   editDetailsScrollContent: { paddingHorizontal: 20, paddingBottom: 16 },
   editDetailsFieldWrap: { marginBottom: 16 },

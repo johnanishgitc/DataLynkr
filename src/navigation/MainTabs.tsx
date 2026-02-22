@@ -87,7 +87,6 @@ export default function MainTabs() {
         options={{
           title: strings.approvals,
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
-          tabBarStyle: { display: 'none' as const },
         }}
       />
       <Tab.Screen

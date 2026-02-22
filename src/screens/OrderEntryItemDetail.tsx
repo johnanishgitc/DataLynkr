@@ -48,9 +48,7 @@ import { deobfuscatePrice } from '../utils/priceUtils';
 import { isBatchWiseOnFromItem } from '../utils/orderEntryBatchWise';
 import CalendarPicker from '../components/CalendarPicker';
 import { OrderEntryChevronDownIcon, OrderEntryQRIcon } from '../assets/OrderEntryIcons';
-import { RefreshIcon } from '../assets/connections';
-import { QRCodeScanner, StockBreakdownModal } from '../components';
-import { clearSessionStockItems } from '../cache';
+import { QRCodeScanner, StockBreakdownModal, DeleteConfirmationModal } from '../components';
 
 /** Price level entry in item.PRICELEVELS (TallyCatalyst PlaceOrder.js) */
 type PriceLevelEntry = { PLNAME?: string; RATE?: string; DISCOUNT?: string; RATEUNIT?: string };
@@ -260,7 +258,9 @@ export default function OrderEntryItemDetail() {
   const [baseQtyOnly, setBaseQtyOnly] = useState<number | null>(null);
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [nextId, setNextId] = useState(1);
+  const [qtySelection, setQtySelection] = useState<{ start: number; end: number } | undefined>();
   const [itemMenuLineId, setItemMenuLineId] = useState<number | null>(null);
+  const [lineItemToDeleteId, setLineItemToDeleteId] = useState<number | null>(null);
   const [editingDueDateLineId, setEditingDueDateLineId] = useState<number | null>(null);
   const [godown, setGodown] = useState('');
   const [batch, setBatch] = useState('');
@@ -533,13 +533,6 @@ export default function OrderEntryItemDetail() {
     navigation.goBack();
   }, [navigation]);
 
-  const handleRefreshSessionCache = useCallback(async () => {
-    const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-    if (t && c && g) {
-      clearSessionStockItems(t, c, g);
-    }
-  }, []);
-
   const handleAddToOrder = useCallback(() => {
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
       name: line.name,
@@ -556,20 +549,20 @@ export default function OrderEntryItemDetail() {
       lineItems.length > 0
         ? lineItems.map(toAddedItem)
         : [
-            {
-              name,
-              qty: Math.max(0, itemQuantity),
-              rate: Math.max(0, parseFloat(rate) || 0),
-              discount: Math.max(0, Math.min(100, parseFloat(discount) || 0)),
-              total: parseFloat(value) || 0,
-              stock: stockNum,
-              tax: taxNum,
-              dueDate,
-              mfgDate: mfgDate || undefined,
-              expiryDate: expiryDate || undefined,
-              stockItem: item ?? undefined,
-            },
-          ];
+          {
+            name,
+            qty: Math.max(0, itemQuantity),
+            rate: Math.max(0, parseFloat(rate) || 0),
+            discount: Math.max(0, Math.min(100, parseFloat(discount) || 0)),
+            total: parseFloat(value) || 0,
+            stock: stockNum,
+            tax: taxNum,
+            dueDate,
+            mfgDate: mfgDate || undefined,
+            expiryDate: expiryDate || undefined,
+            stockItem: item ?? undefined,
+          },
+        ];
     navigation.navigate('OrderEntry', {
       addedItems,
       ...(editOrderItem != null ? { replaceOrderItemId: editOrderItem.id } : {}),
@@ -614,9 +607,16 @@ export default function OrderEntryItemDetail() {
   }, []);
 
   const handleItemMenuRemove = useCallback((lineId: number) => {
-    handleRemoveLineItem(lineId);
     setItemMenuLineId(null);
-  }, [handleRemoveLineItem]);
+    setLineItemToDeleteId(lineId);
+  }, []);
+
+  const confirmLineItemDelete = useCallback(() => {
+    if (lineItemToDeleteId != null) {
+      handleRemoveLineItem(lineItemToDeleteId);
+      setLineItemToDeleteId(null);
+    }
+  }, [lineItemToDeleteId, handleRemoveLineItem]);
 
   const handleItemMenuEditDueDate = useCallback((line: OrderLineItem) => {
     setItemMenuLineId(null);
@@ -646,13 +646,6 @@ export default function OrderEntryItemDetail() {
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Order Entry</Text>
         </View>
-        <TouchableOpacity
-          onPress={handleRefreshSessionCache}
-          style={styles.headerRefreshBtn}
-          accessibilityLabel="Refresh session cache"
-        >
-          <RefreshIcon width={24} height={24} color="#ffffff" />
-        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -708,8 +701,9 @@ export default function OrderEntryItemDetail() {
                     const s = quantityInput;
                     const spaceIdx = s.indexOf(' ');
                     const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
+
                     if (endOfNumber > 0) {
-                      qtyInputRef.current?.setNativeProps?.({ selection: { start: endOfNumber, end: endOfNumber } });
+                      setQtySelection({ start: endOfNumber, end: endOfNumber });
                     }
                   }}
                   onBlur={() => {
@@ -739,6 +733,13 @@ export default function OrderEntryItemDetail() {
                     } else if (validated) setQuantityInput(validated);
                   }}
                   keyboardType="default"
+                  selection={qtySelection}
+                  onSelectionChange={(e) => {
+                    // Only override our forced selection if the user is actively changing it
+                    if (qtySelection) {
+                      setQtySelection(undefined);
+                    }
+                  }}
                   placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
                   placeholderTextColor={LABEL_GRAY}
                 />
@@ -783,12 +784,12 @@ export default function OrderEntryItemDetail() {
                       }}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.inputFlex} numberOfLines={1}>{perLabel}</Text>
+                      <Text style={[styles.inputFlex, { paddingHorizontal: 0 }]} numberOfLines={1}>{perLabel}</Text>
                       <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
                     </TouchableOpacity>
                   ) : (
                     <View style={[styles.input, styles.inputReadOnly]}>
-                      <Text style={styles.inputFlex} numberOfLines={1}>{perLabel}</Text>
+                      <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{perLabel}</Text>
                     </View>
                   );
                 })()}
@@ -918,7 +919,7 @@ export default function OrderEntryItemDetail() {
               </View>
             ) : null}
 
-            
+
 
             <View style={styles.row}>
               <View style={styles.half}>
@@ -937,7 +938,7 @@ export default function OrderEntryItemDetail() {
               <View style={styles.half}>
                 <Text style={styles.label}>Value</Text>
                 <View style={[styles.input, styles.inputReadOnly]}>
-                  <Text style={styles.inputFlex} numberOfLines={1}>{value}</Text>
+                  <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{value}</Text>
                 </View>
               </View>
             </View>
@@ -1036,8 +1037,8 @@ export default function OrderEntryItemDetail() {
               value={
                 editingDueDateLineId != null
                   ? (parseDateDmmmYy(
-                      lineItems.find((l) => l.id === editingDueDateLineId)?.dueDate ?? dueDate
-                    ) ?? new Date())
+                    lineItems.find((l) => l.id === editingDueDateLineId)?.dueDate ?? dueDate
+                  ) ?? new Date())
                   : (parseDateDmmmYy(dueDate) ?? new Date())
               }
               onSelect={handleDueDateSelect}
@@ -1189,23 +1190,31 @@ export default function OrderEntryItemDetail() {
         </View>
       </Modal>
 
-      {showBatchQRScanner && (
-        <QRCodeScanner
-          visible
-          onScanned={(text) => {
-            setBatch(text);
-            setShowBatchQRScanner(false);
-          }}
-          onCancel={() => setShowBatchQRScanner(false)}
-        />
-      )}
+      {
+        showBatchQRScanner && (
+          <QRCodeScanner
+            visible
+            onScanned={(text) => {
+              setBatch(text);
+              setShowBatchQRScanner(false);
+            }}
+            onCancel={() => setShowBatchQRScanner(false)}
+          />
+        )
+      }
 
       <StockBreakdownModal
         visible={!!stockBreakdownItem}
         item={stockBreakdownItem ?? ''}
         onClose={() => setStockBreakdownItem(null)}
       />
-    </View>
+
+      <DeleteConfirmationModal
+        visible={lineItemToDeleteId != null}
+        onCancel={() => setLineItemToDeleteId(null)}
+        onConfirm={confirmLineItemDelete}
+      />
+    </View >
   );
 }
 
@@ -1234,10 +1243,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 15,
     color: '#fff',
-  },
-  headerRefreshBtn: {
-    padding: 2,
-    marginLeft: 6,
   },
   main: {
     flex: 1,
@@ -1387,7 +1392,6 @@ const styles = StyleSheet.create({
     borderColor: INPUT_BORDER,
     paddingHorizontal: 12,
     height: 35,
-    marginTop: 4,
   },
   godownInputDisabled: {
     backgroundColor: '#f0f0f0',
@@ -1416,7 +1420,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 4,
   },
   batchInput: {
     flex: 1,
@@ -1640,7 +1643,7 @@ const styles = StyleSheet.create({
   itemsSection: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 120, // increased to allow scrolling to see the full dropdown
   },
   itemsSectionHeader: {
     flexDirection: 'row',

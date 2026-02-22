@@ -495,7 +495,7 @@ export const sharedStyles = StyleSheet.create({
   footerLabel: { fontSize: 14, fontWeight: '500', color: '#0e172b' },
   footerVal: { fontSize: 14, fontWeight: '600', color: '#0e172b' },
   // Modal styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start', paddingTop: 40, paddingHorizontal: 0 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start', paddingTop: 10, paddingHorizontal: 0 },
   modalContent: {
     backgroundColor: colors.white,
     borderRadius: 8,
@@ -535,4 +535,20 @@ export const sharedStyles = StyleSheet.create({
     borderBottomColor: 'rgba(211,211,211,0.6)',
   },
   modalOptTxt: { fontSize: 15, color: '#0e172b', lineHeight: 20 },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e488f',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    justifyContent: 'space-between',
+  },
+  modalHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  modalHeaderClose: {
+    padding: 4,
+  },
 });

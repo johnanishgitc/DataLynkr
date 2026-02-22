@@ -42,6 +42,8 @@ export const strings = {
   table_data_will_appear: 'Table data will appear here after you submit.',
   opening_balance: 'Opening Balance',
   closing_balance: 'Closing Balance',
+  receivable: 'Receivable',
+  payable: 'Payable',
   credit_limit: 'Credit Limit',
   voucher_details: 'Voucher Details',
   voucher_type: 'Voucher Type',

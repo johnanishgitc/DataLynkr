@@ -116,6 +116,18 @@ export function CustNamesDropdown({
       <Modal visible={isOpen} transparent animationType="fade">
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => { setOpen(false); setQ(''); }}>
           <View style={styles.modal} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalHeaderTitle}>{label || placeholder}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setOpen(false);
+                  setQ('');
+                }}
+                style={styles.modalHeaderClose}
+              >
+                <Icon name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             {searchable ? (
               <View style={styles.searchRow}>
                 <TextInput
@@ -124,6 +136,7 @@ export function CustNamesDropdown({
                   placeholderTextColor={PLACEHOLDER_COLOR}
                   value={q}
                   onChangeText={setQ}
+                  autoFocus
                 />
                 <Icon name="magnify" size={20} color={colors.text_gray} style={styles.searchIcon} />
               </View>
@@ -142,15 +155,6 @@ export function CustNamesDropdown({
                 </TouchableOpacity>
               )}
             />
-            <TouchableOpacity
-              style={styles.cancel}
-              onPress={() => {
-                setQ('');
-                setOpen(false);
-              }}
-            >
-              <Text style={styles.cancelTxt}>Cancel</Text>
-            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -177,14 +181,33 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   triggerTxt: { fontSize: 16, color: DROPDOWN_TEXT, flex: 1, marginRight: 8 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-start', paddingTop: 0, paddingHorizontal: 0 },
   modal: {
     backgroundColor: DROPDOWN_BG,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: DROPDOWN_BORDER,
-    maxHeight: 560,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderTopWidth: 1,
+    borderTopColor: '#c4d4ff',
+    width: '100%',
+    maxHeight: 800,
     overflow: 'hidden',
+    marginTop: 0,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e488f',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    justifyContent: 'space-between',
+  },
+  modalHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.white,
+  },
+  modalHeaderClose: {
+    padding: 4,
   },
   searchRow: {
     flexDirection: 'row',
@@ -211,13 +234,5 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(211,211,211,0.6)',
   },
   optTxt: { fontSize: 16, color: DROPDOWN_TEXT },
-  cancel: {
-    padding: 16,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: DROPDOWN_BORDER,
-    backgroundColor: DROPDOWN_BG,
-  },
-  cancelTxt: { color: colors.primary_blue, fontSize: 16, fontWeight: '500' },
   emptyTxt: { padding: 16, textAlign: 'center', color: PLACEHOLDER_COLOR, fontSize: 15 },
 });
