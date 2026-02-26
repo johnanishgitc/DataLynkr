@@ -31,7 +31,7 @@ import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { LedgerStackParamList } from '../navigation/types';
-import { normalizeToArray } from '../api';
+import { normalizeToArray, isUnauthorizedError } from '../api';
 import type {
   LedgerEntryDetail,
   InventoryAllocation,
@@ -69,7 +69,7 @@ export default function VoucherDetailView() {
   const ledgerName = (route.params?.ledger_name ?? '') as string;
 
   const [v, setV] = useState<Record<string, unknown>>(initialVoucher);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
   const [expandedEntryIndices, setExpandedEntryIndices] = useState<Set<number>>(new Set());
   const [htmlModalVisible, setHtmlModalVisible] = useState(false);
@@ -96,6 +96,7 @@ export default function VoucherDetailView() {
     const masterId = getMasterId(initialVoucher as Record<string, unknown>);
     if (!masterId) {
       fetchDone.current = true;
+      setLoading(false);
       return;
     }
     fetchDone.current = true;
@@ -310,9 +311,9 @@ export default function VoucherDetailView() {
   const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
   const SCROLL_UP_THRESHOLD = 10; // px – same as LedgerVoucher, avoids jitter
   const FOOTER_COLLAPSE_HEIGHT = 55; // px – slide down when collapsed so grand total bar stays visible a bit up
-  const COLLAPSE_DURATION = 300; // accounting: immediate on scroll, smooth (match LedgerVoucher)
+  const COLLAPSE_DURATION = 150; // accounting: immediate on scroll, smooth (match LedgerVoucher)
   const collapseEasing = Easing.out(Easing.cubic);
-  const ORDER_INVOICE_COLLAPSE_DURATION = 300; // immediate on scroll, smooth
+  const ORDER_INVOICE_COLLAPSE_DURATION = 150; // immediate on scroll, smooth
   const orderInvoiceEasing = Easing.out(Easing.cubic); // smooth deceleration at end
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -325,7 +326,7 @@ export default function VoucherDetailView() {
 
     // Order/Invoice: direction-based, eased timing for smoother collapse/expand
     if (!isAccountingView) {
-      if (scrollDiff > 0 && currentScrollY > 10) {
+      if (scrollDiff > 0 && currentScrollY > 0) {
         if (localScrollDirection.current !== 'down') {
           localScrollDirection.current = 'down';
           setScrollDirection('down');
@@ -344,7 +345,7 @@ export default function VoucherDetailView() {
             }),
           ]).start();
         }
-      } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+      } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
         if (localScrollDirection.current !== 'up') {
           localScrollDirection.current = 'up';
           setScrollDirection('up');
@@ -369,7 +370,7 @@ export default function VoucherDetailView() {
     }
 
     // Accounting: direction-based collapse animation
-    if (scrollDiff > 0 && currentScrollY > 10) {
+    if (scrollDiff > 0 && currentScrollY > 0) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
@@ -380,7 +381,7 @@ export default function VoucherDetailView() {
           useNativeDriver: false,
         }).start();
       }
-    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
       if (localScrollDirection.current !== 'up') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
@@ -479,6 +480,10 @@ export default function VoucherDetailView() {
           const html = typeof res?.data === 'string' ? res.data : '';
           setHtmlContent(html || '<p>No content returned.</p>');
         } catch (err) {
+          if (isUnauthorizedError(err)) {
+            setHtmlModalVisible(false);
+            return;
+          }
           if (__DEV__) console.warn('[VoucherDetailView] getVoucherView failed', err);
           Alert.alert('', 'Could not load voucher view.');
           setHtmlModalVisible(false);
@@ -624,223 +629,227 @@ export default function VoucherDetailView() {
         </View>
       </Modal>
 
-      <VoucherCustomerBar
-        displayLedger={displayLedger}
-        invoiceOrder={!isAccountingView}
-        accountingView={isAccountingView}
-      />
-
-      <VoucherSummaryCard
-        particulars={part}
-        amount={amount}
-        isDebit={isDebit}
-        date={date}
-        voucherType={type}
-        refNo={num}
-        invoiceOrder={!isAccountingView}
-      />
-
       {loading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color="#1e488f" />
           <Text style={styles.loadingText}>Loading voucher details…</Text>
         </View>
-      ) : isAccountingView ? (
-        /* ---- Accounting Voucher View: layout from figma_codes/VDAcc (Figma 3045:56026) ---- */
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={true}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-        >
-          {/* Accounting Entries (VDAcc: icon + title, then rows) */}
-          <View style={[styles.sectionHead, styles.accSectionHead]}>
-            <Icon name="earth" size={20} color="#1e488f" />
-            <Text style={styles.sectionTitle}>Accounting Entries</Text>
-          </View>
-          <View style={styles.accEntriesWrap}>
-            {entries.map((entry, i) => {
-              const entryRaw = entry as Record<string, unknown>;
-              const entryLedgerName = String(
-                entry.LEDGERNAME ?? entryRaw.ledgername ?? '—'
-              );
-              const deemed = String(entryRaw.isdeemedpositive ?? entryRaw.ISDEEMEDPOSITIVE ?? '').toLowerCase();
-              const entryAmt = toNum(entryRaw.amount ?? entryRaw.AMOUNT);
-              let entryDrCr: string;
-              if (deemed === 'yes') {
-                entryDrCr = 'Dr';
-              } else if (deemed === 'no') {
-                entryDrCr = 'Cr';
-              } else {
-                const fallback = getLedgerEntryAmount(entry);
-                entryDrCr = fallback.isDebit ? 'Dr' : 'Cr';
-              }
-              const displayAmt = entryAmt > 0 ? entryAmt : getLedgerEntryAmount(entry).amount;
-              const billAllocs = normalizeToArray<BillAllocation>(
-                entry.BILLALLOCATIONS ?? entryRaw.billallocations
-              );
-              const entryGroup = String(
-                entryRaw.group ?? entryRaw.GROUP ??
-                entryRaw.LEDGERGROUP ?? entryRaw.ledgergroup ??
-                entryRaw.ledgergroupidentify ?? entryRaw.LEDGERGROUPIDENTIFY ?? ''
-              ).trim();
-              const isBankGroup = /bank\s*accounts?/i.test(entryGroup);
-              const bankDetails = isBankGroup
-                ? getBankDetailsFromEntry(entryRaw, `₹${fmtNum(displayAmt)} ${entryDrCr}`)
-                : [];
-              const hasSubRows = billAllocs.length > 0 || bankDetails.length > 0;
-              const isExpanded = expandedEntryIndices.has(i);
-              const onRowPress = hasSubRows
-                ? () => {
-                  LayoutAnimation.configureNext({
-                    duration: 320,
-                    update: { type: LayoutAnimation.Types.easeInEaseOut },
-                    create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-                    delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-                  });
-                  setExpandedEntryIndices((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(i)) next.delete(i);
-                    else next.add(i);
-                    return next;
-                  });
-                }
-                : undefined;
-              const RowWrapper = hasSubRows ? TouchableOpacity : View;
-              const rowProps = hasSubRows ? { onPress: onRowPress, activeOpacity: 0.7 } : {};
-              const rowStyle = hasSubRows && isExpanded ? styles.accEntryRowExpanded : styles.accEntryRow;
-              return (
-                <View key={i}>
-                  <RowWrapper style={rowStyle} {...rowProps}>
-                    <Text style={styles.accEntryName} numberOfLines={1}>
-                      {entryLedgerName}
-                    </Text>
-                    <Text style={styles.accEntryAmt}>
-                      ₹{fmtNum(displayAmt)} {entryDrCr}
-                    </Text>
-                  </RowWrapper>
-                  {hasSubRows && isExpanded && (
-                    <View style={styles.accEntrySubBlock}>
-                      {bankDetails.length > 0 ? (
-                        <View style={[styles.accBankBlock, billAllocs.length === 0 && styles.accSubRowLast]}>
-                          {bankDetails.map((row: BankDetailRow, j: number) => (
-                            <View key={`bank-${j}`} style={styles.accBankDetailRow}>
-                              <Text style={styles.accBankDetailLabel} numberOfLines={1}>{row.label}</Text>
-                              <Text style={styles.accBankDetailValue} numberOfLines={1}>{row.value}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      ) : null}
-                      {billAllocs.map((alloc, j) => {
-                        const refNo = (alloc.BILLNAME ?? alloc.billname ?? '—') as string;
-                        const label = (alloc.BILLTYPE ?? alloc.billtype ?? '') as string;
-                        const amount = getBillAllocAmt(alloc);
-                        const dateStr = getBillAllocDate(alloc) || date || '—';
-                        const isLast = j === billAllocs.length - 1;
-                        return (
-                          <View key={j} style={[styles.accSubRow, isLast && styles.accSubRowLast]}>
-                            <View style={styles.accSubRowTopLine}>
-                              <Text style={styles.accSubRowRef} numberOfLines={1}>{refNo}</Text>
-                              <View style={styles.accSubRowTopLineSpacer} />
-                              <Text style={styles.accSubRowDate}>{dateStr}</Text>
-                              <Text style={styles.accSubRowAmount}>₹{fmtNum(amount)}</Text>
-                            </View>
-                            <View style={styles.accSubRowBottomLine}>
-                              <Text style={styles.accSubRowLabel} numberOfLines={1}>{label || '—'}</Text>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-
-          {/* More Details (VDAcc: Created by, Name on receipt, Narration) */}
-          <View style={[styles.sectionHead, styles.accSectionHeadSpaced]}>
-            <Icon name="earth" size={20} color="#1e488f" />
-            <Text style={styles.sectionTitle}>More Details</Text>
-          </View>
-          <View style={styles.accEntriesWrap}>
-            <View style={styles.accEntryRow}>
-              <Text style={styles.accEntryName}>Created by</Text>
-              <Text style={styles.accEntryAmt}>{createdBy}</Text>
-            </View>
-            <View style={styles.accEntryRow}>
-              <Text style={styles.accEntryName}>Name on receipt</Text>
-              <Text style={styles.accEntryAmt}>{nameOnReceipt}</Text>
-            </View>
-            <View style={styles.narrationWrap}>
-              <Text style={styles.narrationLabel}>Narration</Text>
-              <View style={styles.narrationBox}>
-                <Text style={styles.narrationText}>{narrationText || '—'}</Text>
-              </View>
-            </View>
-          </View>
-        </ScrollView>
       ) : (
-        /* ---- Order / Invoice Voucher View (Figma 3045-55819) – footer like LedgerVoucher ---- */
         <>
-          <ScrollView
-            ref={scrollRef}
-            style={styles.scroll}
-            contentContainerStyle={[styles.scrollContent, styles.scrollContentWithFooter]}
-            showsVerticalScrollIndicator={true}
-            onScroll={handleScroll}
-            onMomentumScrollEnd={() => { programmaticScrollRef.current = false; }}
-            onScrollEndDrag={() => { programmaticScrollRef.current = false; }}
-            scrollEventThrottle={16}
-          >
-            <View style={styles.invSectionWrap}>
-              <View style={[styles.sectionHead, styles.sectionHeadInv]}>
-                <Icon name="cube-outline" size={20} color="#1e488f" />
-                <Text style={styles.sectionTitle}>
-                  Inventory Allocations ({invAlloc.length})
-                </Text>
-              </View>
-            </View>
-            <View style={styles.invListWrap}>
-              {invAlloc.map((item, i) => (
-                <ExpandableInventoryRow
-                  key={i}
-                  item={item}
-                  invoiceOrder={true}
-                  onExpandChange={
-                    i === invAlloc.length - 1
-                      ? (expanded) => {
-                        if (expanded) {
-                          programmaticScrollRef.current = true;
-                          setTimeout(() => {
-                            scrollRef.current?.scrollToEnd({ animated: true });
-                          }, 350);
-                        }
-                      }
-                      : undefined
-                  }
-                />
-              ))}
-              <View style={styles.invListEmptySlot} />
-            </View>
-          </ScrollView>
+          <VoucherCustomerBar
+            displayLedger={displayLedger}
+            invoiceOrder={!isAccountingView}
+            accountingView={isAccountingView}
+          />
 
-          <Animated.View
-            style={[
-              styles.voucherDetailFooterFixed,
-              { bottom: footerContentBottom },
-              footerTransform.length > 0 && { transform: footerTransform },
-            ]}
-          >
-            <VoucherDetailsFooter
-              itemTotal={itemTotal}
-              grandTotal={amount}
-              drCr={drCr}
-              ledgerRows={ledgerRows}
-              invoiceOrder={true}
-            />
-          </Animated.View>
+          <VoucherSummaryCard
+            particulars={part}
+            amount={amount}
+            isDebit={isDebit}
+            date={date}
+            voucherType={type}
+            refNo={num}
+            invoiceOrder={!isAccountingView}
+          />
+
+          {isAccountingView ? (
+            /* ---- Accounting Voucher View: layout from figma_codes/VDAcc (Figma 3045:56026) ---- */
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={true}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+            >
+              {/* Accounting Entries (VDAcc: icon + title, then rows) */}
+              <View style={[styles.sectionHead, styles.accSectionHead]}>
+                <Icon name="earth" size={20} color="#1e488f" />
+                <Text style={styles.sectionTitle}>Accounting Entries</Text>
+              </View>
+              <View style={styles.accEntriesWrap}>
+                {entries.map((entry, i) => {
+                  const entryRaw = entry as Record<string, unknown>;
+                  const entryLedgerName = String(
+                    entry.LEDGERNAME ?? entryRaw.ledgername ?? '—'
+                  );
+                  const deemed = String(entryRaw.isdeemedpositive ?? entryRaw.ISDEEMEDPOSITIVE ?? '').toLowerCase();
+                  const entryAmt = toNum(entryRaw.amount ?? entryRaw.AMOUNT);
+                  let entryDrCr: string;
+                  if (deemed === 'yes') {
+                    entryDrCr = 'Dr';
+                  } else if (deemed === 'no') {
+                    entryDrCr = 'Cr';
+                  } else {
+                    const fallback = getLedgerEntryAmount(entry);
+                    entryDrCr = fallback.isDebit ? 'Dr' : 'Cr';
+                  }
+                  const displayAmt = entryAmt > 0 ? entryAmt : getLedgerEntryAmount(entry).amount;
+                  const billAllocs = normalizeToArray<BillAllocation>(
+                    entry.BILLALLOCATIONS ?? entryRaw.billallocations
+                  );
+                  const entryGroup = String(
+                    entryRaw.group ?? entryRaw.GROUP ??
+                    entryRaw.LEDGERGROUP ?? entryRaw.ledgergroup ??
+                    entryRaw.ledgergroupidentify ?? entryRaw.LEDGERGROUPIDENTIFY ?? ''
+                  ).trim();
+                  const isBankGroup = /bank\s*accounts?/i.test(entryGroup);
+                  const bankDetails = isBankGroup
+                    ? getBankDetailsFromEntry(entryRaw, `₹${fmtNum(displayAmt)} ${entryDrCr}`)
+                    : [];
+                  const hasSubRows = billAllocs.length > 0 || bankDetails.length > 0;
+                  const isExpanded = expandedEntryIndices.has(i);
+                  const onRowPress = hasSubRows
+                    ? () => {
+                      LayoutAnimation.configureNext({
+                        duration: 320,
+                        update: { type: LayoutAnimation.Types.easeInEaseOut },
+                        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                      });
+                      setExpandedEntryIndices((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(i)) next.delete(i);
+                        else next.add(i);
+                        return next;
+                      });
+                    }
+                    : undefined;
+                  const RowWrapper = hasSubRows ? TouchableOpacity : View;
+                  const rowProps = hasSubRows ? { onPress: onRowPress, activeOpacity: 0.7 } : {};
+                  const rowStyle = hasSubRows && isExpanded ? styles.accEntryRowExpanded : styles.accEntryRow;
+                  return (
+                    <View key={i}>
+                      <RowWrapper style={rowStyle} {...rowProps}>
+                        <Text style={styles.accEntryName} numberOfLines={1}>
+                          {entryLedgerName}
+                        </Text>
+                        <Text style={styles.accEntryAmt}>
+                          ₹{fmtNum(displayAmt)} {entryDrCr}
+                        </Text>
+                      </RowWrapper>
+                      {hasSubRows && isExpanded && (
+                        <View style={styles.accEntrySubBlock}>
+                          {bankDetails.length > 0 ? (
+                            <View style={[styles.accBankBlock, billAllocs.length === 0 && styles.accSubRowLast]}>
+                              {bankDetails.map((row: BankDetailRow, j: number) => (
+                                <View key={`bank-${j}`} style={styles.accBankDetailRow}>
+                                  <Text style={styles.accBankDetailLabel} numberOfLines={1}>{row.label}</Text>
+                                  <Text style={styles.accBankDetailValue} numberOfLines={1}>{row.value}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : null}
+                          {billAllocs.map((alloc, j) => {
+                            const refNo = (alloc.BILLNAME ?? alloc.billname ?? '—') as string;
+                            const label = (alloc.BILLTYPE ?? alloc.billtype ?? '') as string;
+                            const amount = getBillAllocAmt(alloc);
+                            const dateStr = getBillAllocDate(alloc) || date || '—';
+                            const isLast = j === billAllocs.length - 1;
+                            return (
+                              <View key={j} style={[styles.accSubRow, isLast && styles.accSubRowLast]}>
+                                <View style={styles.accSubRowTopLine}>
+                                  <Text style={styles.accSubRowRef} numberOfLines={1}>{refNo}</Text>
+                                  <View style={styles.accSubRowTopLineSpacer} />
+                                  <Text style={styles.accSubRowDate}>{dateStr}</Text>
+                                  <Text style={styles.accSubRowAmount}>₹{fmtNum(amount)}</Text>
+                                </View>
+                                <View style={styles.accSubRowBottomLine}>
+                                  <Text style={styles.accSubRowLabel} numberOfLines={1}>{label || '—'}</Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* More Details (VDAcc: Created by, Name on receipt, Narration) */}
+              <View style={[styles.sectionHead, styles.accSectionHeadSpaced]}>
+                <Icon name="earth" size={20} color="#1e488f" />
+                <Text style={styles.sectionTitle}>More Details</Text>
+              </View>
+              <View style={styles.accEntriesWrap}>
+                <View style={styles.accEntryRow}>
+                  <Text style={styles.accEntryName}>Created by</Text>
+                  <Text style={styles.accEntryAmt}>{createdBy}</Text>
+                </View>
+                <View style={styles.accEntryRow}>
+                  <Text style={styles.accEntryName}>Name on receipt</Text>
+                  <Text style={styles.accEntryAmt}>{nameOnReceipt}</Text>
+                </View>
+                <View style={styles.narrationWrap}>
+                  <Text style={styles.narrationLabel}>Narration</Text>
+                  <View style={styles.narrationBox}>
+                    <Text style={styles.narrationText}>{narrationText || '—'}</Text>
+                  </View>
+                </View>
+              </View>
+            </ScrollView>
+          ) : (
+            /* ---- Order / Invoice Voucher View (Figma 3045-55819) – footer like LedgerVoucher ---- */
+            <>
+              <ScrollView
+                ref={scrollRef}
+                style={styles.scroll}
+                contentContainerStyle={[styles.scrollContent, styles.scrollContentWithFooter]}
+                showsVerticalScrollIndicator={true}
+                onScroll={handleScroll}
+                onMomentumScrollEnd={() => { programmaticScrollRef.current = false; }}
+                onScrollEndDrag={() => { programmaticScrollRef.current = false; }}
+                scrollEventThrottle={16}
+              >
+                <View style={styles.invSectionWrap}>
+                  <View style={[styles.sectionHead, styles.sectionHeadInv]}>
+                    <Icon name="cube-outline" size={20} color="#1e488f" />
+                    <Text style={styles.sectionTitle}>
+                      Inventory Allocations ({invAlloc.length})
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.invListWrap}>
+                  {invAlloc.map((item, i) => (
+                    <ExpandableInventoryRow
+                      key={i}
+                      item={item}
+                      invoiceOrder={true}
+                      onExpandChange={
+                        i === invAlloc.length - 1
+                          ? (expanded) => {
+                            if (expanded) {
+                              programmaticScrollRef.current = true;
+                              setTimeout(() => {
+                                scrollRef.current?.scrollToEnd({ animated: true });
+                              }, 350);
+                            }
+                          }
+                          : undefined
+                      }
+                    />
+                  ))}
+                  <View style={styles.invListEmptySlot} />
+                </View>
+              </ScrollView>
+
+              <Animated.View
+                style={[
+                  styles.voucherDetailFooterFixed,
+                  { bottom: footerContentBottom },
+                  footerTransform.length > 0 && { transform: footerTransform },
+                ]}
+              >
+                <VoucherDetailsFooter
+                  itemTotal={itemTotal}
+                  grandTotal={amount}
+                  drCr={drCr}
+                  ledgerRows={ledgerRows}
+                  invoiceOrder={true}
+                />
+              </Animated.View>
+            </>
+          )}
         </>
       )}
     </View>

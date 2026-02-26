@@ -12,7 +12,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
-import { apiService } from '../../api';
+import { apiService, isUnauthorizedError } from '../../api';
 import type { LedgerReportData, VoucherEntry } from '../../api';
 import { getDataOrConstruct } from '../../api/models/ledger';
 import { StatusBarTopBar } from '../../components';
@@ -82,23 +82,23 @@ export default function LedgerVoucher({
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    if (scrollDiff > 0 && currentScrollY > 10) {
+    if (scrollDiff > 0 && currentScrollY > 0) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
         Animated.timing(footerTranslateY, {
           toValue: footerHeight,
-          duration: 300,
+          duration: 150,
           useNativeDriver: true,
         }).start();
       }
-    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
       if (localScrollDirection.current !== 'up') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
         Animated.timing(footerTranslateY, {
           toValue: 0,
-          duration: 300,
+          duration: 150,
           useNativeDriver: true,
         }).start();
       }
@@ -158,6 +158,10 @@ export default function LedgerVoucher({
         const d = getDataOrConstruct(res as Parameters<typeof getDataOrConstruct>[0]);
         setData(d);
       } catch (e: unknown) {
+        if (isUnauthorizedError(e)) {
+          setData(null);
+          return;
+        }
         let msg = 'Network error';
         if (e && typeof e === 'object') {
           if ('response' in e && e.response && typeof e.response === 'object') {

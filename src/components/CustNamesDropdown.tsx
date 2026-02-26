@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -49,8 +49,19 @@ export function CustNamesDropdown({
 }: CustNamesDropdownProps): React.ReactElement {
   const [openState, setOpenState] = useState(false);
   const [q, setQ] = useState('');
+  const inputRef = useRef<TextInput>(null);
+
   const isControlled = openProp !== undefined && onOpenChange != null;
   const isOpen = isControlled ? (openProp ?? false) : openState;
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [isOpen]);
+
   const setOpen = (v: boolean) => {
     if (isControlled) onOpenChange?.(v);
     else setOpenState(v);
@@ -113,7 +124,15 @@ export function CustNamesDropdown({
         </Text>
         <Icon name="magnify" size={20} color={colors.text_gray} />
       </TouchableOpacity>
-      <Modal visible={isOpen} transparent animationType="fade">
+      <Modal
+        visible={isOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setOpen(false);
+          setQ('');
+        }}
+      >
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => { setOpen(false); setQ(''); }}>
           <View style={styles.modal} onStartShouldSetResponder={() => true}>
             <View style={styles.modalHeaderRow}>
@@ -131,12 +150,12 @@ export function CustNamesDropdown({
             {searchable ? (
               <View style={styles.searchRow}>
                 <TextInput
+                  ref={inputRef}
                   style={styles.input}
                   placeholder="Search…"
                   placeholderTextColor={PLACEHOLDER_COLOR}
                   value={q}
                   onChangeText={setQ}
-                  autoFocus
                 />
                 <Icon name="magnify" size={20} color={colors.text_gray} style={styles.searchIcon} />
               </View>
@@ -146,6 +165,7 @@ export function CustNamesDropdown({
               keyExtractor={(i) => i}
               style={styles.list}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               ListEmptyComponent={<Text style={styles.emptyTxt}>No ledgers found</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.opt} onPress={() => handleSelect(item)} activeOpacity={0.7}>
@@ -186,8 +206,6 @@ const styles = StyleSheet.create({
     backgroundColor: DROPDOWN_BG,
     borderRadius: 0,
     borderWidth: 0,
-    borderTopWidth: 1,
-    borderTopColor: '#c4d4ff',
     width: '100%',
     maxHeight: 800,
     overflow: 'hidden',
@@ -197,7 +215,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1e488f',
-    paddingVertical: 12,
+    paddingVertical: 6,
     paddingHorizontal: 16,
     justifyContent: 'space-between',
   },

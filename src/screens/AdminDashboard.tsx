@@ -14,8 +14,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/types';
 import type { UserConnection } from '../api';
-import { apiService } from '../api';
-import { RefreshIcon, DLogo } from '../assets/connections';
+import { apiService, isUnauthorizedError } from '../api';
+import { RefreshIcon } from '../assets/connections';
 import { useAuth } from '../store';
 import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
 import { strings, connections_available } from '../constants/strings';
@@ -77,6 +77,10 @@ export default function AdminDashboard() {
       }
       setAll(list);
     } catch (e: unknown) {
+      if (isUnauthorizedError(e)) {
+        setAll([]);
+        return;
+      }
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : strings.network_error;
       Alert.alert(strings.error, msg);
       setAll([]);
@@ -116,10 +120,7 @@ export default function AdminDashboard() {
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => onSelect(item)} activeOpacity={0.7}>
-        <View style={styles.cardRow}>
-          <View style={styles.iconWrap}>
-            <DLogo width={10} height={11} color="#ffffff" />
-          </View>
+        <View style={styles.cardContent}>
           <Text style={styles.company} numberOfLines={1}>{displayName}</Text>
           {isConnected && (
             <View style={styles.connectedBadge}>
@@ -211,8 +212,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginTop: 0,
     backgroundColor: '#fdfdfe',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
   },
   countDot: {
     width: 8,
@@ -251,22 +250,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 10,
   },
-  cardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary_blue,
-    alignItems: 'center',
-    justifyContent: 'center',
+  cardContent: {
+    flexDirection: 'column',
+    gap: 6,
   },
   company: {
-    flex: 1,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '400',
     color: '#101727',
   },
@@ -274,10 +263,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     backgroundColor: '#dcfce7',
     borderRadius: 9999,
+    alignSelf: 'flex-start',
   },
   connectedDot: {
     width: 6,
@@ -286,7 +276,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#00c950',
   },
   connectedText: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#008235',
   },
   logoutBtn: {

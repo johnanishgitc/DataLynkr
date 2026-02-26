@@ -19,6 +19,7 @@ import {
     FlatList,
     Dimensions,
     Animated,
+    StatusBar,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -100,7 +101,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     const deferredFilters = useDeferredValue(filters);
 
     /** KPI popup: show complete figure when user taps a KPI card */
-    const [kpiModal, setKpiModal] = useState<{ title: string; fullValue: string } | null>(null);
+    const [kpiModal, setKpiModal] = useState<{ title: string; fullValue: string; description?: string } | null>(null);
 
 
 
@@ -350,6 +351,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     if (isLoading) {
         return (
             <SafeAreaView style={styles.container}>
+                <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
                 <View style={styles.header}>
                     <TouchableOpacity onPress={openSidebar} style={styles.backButton}>
                         <Icon name="menu" size={24} color={colors.white} />
@@ -370,6 +372,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         const isNoCache = error === 'no_cache';
         return (
             <SafeAreaView style={styles.container}>
+                <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
                 <View style={styles.header}>
                     <TouchableOpacity onPress={openSidebar} style={styles.backButton}>
                         <Icon name="menu" size={24} color={colors.white} />
@@ -400,6 +403,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
 
     return (
         <SafeAreaView style={styles.container}>
+            <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={openSidebar} style={styles.backButton}>
@@ -448,6 +452,9 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         {kpiModal && (
                             <>
                                 <Text style={styles.kpiModalTitle}>{kpiModal.title}</Text>
+                                {kpiModal.description ? (
+                                    <Text style={styles.kpiModalDescription}>{kpiModal.description}</Text>
+                                ) : null}
                                 <Text style={styles.kpiModalValue}>{kpiModal.fullValue}</Text>
                                 <TouchableOpacity
                                     style={styles.kpiModalCloseBtn}
@@ -551,7 +558,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         iconName="account-balance-wallet"
                         variant="blue"
                         chartType="bar"
-                        onPress={() => setKpiModal({ title: 'Total Revenue', fullValue: formatFullCurrency(kpi?.totalRevenue || 0) })}
+                        onPress={() => setKpiModal({ title: 'Total Revenue', fullValue: formatFullCurrency(kpi?.totalRevenue || 0), description: 'Sales − Credit notes (Σ sale.amount; credit notes stored as negative)' })}
                     />
                     <KPICard
                         title="Total Invoices"
@@ -1056,6 +1063,13 @@ const styles = StyleSheet.create({
         letterSpacing: 0.6,
         marginBottom: 8,
         textTransform: 'uppercase',
+    },
+    kpiModalDescription: {
+        fontSize: 11,
+        color: '#64748b',
+        marginBottom: 6,
+        textAlign: 'center',
+        fontStyle: 'italic',
     },
     kpiModalValue: {
         fontSize: 26,

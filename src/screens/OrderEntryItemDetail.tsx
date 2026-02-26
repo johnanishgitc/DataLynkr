@@ -1,21 +1,24 @@
-/**
- * Order Entry Item Detail - Figma 3067-52684 (OE3).
- * Shown when user selects an item from the Select Item dropdown on Order Entry.
- * Item details form + order summary + Add Item / Add to Order.
- */
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   Modal,
   Animated,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
+
+// Enable LayoutAnimation on Android for smooth expand/selection (match voucher details)
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useScroll } from '../store/ScrollContext';
@@ -58,8 +61,8 @@ const SECTION_BG = '#e6ecfd';
 const ROW_BORDER = '#c4d4ff';
 const TEXT_ROW = '#0e172b';
 const LABEL_GRAY = '#6a7282';
-const INPUT_BORDER = '#d3d3d3';
-const INPUT_BG = '#d3d3d366';
+const INPUT_BORDER = '#c5d4ff';
+const INPUT_BG = '#e6ecfd';
 const FOOTER_ADD_BG = '#0e172b';
 const FOOTER_PLACE_BG = '#39b57c';
 const ATTACH_YELLOW = '#f1c74b';
@@ -76,6 +79,11 @@ type OrderLineItem = {
   stock: number;
   tax: number;
   dueDate?: string;
+  mfgDate?: string;
+  expiryDate?: string;
+  godown?: string;
+  batch?: string;
+  description?: string;
 };
 
 function itemDisplayName(item: StockItem | undefined): string {
@@ -205,6 +213,8 @@ export default function OrderEntryItemDetail() {
   const item = route.params?.item;
   const selectedLedger = route.params?.selectedLedger ?? null;
   const editOrderItem = route.params?.editOrderItem ?? null;
+  const editOrderItems = route.params?.editOrderItems ?? null;
+  const viewOnly = route.params?.viewOnly ?? false;
 
   const footerCollapseVal = useRef(new Animated.Value(1)).current;
   useFocusEffect(
@@ -233,7 +243,6 @@ export default function OrderEntryItemDetail() {
   const fromPl = rateFromPriceLevel(item, selectedLedger);
   const defaultPer = itemPer(item, selectedLedger, fromPl);
 
-  const [description, setDescription] = useState('');
   /** UOM: user-facing quantity string (e.g. "10 box", "2 LTR 500 ML"). When no UOM config, same as numeric qty. */
   const [quantityInput, setQuantityInput] = useState('1');
   /** UOM: quantity in base units (for amount calc and line items). */
@@ -260,6 +269,8 @@ export default function OrderEntryItemDetail() {
   const [nextId, setNextId] = useState(1);
   const [qtySelection, setQtySelection] = useState<{ start: number; end: number } | undefined>();
   const [itemMenuLineId, setItemMenuLineId] = useState<number | null>(null);
+  const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
+  const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
   const [lineItemToDeleteId, setLineItemToDeleteId] = useState<number | null>(null);
   const [editingDueDateLineId, setEditingDueDateLineId] = useState<number | null>(null);
   const [godown, setGodown] = useState('');
@@ -275,12 +286,15 @@ export default function OrderEntryItemDetail() {
   const [expiryDate, setExpiryDate] = useState('');
   const [mfgDatePickerVisible, setMfgDatePickerVisible] = useState(false);
   const [expiryDatePickerVisible, setExpiryDatePickerVisible] = useState(false);
+  const [description, setDescription] = useState('');
   const godownBatchRowRef = useRef<View>(null);
   const perFieldRef = useRef<View>(null);
   const qtyInputRef = useRef<TextInput>(null);
   const [dropdownAnchor, setDropdownAnchor] = useState({ top: 0, left: 16, width: 0 });
   const [perDropdownOpen, setPerDropdownOpen] = useState(false);
   const [perDropdownAnchor, setPerDropdownAnchor] = useState({ top: 0, left: 16, width: 0 });
+  /** After Add Item is clicked, rate is locked for subsequent adds on this screen (still editable when updating a line). */
+  const [rateLockedAfterAdd, setRateLockedAfterAdd] = useState(false);
 
   /** Fetch units from api/tally/stockitem for UOM (shared across items). */
   useEffect(() => {
@@ -311,7 +325,7 @@ export default function OrderEntryItemDetail() {
     const config = buildUnitConfig(item, units);
     setSelectedItemUnitConfig(config);
     setRateUOM(getDefaultRateUOM(config));
-    if (!editOrderItem) {
+    if (!editOrderItem && !(editOrderItems != null && editOrderItems.length > 0)) {
       const baseUnit = config?.BASEUNITS ?? '';
       setQuantityInput(baseUnit ? `1 ${baseUnit}` : '1');
       setItemQuantity(1);
@@ -321,34 +335,89 @@ export default function OrderEntryItemDetail() {
       setCompoundAddlQty(null);
       setBaseQtyOnly(null);
     }
-  }, [item?.MASTERID ?? item?.NAME ?? null, units, editOrderItem]);
+  }, [item?.MASTERID ?? item?.NAME ?? null, units, editOrderItem, editOrderItems]);
 
   useEffect(() => {
+    if (editOrderItems != null && editOrderItems.length > 0 && item) {
+      const selected = editOrderItem != null ? editOrderItems.find((e) => e.id === editOrderItem.id) : null;
+      const source = selected ?? editOrderItems[0];
+      const qtyNum = typeof source.qty === 'number' ? source.qty : parseFloat(String(source.qty)) || 0;
+      setQuantityInput(String(source.qty));
+      setItemQuantity(qtyNum);
+      setRate(String(source.rate));
+      setDiscount(String(source.discount ?? 0));
+      setDueDate(source.dueDate ?? formatDateDmmmYy(Date.now()));
+      setValue(String(source.total.toFixed(2)));
+      setMfgDate(source.mfgDate ?? '');
+      setExpiryDate(source.expiryDate ?? '');
+      // Description is common to all batches: use first non-empty from any batch
+      const commonDesc = (editOrderItems.find((oi) => oi.description && String(oi.description).trim())?.description ?? editOrderItems[0]?.description ?? '').trim();
+      setDescription(commonDesc);
+      setLineItems(
+        editOrderItems.map((oi) => {
+          const q = typeof oi.qty === 'number' ? oi.qty : parseFloat(String(oi.qty)) || 0;
+          const r = typeof oi.rate === 'number' ? oi.rate : parseFloat(String(oi.rate)) || 0;
+          return {
+            id: oi.id,
+            name: oi.name,
+            qty: q,
+            rate: r,
+            discount: oi.discount ?? 0,
+            total: oi.total,
+            stock: oi.stock ?? 0,
+            tax: oi.tax ?? 0,
+            dueDate: oi.dueDate,
+            mfgDate: oi.mfgDate,
+            expiryDate: oi.expiryDate,
+            godown: oi.godown,
+            batch: oi.batch,
+            description: commonDesc || undefined,
+          };
+        })
+      );
+      const maxId = Math.max(...editOrderItems.map((e) => e.id), 0);
+      setNextId(maxId + 1);
+      setSelectedLineId(source.id);
+      setGodown(source.godown ?? '');
+      setBatch(source.batch ?? '');
+      return;
+    }
     if (editOrderItem && item) {
+      const qtyNum = typeof editOrderItem.qty === 'number' ? editOrderItem.qty : parseFloat(String(editOrderItem.qty)) || 0;
+      const rateNum = typeof editOrderItem.rate === 'number' ? editOrderItem.rate : parseFloat(String(editOrderItem.rate)) || 0;
       setQuantityInput(String(editOrderItem.qty));
-      setItemQuantity(editOrderItem.qty);
+      setItemQuantity(qtyNum);
       setRate(String(editOrderItem.rate));
-      setDiscount(String(editOrderItem.discount));
+      setDiscount(String(editOrderItem.discount ?? 0));
       setDueDate(editOrderItem.dueDate ?? formatDateDmmmYy(Date.now()));
       setValue(String(editOrderItem.total.toFixed(2)));
       setMfgDate(editOrderItem.mfgDate ?? '');
       setExpiryDate(editOrderItem.expiryDate ?? '');
+      setDescription(editOrderItem.description ?? '');
       setLineItems([
         {
           id: editOrderItem.id,
           name: editOrderItem.name,
-          qty: editOrderItem.qty,
-          rate: editOrderItem.rate,
-          discount: editOrderItem.discount,
+          qty: qtyNum,
+          rate: rateNum,
+          discount: editOrderItem.discount ?? 0,
           total: editOrderItem.total,
-          stock: editOrderItem.stock,
-          tax: editOrderItem.tax,
+          stock: editOrderItem.stock ?? 0,
+          tax: editOrderItem.tax ?? 0,
           dueDate: editOrderItem.dueDate,
+          mfgDate: editOrderItem.mfgDate,
+          expiryDate: editOrderItem.expiryDate,
+          godown: editOrderItem.godown,
+          batch: editOrderItem.batch,
+          description: editOrderItem.description,
         },
       ]);
       setNextId(editOrderItem.id + 1);
+      setSelectedLineId(editOrderItem.id);
+      setGodown(editOrderItem.godown ?? '');
+      setBatch(editOrderItem.batch ?? '');
     }
-  }, [editOrderItem?.id]);
+  }, [editOrderItem?.id, editOrderItems]);
 
   /** Parse quantity input and derive itemQuantity + compound state for amount calculation. */
   useEffect(() => {
@@ -411,7 +480,7 @@ export default function OrderEntryItemDetail() {
   }, [itemQuantity, rate, discount, rateUOM, selectedItemUnitConfig, units, compoundBaseQty, compoundAddlQty, baseQtyOnly, customAddlQty, customConversion]);
 
   useEffect(() => {
-    if (!item || editOrderItem) return;
+    if (!item || editOrderItem || (editOrderItems != null && editOrderItems.length > 0)) return;
     const r = computeRateForItem(item, selectedLedger);
     const d = computeDiscountForItem(item, selectedLedger);
     const fromPl = rateFromPriceLevel(item, selectedLedger);
@@ -419,7 +488,7 @@ export default function OrderEntryItemDetail() {
     setRate(r);
     setDiscount(d);
     setPer(p);
-  }, [item?.MASTERID ?? item?.NAME ?? null, selectedLedger, editOrderItem]);
+  }, [item?.MASTERID ?? item?.NAME ?? null, selectedLedger, editOrderItem, editOrderItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,12 +508,16 @@ export default function OrderEntryItemDetail() {
     return () => { cancelled = true; };
   }, []);
 
+  const isEditMode = editOrderItem != null || (editOrderItems != null && editOrderItems.length > 0);
+
   useEffect(() => {
     if (!name?.trim()) {
       setBatchDataList([]);
       setSelectedBatchData(null);
-      setBatch('');
-      if (isBatchWiseOnFromItem(item)) setGodown('');
+      if (!isEditMode) {
+        setBatch('');
+        if (isBatchWiseOnFromItem(item)) setGodown('');
+      }
       return;
     }
     let cancelled = false;
@@ -477,20 +550,24 @@ export default function OrderEntryItemDetail() {
           console.log('[OrderEntryItemDetail] batchDataList set, length:', list.length, 'items:', list.map((b) => ({ Batchname: b.Batchname, godown: b.godown })));
         }
         setBatchDataList(list);
-        setSelectedBatchData(null);
-        setBatch('');
-        if (isBatchWiseOnFromItem(item)) setGodown('');
-      } catch {
-        if (!cancelled) {
-          setBatchDataList([]);
+        if (!isEditMode) {
           setSelectedBatchData(null);
           setBatch('');
           if (isBatchWiseOnFromItem(item)) setGodown('');
         }
+      } catch {
+        if (!cancelled) {
+          setBatchDataList([]);
+          setSelectedBatchData(null);
+          if (!isEditMode) {
+            setBatch('');
+            if (isBatchWiseOnFromItem(item)) setGodown('');
+          }
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [name, item]);
+  }, [name, item, isEditMode]);
 
   /** Batch dropdown shows all batches from api/tally/itemwise-batchwise-bal; godown is auto-filled on selection. */
   const batchOptionsForDropdown = batchDataList;
@@ -513,11 +590,11 @@ export default function OrderEntryItemDetail() {
       );
       const exp = selectedBatchData.ExpiryDate;
       setExpiryDate(exp ? String(exp).trim() : '');
-    } else {
+    } else if (!(editOrderItem != null || (editOrderItems != null && editOrderItems.length > 0))) {
       setMfgDate('');
       setExpiryDate('');
     }
-  }, [selectedBatchData]);
+  }, [selectedBatchData, editOrderItem, editOrderItems]);
 
   const handleMfgDateSelect = useCallback((d: Date) => {
     setMfgDate(formatDateDmmmYy(d.getTime()));
@@ -533,16 +610,32 @@ export default function OrderEntryItemDetail() {
     navigation.goBack();
   }, [navigation]);
 
+  const handleCancel = useCallback(() => {
+    if (selectedLineId != null) {
+      setSelectedLineId(null);
+    } else {
+      goBack();
+    }
+  }, [selectedLineId, goBack]);
+
   const handleAddToOrder = useCallback(() => {
+    const baseUnit = selectedItemUnitConfig?.BASEUNITS ?? '';
+    // Description is common to all batches: use current form value for every line
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
       name: line.name,
-      qty: line.qty,
-      rate: line.rate,
+      qty: String(line.qty),
+      rate: String(line.rate),
+      unit: baseUnit,
       discount: line.discount,
       total: line.total,
       stock: line.stock,
       tax: line.tax,
       dueDate: line.dueDate,
+      mfgDate: line.mfgDate,
+      expiryDate: line.expiryDate,
+      godown: line.godown,
+      batch: line.batch,
+      description: description || undefined,
       stockItem: item ?? undefined,
     });
     const addedItems: AddedOrderItemWithStock[] =
@@ -551,8 +644,9 @@ export default function OrderEntryItemDetail() {
         : [
           {
             name,
-            qty: Math.max(0, itemQuantity),
-            rate: Math.max(0, parseFloat(rate) || 0),
+            qty: String(Math.max(0, itemQuantity)),
+            rate: String(Math.max(0, parseFloat(rate) || 0)),
+            unit: baseUnit,
             discount: Math.max(0, Math.min(100, parseFloat(discount) || 0)),
             total: parseFloat(value) || 0,
             stock: stockNum,
@@ -560,14 +654,39 @@ export default function OrderEntryItemDetail() {
             dueDate,
             mfgDate: mfgDate || undefined,
             expiryDate: expiryDate || undefined,
+            godown: godown || undefined,
+            batch: batch || undefined,
+            description: description || undefined,
             stockItem: item ?? undefined,
           },
         ];
     navigation.navigate('OrderEntry', {
       addedItems,
-      ...(editOrderItem != null ? { replaceOrderItemId: editOrderItem.id } : {}),
+      ...(editOrderItems != null && editOrderItems.length > 0
+        ? { replaceOrderItemIds: editOrderItems.map((e) => e.id) }
+        : editOrderItem != null
+          ? { replaceOrderItemId: editOrderItem.id }
+          : {}),
     });
-  }, [navigation, lineItems, name, itemQuantity, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, item, editOrderItem?.id]);
+  }, [navigation, lineItems, name, itemQuantity, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig]);
+
+  const populateFormFromLine = useCallback((line: OrderLineItem, allLineItems?: OrderLineItem[]) => {
+    setQuantityInput(String(line.qty));
+    setItemQuantity(line.qty);
+    setRate(String(line.rate));
+    setDiscount(String(line.discount));
+    setValue(String(line.total.toFixed(2)));
+    setDueDate(line.dueDate ?? formatDateDmmmYy(Date.now()));
+    setMfgDate(line.mfgDate ?? '');
+    setExpiryDate(line.expiryDate ?? '');
+    setGodown(line.godown ?? '');
+    setBatch(line.batch ?? '');
+    // Description is common to all batches: show first non-empty from any batch, else this line's
+    const commonDesc = allLineItems?.find((l) => l.description && String(l.description).trim())?.description?.trim()
+      ?? line.description?.trim()
+      ?? '';
+    setDescription(commonDesc);
+  }, []);
 
   const handleAddItem = useCallback(() => {
     const r = Math.max(0, parseFloat(rate) || 0);
@@ -585,26 +704,104 @@ export default function OrderEntryItemDetail() {
         stock: stockNum,
         tax: taxNum,
         dueDate,
+        mfgDate: mfgDate || undefined,
+        expiryDate: expiryDate || undefined,
+        godown,
+        batch,
+        description: description || undefined,
       },
     ]);
     setNextId((id) => id + 1);
-    const baseUnit = selectedItemUnitConfig?.BASEUNITS ?? '';
-    setQuantityInput(baseUnit ? `1 ${baseUnit}` : '1');
-  }, [name, itemQuantity, rate, discount, value, stockNum, taxNum, nextId, dueDate, selectedItemUnitConfig]);
+    setSelectedLineId(null);
+    setRateLockedAfterAdd(true);
+    setQuantityInput('');
+    setItemQuantity(0);
+    setGodown('');
+    setBatch('');
+    setSelectedBatchData(null);
+    setGodownDropdownOpen(false);
+    setBatchDropdownOpen(false);
+  }, [name, itemQuantity, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig]);
+
+  const handleUpdateItem = useCallback(() => {
+    if (selectedLineId == null) return;
+    const r = Math.max(0, parseFloat(rate) || 0);
+    const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
+    const formTotal = parseFloat(value) || 0;
+    setRateLockedAfterAdd(true);
+    setLineItems((prev) =>
+      prev.map((l) => {
+        const isSelected = l.id === selectedLineId;
+        const qtyForTotal = isSelected ? Math.max(0, itemQuantity) : l.qty;
+        const newTotal = qtyForTotal * r * (1 - d / 100);
+        const roundedTotal = Number.isFinite(newTotal) ? Math.round(newTotal * 100) / 100 : (isSelected ? formTotal : l.total);
+        return isSelected
+          ? {
+            ...l,
+            qty: Math.max(0, itemQuantity),
+            rate: r,
+            discount: d,
+            total: roundedTotal,
+            dueDate,
+            mfgDate: mfgDate || undefined,
+            expiryDate: expiryDate || undefined,
+            godown,
+            batch,
+            description: description || undefined,
+          }
+          : {
+            ...l,
+            rate: r,
+            discount: d,
+            total: roundedTotal,
+          };
+      })
+    );
+    setSelectedLineId(null);
+    setQuantityInput('');
+    setItemQuantity(0);
+    setGodown('');
+    setBatch('');
+    setSelectedBatchData(null);
+    setGodownDropdownOpen(false);
+    setBatchDropdownOpen(false);
+  }, [selectedLineId, itemQuantity, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig]);
 
   const handleRemoveLineItem = useCallback((id: number) => {
     setLineItems((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
-  const handleItemMenuEdit = useCallback((line: OrderLineItem) => {
-    setQuantityInput(String(line.qty));
-    setItemQuantity(line.qty);
-    setRate(String(line.rate));
-    setDiscount(String(line.discount));
-    setValue(String(line.total.toFixed(2)));
-    setLineItems((prev) => prev.filter((i) => i.id !== line.id));
-    setItemMenuLineId(null);
-  }, []);
+  const handleItemMenuEdit = useCallback(
+    (line: OrderLineItem) => {
+      setSelectedLineId(line.id);
+      populateFormFromLine(line, lineItems);
+      setItemMenuLineId(null);
+    },
+    [populateFormFromLine, lineItems]
+  );
+  const handleSelectLine = useCallback(
+    (line: OrderLineItem) => {
+      LayoutAnimation.configureNext({
+        duration: 320,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      });
+      setExpandedLineId((prev) => (prev === line.id ? null : line.id));
+      setItemMenuLineId(null);
+    },
+    []
+  );
+
+  const handleEditLine = useCallback(
+    (line: OrderLineItem) => {
+      setSelectedLineId(line.id);
+      populateFormFromLine(line, lineItems);
+      setItemMenuLineId(null);
+      setExpandedLineId(null);
+    },
+    [populateFormFromLine, lineItems]
+  );
 
   const handleItemMenuRemove = useCallback((lineId: number) => {
     setItemMenuLineId(null);
@@ -613,10 +810,19 @@ export default function OrderEntryItemDetail() {
 
   const confirmLineItemDelete = useCallback(() => {
     if (lineItemToDeleteId != null) {
+      if (selectedLineId === lineItemToDeleteId) {
+        LayoutAnimation.configureNext({
+          duration: 320,
+          update: { type: LayoutAnimation.Types.easeInEaseOut },
+          create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+          delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+        });
+        setSelectedLineId(null);
+      }
       handleRemoveLineItem(lineItemToDeleteId);
       setLineItemToDeleteId(null);
     }
-  }, [lineItemToDeleteId, handleRemoveLineItem]);
+  }, [lineItemToDeleteId, selectedLineId, handleRemoveLineItem]);
 
   const handleItemMenuEditDueDate = useCallback((line: OrderLineItem) => {
     setItemMenuLineId(null);
@@ -644,7 +850,7 @@ export default function OrderEntryItemDetail() {
           <CaretLeftSvg width={24} height={24} />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Order Entry</Text>
+          <Text style={styles.headerTitle}>Order Entry (Batch Allocations)</Text>
         </View>
       </View>
 
@@ -659,366 +865,432 @@ export default function OrderEntryItemDetail() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator
         >
-          {/* Item name bar - OE3 */}
-          <View style={styles.itemNameBar}>
-            <View style={styles.itemNameRow}>
-              <VectorSvg width={16} height={16} style={styles.itemNameIcon} />
-              <Text style={styles.itemNameText} numberOfLines={1}>{name || '—'}</Text>
-            </View>
-          </View>
-
-          {/* Form - OE3 */}
-          <View style={styles.form}>
-            <View style={styles.fieldBlock}>
-              <View style={styles.labelRow}>
-                <Text style={styles.label}>Description</Text>
-                <Text style={styles.labelHint}>(max 500 characters)</Text>
-              </View>
-              <TextInput
-                style={styles.textArea}
-                value={description}
-                onChangeText={setDescription}
-                placeholder=""
-                placeholderTextColor={LABEL_GRAY}
-                multiline
-                maxLength={500}
-                numberOfLines={4}
-              />
-            </View>
-
-            <View style={styles.row}>
-              <View style={styles.half}>
-                <Text style={styles.label}>Qty</Text>
-                <TextInput
-                  ref={qtyInputRef}
-                  style={[styles.input, styles.inputRowField]}
-                  value={quantityInput}
-                  onChangeText={(text) => {
-                    const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
-                    setQuantityInput(validated);
-                  }}
-                  onFocus={() => {
-                    const s = quantityInput;
-                    const spaceIdx = s.indexOf(' ');
-                    const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
-
-                    if (endOfNumber > 0) {
-                      setQtySelection({ start: endOfNumber, end: endOfNumber });
-                    }
-                  }}
-                  onBlur={() => {
-                    let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
-                    if (validated.trim() === '' && selectedItemUnitConfig) {
-                      const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
-                      validated = baseUnit ? `1 ${baseUnit}` : '1';
-                      setQuantityInput(validated);
-                      setItemQuantity(1);
-                      return;
-                    }
-                    if (validated && selectedItemUnitConfig) {
-                      const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                      if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
-                        const formatted = formatCompoundBaseUnit(
-                          parsed.qty,
-                          parsed.subQty,
-                          selectedItemUnitConfig,
-                          units
-                        );
-                        setQuantityInput(formatted);
-                      } else if (parsed.uom === 'base' && parsed.qty != null) {
-                        const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                        const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
-                        setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                      }
-                    } else if (validated) setQuantityInput(validated);
-                  }}
-                  keyboardType="default"
-                  selection={qtySelection}
-                  onSelectionChange={(e) => {
-                    // Only override our forced selection if the user is actively changing it
-                    if (qtySelection) {
-                      setQtySelection(undefined);
-                    }
-                  }}
-                  placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
-                  placeholderTextColor={LABEL_GRAY}
-                />
-                {selectedItemUnitConfig?.ADDITIONALUNITS ? (
-                  (() => {
-                    const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-                    return (
-                      <Text style={[styles.labelHint, { marginTop: 2 }]}>
-                        ({alt.qty} {alt.unit})
-                      </Text>
-                    );
-                  })()
-                ) : null}
-              </View>
-              <View style={styles.half}>
-                <Text style={styles.label}>Rate</Text>
-                <TextInput
-                  style={[styles.input, styles.inputRowField]}
-                  value={rate}
-                  onChangeText={setRate}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={LABEL_GRAY}
-                />
+          <Pressable
+            onPress={() => {
+              setSelectedLineId(null);
+              setItemMenuLineId(null);
+              setExpandedLineId(null);
+            }}
+            style={styles.scrollContentPressable}
+          >
+            {/* Item name bar - OE3 */}
+            <View style={styles.itemNameBar}>
+              <View style={styles.itemNameRow}>
+                <VectorSvg width={16} height={20} style={styles.itemNameIcon} />
+                <Text style={styles.itemNameText} numberOfLines={1}>{name || '—'}</Text>
               </View>
             </View>
 
-            <View style={styles.row}>
-              <View style={styles.half} ref={perFieldRef} collapsable={false}>
-                <Text style={styles.label}>Per</Text>
-                {(() => {
-                  const rateUomOptions = getRateUOMOptions(selectedItemUnitConfig, units);
-                  const perLabel = rateUomOptions.find((o) => o.value === rateUOM)?.label ?? per;
-                  return rateUomOptions.length > 1 ? (
-                    <TouchableOpacity
-                      style={[styles.input, styles.inputRow]}
-                      onPress={() => {
-                        perFieldRef.current?.measureInWindow((x, y, w, h) => {
-                          setPerDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                          setPerDropdownOpen(true);
-                        });
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.inputFlex, { paddingHorizontal: 0 }]} numberOfLines={1}>{perLabel}</Text>
-                      <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={[styles.input, styles.inputReadOnly]}>
-                      <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{perLabel}</Text>
-                    </View>
-                  );
-                })()}
-              </View>
-              <View style={styles.half}>
-                <Text style={styles.label}>Discount%</Text>
-                <TextInput
-                  style={styles.input}
-                  value={discount}
-                  onChangeText={setDiscount}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={LABEL_GRAY}
-                />
-              </View>
-            </View>
-
-            {showGodownBatchRow ? (
-              <View ref={godownBatchRowRef} style={styles.godownBatchRow} collapsable={false}>
-                <View style={styles.half}>
-                  <Text style={styles.label}>Godown</Text>
-                  {isBatchWiseOn ? (
-                    <View style={[styles.godownInput, styles.godownInputDisabled]} pointerEvents="none">
-                      <Text style={[styles.godownInputText, styles.godownInputDisabledText]} numberOfLines={1}>
-                        {godown || '-'}
-                      </Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.godownInput}
-                      onPress={() => {
-                        godownBatchRowRef.current?.measureInWindow((x, y, w, h) => {
-                          setDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                          setGodownDropdownOpen(true);
-                        });
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.godownInputText, !godown && styles.godownInputPlaceholder]} numberOfLines={1}>
-                        {godown || 'Select Godown'}
-                      </Text>
-                      <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
-                    </TouchableOpacity>
-                  )}
+            {/* Form - OE3 (capture touch so tapping to edit does not unselect item) */}
+            <View style={styles.form} onStartShouldSetResponder={() => true}>
+              <View style={styles.fieldBlock}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Description</Text>
+                  <Text style={styles.labelHint}>(max 500 characters)</Text>
                 </View>
-                <View style={styles.batchHalf}>
-                  <Text style={styles.label}>Batch</Text>
-                  {isBatchWiseOn ? (
-                    <View style={styles.batchRow}>
+                <TextInput
+                  style={styles.textArea}
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder=""
+                  placeholderTextColor={LABEL_GRAY}
+                  multiline
+                  maxLength={500}
+                  numberOfLines={4}
+                />
+              </View>
+
+              <View style={styles.row}>
+                <View style={styles.half}>
+                  <Text style={styles.label}>Qty</Text>
+                  <TextInput
+                    ref={qtyInputRef}
+                    style={[styles.input, styles.inputRowField]}
+                    value={quantityInput}
+                    onChangeText={(text) => {
+                      const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
+                      setQuantityInput(validated);
+                    }}
+                    onFocus={() => {
+                      const s = quantityInput;
+                      const spaceIdx = s.indexOf(' ');
+                      const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
+
+                      if (endOfNumber > 0) {
+                        setQtySelection({ start: endOfNumber, end: endOfNumber });
+                      }
+                    }}
+                    onBlur={() => {
+                      let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
+                      if (validated.trim() === '' && selectedItemUnitConfig) {
+                        const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
+                        validated = baseUnit ? `1 ${baseUnit}` : '1';
+                        setQuantityInput(validated);
+                        setItemQuantity(1);
+                        return;
+                      }
+                      if (validated && selectedItemUnitConfig) {
+                        const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
+                        if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
+                          const formatted = formatCompoundBaseUnit(
+                            parsed.qty,
+                            parsed.subQty,
+                            selectedItemUnitConfig,
+                            units
+                          );
+                          setQuantityInput(formatted);
+                        } else if (parsed.uom === 'base' && parsed.qty != null) {
+                          const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                          const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
+                          setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
+                        }
+                      } else if (validated) setQuantityInput(validated);
+                    }}
+                    keyboardType="default"
+                    selection={qtySelection}
+                    onSelectionChange={(e) => {
+                      // Only override our forced selection if the user is actively changing it
+                      if (qtySelection) {
+                        setQtySelection(undefined);
+                      }
+                    }}
+                    placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
+                    placeholderTextColor={LABEL_GRAY}
+                  />
+                  {selectedItemUnitConfig?.ADDITIONALUNITS ? (
+                    (() => {
+                      const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
+                      return (
+                        <Text style={[styles.labelHint, { marginTop: 2 }]}>
+                          ({alt.qty} {alt.unit})
+                        </Text>
+                      );
+                    })()
+                  ) : null}
+                </View>
+                <View style={styles.half}>
+                  <Text style={styles.label}>Rate</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputRowField, (selectedLineId == null && rateLockedAfterAdd) ? styles.inputReadOnly : undefined]}
+                    value={rate}
+                    onChangeText={setRate}
+                    editable={selectedLineId != null || !rateLockedAfterAdd}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    placeholderTextColor={LABEL_GRAY}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.row}>
+                <View style={styles.half} ref={perFieldRef} collapsable={false}>
+                  <Text style={styles.label}>Per</Text>
+                  {(() => {
+                    const rateUomOptions = getRateUOMOptions(selectedItemUnitConfig, units);
+                    const perLabel = rateUomOptions.find((o) => o.value === rateUOM)?.label ?? per;
+                    return rateUomOptions.length > 1 ? (
                       <TouchableOpacity
-                        style={[styles.godownInput, styles.batchInputFlex]}
+                        style={[styles.input, styles.inputRow]}
                         onPress={() => {
-                          godownBatchRowRef.current?.measureInWindow((x, y, w, h) => {
-                            setDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                            setBatchDropdownOpen(true);
+                          perFieldRef.current?.measureInWindow((x, y, w, h) => {
+                            setPerDropdownAnchor({ top: y + h + 4, left: x, width: w });
+                            setPerDropdownOpen(true);
                           });
                         }}
                         activeOpacity={0.7}
                       >
-                        <Text style={[styles.godownInputText, !batch && styles.godownInputPlaceholder]} numberOfLines={1}>
-                          {batch || 'Select Batch'}
+                        <Text style={[styles.inputFlex, { paddingHorizontal: 0 }]} numberOfLines={1}>{perLabel}</Text>
+                        <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={[styles.input, styles.inputReadOnly]}>
+                        <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{perLabel}</Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+                <View style={styles.half}>
+                  <Text style={styles.label}>Discount%</Text>
+                  <TextInput
+                    style={[styles.input, (selectedLineId == null && rateLockedAfterAdd) ? styles.inputReadOnly : undefined]}
+                    value={discount}
+                    onChangeText={setDiscount}
+                    editable={selectedLineId != null || !rateLockedAfterAdd}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    placeholderTextColor={LABEL_GRAY}
+                  />
+                </View>
+              </View>
+
+              {showGodownBatchRow ? (
+                <View ref={godownBatchRowRef} style={styles.godownBatchRow} collapsable={false}>
+                  <View style={styles.half}>
+                    <Text style={styles.label}>Godown</Text>
+                    {isBatchWiseOn ? (
+                      <View style={[styles.godownInput, styles.godownInputDisabled]} pointerEvents="none">
+                        <Text style={[styles.godownInputText, styles.godownInputDisabledText]} numberOfLines={1}>
+                          {godown || '-'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.godownInput}
+                        onPress={() => {
+                          godownBatchRowRef.current?.measureInWindow((x, y, w, h) => {
+                            setDropdownAnchor({ top: y + h + 4, left: x, width: w });
+                            setGodownDropdownOpen(true);
+                          });
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.godownInputText, !godown && styles.godownInputPlaceholder]} numberOfLines={1}>
+                          {godown || 'Select Godown'}
                         </Text>
                         <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.batchQRBtn}
-                        onPress={() => setShowBatchQRScanner(true)}
-                        activeOpacity={0.7}
-                        accessibilityLabel="Scan batch QR"
-                      >
-                        <OrderEntryQRIcon width={20} height={20} color={TEXT_ROW} />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <View style={[styles.godownInput, styles.godownInputDisabled]} pointerEvents="none">
-                      <Text style={[styles.godownInputText, styles.godownInputDisabledText]} numberOfLines={1}>
-                        {batch || '-'}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            ) : null}
-
-            <View style={styles.row}>
-              <View style={styles.half}>
-                <View style={styles.stockRow}>
-                  <Text style={styles.stockLabel}>Stock : </Text>
-                  <TouchableOpacity onPress={() => setStockBreakdownItem(name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
-                    <Text style={styles.stockLink}>{stockNum}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <View style={styles.half}>
-                <Text style={styles.taxLabel}>Tax% : {taxNum}</Text>
-              </View>
-            </View>
-
-            {isBatchWiseOn ? (
-              <View style={styles.row}>
-                <View style={styles.half}>
-                  <Text style={styles.label}>Mfg Date</Text>
-                  <TouchableOpacity
-                    style={styles.inputWithIcon}
-                    onPress={() => setMfgDatePickerVisible(true)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
-                      {mfgDate || 'Select date'}
-                    </Text>
-                    <Vector1Svg width={18} height={18} style={styles.calIcon} />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.half}>
-                  <Text style={styles.label}>Expiry date</Text>
-                  <TouchableOpacity
-                    style={styles.inputWithIcon}
-                    onPress={() => setExpiryDatePickerVisible(true)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
-                      {expiryDate || 'Select date'}
-                    </Text>
-                    <Vector1Svg width={18} height={18} style={styles.calIcon} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : null}
-
-
-
-            <View style={styles.row}>
-              <View style={styles.half}>
-                <Text style={styles.label}>Due Date</Text>
-                <TouchableOpacity
-                  style={styles.inputWithIcon}
-                  onPress={() => setDueDatePickerVisible(true)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
-                    {dueDate}
-                  </Text>
-                  <Vector1Svg width={18} height={18} style={styles.calIcon} />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.half}>
-                <Text style={styles.label}>Value</Text>
-                <View style={[styles.input, styles.inputReadOnly]}>
-                  <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{value}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.buttonsRow}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={goBack} activeOpacity={0.8}>
-                <Text style={styles.cancelBtnText} numberOfLines={1}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.addItemBtn} onPress={handleAddItem} activeOpacity={0.8}>
-                <Text style={styles.addItemBtnText} numberOfLines={1}>Add Item</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.addToOrderBtn} onPress={handleAddToOrder} activeOpacity={0.8}>
-                <Text style={styles.addToOrderBtnText} numberOfLines={1}>Add to Order</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Items list - OE3: only show after Add Item is clicked */}
-          {lineItems.length > 0 && (
-            <View style={styles.itemsSection}>
-              <View style={styles.itemsSectionHeader}>
-                <ItemSvg width={20} height={20} style={styles.itemsSectionIcon} />
-                <Text style={styles.itemsSectionTitle}>Items ({lineItems.length})</Text>
-              </View>
-              {lineItems.map((line) => (
-                <View key={line.id} style={styles.lineItemCard}>
-                  <View style={styles.lineItemTop}>
-                    <Text style={styles.lineItemName} numberOfLines={1}>{line.name}</Text>
-                    <TouchableOpacity
-                      style={styles.removeBtn}
-                      onPress={() => setItemMenuLineId((prev) => (prev === line.id ? null : line.id))}
-                      accessibilityLabel="Item options"
-                    >
-                      <IconSvg width={16} height={4} style={styles.removeIcon} />
-                    </TouchableOpacity>
+                    )}
                   </View>
-                  {itemMenuLineId === line.id ? (
-                    <View style={styles.itemMenuDropdownOverlay}>
-                      <TouchableOpacity
-                        style={styles.itemMenuItem}
-                        onPress={() => handleItemMenuEdit(line)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.itemMenuItemText}>Edit</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.itemMenuItem}
-                        onPress={() => handleItemMenuRemove(line.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.itemMenuItemText}>Delete</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.itemMenuItem}
-                        onPress={() => handleItemMenuEditDueDate(line)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.itemMenuItemText}>Edit Due Date</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : null}
-                  <View style={styles.lineItemMeta}>
-                    <Text style={styles.lineItemQty}>
-                      Qty : {line.qty} x ₹{line.rate} ({line.discount}%) ={' '}
-                      <Text style={styles.lineItemTotal}>₹{line.total.toFixed(2)}</Text>
-                    </Text>
-                    <View style={styles.lineItemRight}>
-                      <View style={styles.stockRow}>
-                        <Text style={styles.lineItemStock}>Stock : </Text>
-                        <TouchableOpacity onPress={() => setStockBreakdownItem(line.name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
-                          <Text style={[styles.stockLink, styles.lineItemStockLink]}>{line.stock}</Text>
+                  <View style={styles.batchHalf}>
+                    <Text style={styles.label}>Batch</Text>
+                    {isBatchWiseOn ? (
+                      <View style={styles.batchRow}>
+                        <TouchableOpacity
+                          style={[styles.godownInput, styles.batchInputFlex]}
+                          onPress={() => {
+                            godownBatchRowRef.current?.measureInWindow((x, y, w, h) => {
+                              setDropdownAnchor({ top: y + h + 4, left: x, width: w });
+                              setBatchDropdownOpen(true);
+                            });
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.godownInputText, !batch && styles.godownInputPlaceholder]} numberOfLines={1}>
+                            {batch || 'Select Batch'}
+                          </Text>
+                          <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.batchQRBtn}
+                          onPress={() => setShowBatchQRScanner(true)}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Scan batch QR"
+                        >
+                          <OrderEntryQRIcon width={20} height={20} color={TEXT_ROW} />
                         </TouchableOpacity>
                       </View>
-                      <Text style={styles.lineItemTax}>Tax% : {line.tax}%</Text>
-                    </View>
+                    ) : (
+                      <View style={[styles.godownInput, styles.godownInputDisabled]} pointerEvents="none">
+                        <Text style={[styles.godownInputText, styles.godownInputDisabledText]} numberOfLines={1}>
+                          {batch || '-'}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
-              ))}
+              ) : null}
+
+              <View style={styles.row}>
+                <View style={styles.half}>
+                  <View style={styles.stockRow}>
+                    <Text style={styles.stockLabel}>Stock : </Text>
+                    <TouchableOpacity onPress={() => setStockBreakdownItem(name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
+                      <Text style={styles.stockLink}>{stockNum}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={styles.half}>
+                  <Text style={styles.taxLabel}>Tax% : {taxNum}</Text>
+                </View>
+              </View>
+
+              {isBatchWiseOn ? (
+                <View style={styles.row}>
+                  <View style={styles.half}>
+                    <Text style={styles.label}>Mfg Date</Text>
+                    <TouchableOpacity
+                      style={styles.inputWithIcon}
+                      onPress={() => setMfgDatePickerVisible(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
+                        {mfgDate || 'Select date'}
+                      </Text>
+                      <Vector1Svg width={18} height={18} style={styles.calIcon} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.half}>
+                    <Text style={styles.label}>Expiry date</Text>
+                    <TouchableOpacity
+                      style={styles.inputWithIcon}
+                      onPress={() => setExpiryDatePickerVisible(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
+                        {expiryDate || 'Select date'}
+                      </Text>
+                      <Vector1Svg width={18} height={18} style={styles.calIcon} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.row}>
+                <View style={styles.half}>
+                  <Text style={styles.label}>Due Date</Text>
+                  <TouchableOpacity
+                    style={styles.inputWithIcon}
+                    onPress={() => setDueDatePickerVisible(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
+                      {dueDate}
+                    </Text>
+                    <Vector1Svg width={18} height={18} style={styles.calIcon} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.half}>
+                  <Text style={styles.label}>Value</Text>
+                  <View style={[styles.input, styles.inputReadOnly]}>
+                    <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{value}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.buttonsRow}>
+                <TouchableOpacity
+                  style={[styles.cancelBtn, { flex: 1 }]}
+                  onPress={handleCancel}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.cancelBtnText} numberOfLines={1}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.addItemBtn, { flex: 1.5 }]}
+                  onPress={selectedLineId != null ? handleUpdateItem : handleAddItem}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addItemBtnText} numberOfLines={1}>
+                    {selectedLineId != null ? 'Update Batch' : 'Add Batch'}
+                  </Text>
+                </TouchableOpacity>
+
+                {!viewOnly && (
+                  <TouchableOpacity
+                    style={[styles.addToOrderBtn, { flex: 2 }]}
+                    onPress={handleAddToOrder}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.addToOrderBtnText} numberOfLines={1}>
+                      {selectedLineId != null || editOrderItem != null || (editOrderItems != null && editOrderItems.length > 0)
+                        ? 'Update Cart'
+                        : 'Add to Cart'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-          )}
+
+            {/* Items list - OE3: only show after Add Item is clicked */}
+            {lineItems.length > 0 && (
+              <View style={styles.itemsSection}>
+                <View style={styles.itemsSectionHeader}>
+                  <ItemSvg width={20} height={20} style={styles.itemsSectionIcon} />
+                  <Text style={styles.itemsSectionTitle}>Items ({lineItems.length})</Text>
+                </View>
+                {lineItems.map((line) => {
+                  const isMenuOpen = itemMenuLineId === line.id;
+                  const isSelected = selectedLineId === line.id;
+                  return (
+                    <TouchableOpacity
+                      key={line.id}
+                      style={[styles.lineItemCard, isMenuOpen && { zIndex: 999 }, isSelected && styles.lineItemCardSelected]}
+                      onPress={() => handleSelectLine(line)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.lineItemTop}>
+                        <Text style={styles.lineItemName} numberOfLines={1}>{line.name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          {!viewOnly && (
+                            <TouchableOpacity
+                              style={styles.removeBtn}
+                              onPress={() => setItemMenuLineId((prev) => (prev === line.id ? null : line.id))}
+                              accessibilityLabel="Item options"
+                            >
+                              <IconSvg width={16} height={4} style={styles.removeIcon} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                      {itemMenuLineId === line.id && !viewOnly ? (
+                        <View style={styles.itemMenuDropdownOverlay}>
+                          <TouchableOpacity
+                            style={styles.itemMenuItem}
+                            onPress={() => handleEditLine(line)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.itemMenuItemText}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.itemMenuItem}
+                            onPress={() => handleItemMenuRemove(line.id)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.itemMenuItemText}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                      <View style={[styles.lineItemMeta, { alignItems: 'flex-start' }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#111827' }}>
+                            Qty : {line.qty} x ₹{line.rate} ({line.discount}%) ={' '}
+                            <Text style={{ color: '#10b981', fontWeight: '500' }}>₹{line.total.toFixed(2)}</Text>
+                          </Text>
+                        </View>
+                        <View style={styles.stockRow}>
+                          <Text style={styles.lineItemStock}>Stock : </Text>
+                          <TouchableOpacity onPress={() => setStockBreakdownItem(line.name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
+                            <Text style={[styles.stockLink, styles.lineItemStockLink]}>{line.stock}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      {expandedLineId === line.id && (
+                        <View style={{ marginTop: 4, paddingTop: 6, paddingBottom: 6, paddingHorizontal: 10, backgroundColor: '#e6ecfd', borderRadius: 4, overflow: 'visible' }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
+                              Qty : <Text style={{ textDecorationLine: 'underline', color: '#1e488f' }}>{line.qty}</Text>
+                            </Text>
+                            <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>Due date : {line.dueDate ?? '-'}</Text>
+                          </View>
+                          {(line.mfgDate || line.expiryDate) ? (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                              <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
+                                {line.mfgDate ? `Mfg Date : ${line.mfgDate}` : ''}
+                              </Text>
+                              <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
+                                {line.expiryDate ? `Expiry date : ${line.expiryDate}` : ''}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {(line.godown || line.batch) ? (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                              <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
+                                {line.godown ? `Godown : ${line.godown}` : ''}
+                              </Text>
+                              <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
+                                {line.batch ? `Batch : ${line.batch}` : ''}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1253,8 +1525,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 24,
   },
+  scrollContentPressable: {},
   itemNameBar: {
-    backgroundColor: SECTION_BG,
+    backgroundColor: '#fef9e7',
     borderBottomWidth: 1,
     borderBottomColor: ROW_BORDER,
     paddingHorizontal: 16,
@@ -1271,15 +1544,15 @@ const styles = StyleSheet.create({
   },
   itemNameText: {
     fontFamily: 'Roboto',
-    fontWeight: '500',
+    fontWeight: '700',
     fontSize: 12,
     color: TEXT_ROW,
     flex: 1,
   },
   form: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 12,
+    paddingTop: 8,
+    gap: 6,
   },
   fieldBlock: {
     marginBottom: 0,
@@ -1288,13 +1561,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   label: {
     fontFamily: 'Roboto',
     fontSize: 14,
     color: LABEL_GRAY,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   labelHint: {
     fontFamily: 'Roboto',
@@ -1311,7 +1584,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     fontSize: 14,
     color: TEXT_ROW,
-    minHeight: 56,
+    minHeight: 44,
     textAlignVertical: 'top',
   },
   row: {
@@ -1323,6 +1596,23 @@ const styles = StyleSheet.create({
   half: {
     flex: 1,
     minWidth: 0,
+  },
+  fullWidth: {
+    flex: 1,
+    minWidth: 0,
+  },
+  descriptionInput: {
+    backgroundColor: INPUT_BG,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: INPUT_BORDER,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 72,
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: TEXT_ROW,
+    textAlignVertical: 'top',
   },
   /** Keeps Qty and Rate input boxes the same height so they align on the same line. */
   inputRowField: {
@@ -1610,7 +1900,7 @@ const styles = StyleSheet.create({
   },
   addItemBtn: {
     flex: 9,
-    backgroundColor: ATTACH_YELLOW,
+    backgroundColor: '#000',
     paddingVertical: 7,
     paddingHorizontal: 8,
     borderRadius: 4,
@@ -1622,7 +1912,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     fontWeight: '500',
     fontSize: 14,
-    color: TEXT_ROW,
+    color: '#fff',
   },
   addToOrderBtn: {
     flex: 13,
@@ -1633,6 +1923,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 0,
+  },
+  addToOrderBtnDisabled: {
+    opacity: 0.5,
   },
   addToOrderBtnText: {
     fontFamily: 'Roboto',
@@ -1661,10 +1954,14 @@ const styles = StyleSheet.create({
   lineItemCard: {
     position: 'relative',
     paddingVertical: 10,
+    paddingHorizontal: 12,
     borderBottomWidth: 2,
     borderBottomColor: SECTION_BG,
     gap: 6,
     overflow: 'visible',
+  },
+  lineItemCardSelected: {
+    backgroundColor: '#F1C74B',
   },
   lineItemTop: {
     flexDirection: 'row',
@@ -1728,17 +2025,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 36,
     right: 0,
-    zIndex: 10,
+    zIndex: 9999,
     minWidth: 160,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: HEADER_BG,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 20,
     paddingVertical: 2,
   },
   itemMenuItem: {
@@ -1750,5 +2047,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: TEXT_ROW,
+  },
+  expandedDetailsContainer: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 6,
+    marginTop: 8,
+    gap: 4,
+  },
+  expandedDetailsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  expandedHalfEmpty: {
+    flex: 1,
+  },
+  expandedLabel: {
+    flex: 1,
+    fontFamily: 'Roboto',
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  expandedLabelLeft: {
+    textAlign: 'left',
+  },
+  expandedLabelRight: {
+    textAlign: 'right',
+  },
+  expandedValue: {
+    color: '#111827',
+  },
+  expandedValueBlue: {
+    color: '#3352B4',
+    textDecorationLine: 'underline',
   },
 });

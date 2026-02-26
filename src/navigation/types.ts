@@ -60,6 +60,9 @@ export type AddedOrderItemWithStock = AddedOrderItem & {
   dueDate?: string;
   mfgDate?: string;
   expiryDate?: string;
+  godown?: string;
+  batch?: string;
+  description?: string;
 };
 
 export type OrdersStackParamList = {
@@ -68,15 +71,57 @@ export type OrdersStackParamList = {
     editIndex?: number;
     addedItems?: AddedOrderItemWithStock[];
     replaceOrderItemId?: number;
+    replaceOrderItemIds?: number[];
     clearOrder?: boolean;
     viewOnly?: boolean;
   };
   OrderEntryItemDetail: {
     item?: AddedOrderItem;
     index?: number;
+    selectedLedger?: LedgerItem;
+    /** When editing a single batch. */
+    editOrderItem?: {
+      id: number;
+      name: string;
+      qty: number | string;
+      rate: number | string;
+      discount?: number;
+      total: number;
+      stock?: number;
+      tax?: number;
+      dueDate?: string;
+      mfgDate?: string;
+      expiryDate?: string;
+      godown?: string;
+      batch?: string;
+      description?: string;
+    };
+    /** When editing a group (all batches), pass all batches to show on the detail screen. */
+    editOrderItems?: Array<{
+      id: number;
+      name: string;
+      qty: number | string;
+      rate: number | string;
+      discount?: number;
+      total: number;
+      stock?: number;
+      tax?: number;
+      dueDate?: string;
+      mfgDate?: string;
+      expiryDate?: string;
+      godown?: string;
+      batch?: string;
+      description?: string;
+    }>;
+    isBatchWiseOn?: boolean;
+    viewOnly?: boolean;
   };
   OrderSuccess: {
-    orderNo: string;
+    orderNo?: string;
+    voucherNumber?: string;
+    reference?: string;
+    /** Voucher master id from place_order response; used by View Order to open VoucherDetailView. */
+    lastVchId?: string | null;
   };
   ComingSoon: { tab_name: string };
 };

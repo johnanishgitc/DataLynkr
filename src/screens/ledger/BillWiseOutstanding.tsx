@@ -16,7 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
-import { apiService } from '../../api';
+import { apiService, isUnauthorizedError } from '../../api';
 import type { LedgerReportData, VoucherEntry } from '../../api';
 import { getDataOrConstruct } from '../../api/models/ledger';
 import { StatusBarTopBar } from '../../components';
@@ -157,13 +157,17 @@ export default function BillWiseOutstanding({
         const d = getDataOrConstruct(res as Parameters<typeof getDataOrConstruct>[0]);
         setData(d);
       } catch (e: unknown) {
+        if (isUnauthorizedError(e)) {
+          setData(null);
+          return;
+        }
         let msg = 'Network error';
         let detailedError = '';
         if (e && typeof e === 'object') {
           if ('response' in e && e.response && typeof e.response === 'object') {
             const response = e.response as { data?: { message?: string; error?: string }; status?: number };
             msg = response.data?.message || response.data?.error || `Request failed with status code ${response.status || 'unknown'}`;
-            
+
             if (response.status === 400) {
               detailedError = '\n\nNote: Bill Wise reports require the ledger to have bill-wise tracking enabled in Tally. Please verify:\n1. The ledger has bill-wise tracking enabled\n2. The ledger belongs to a group that supports bill-wise tracking (e.g., Sundry Debtors, Sundry Creditors)';
             }

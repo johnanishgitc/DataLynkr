@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { View, Pressable, Text, StyleSheet, Platform, Animated } from 'react-native';
@@ -36,29 +36,31 @@ export default function FooterTabBar({
   const translateY = useRef(new Animated.Value(0)).current;
   const footerHeight = 100; // Height to hide footer completely (including safe area)
 
-  useEffect(() => {
-    if (footerCollapseValue != null) return; // Driven by shared value, don't run local animation
+  // Scroll-based collapse: fire animation synchronously when scrollDirection changes (avoids useEffect delay)
+  const prevDirection = useRef(scrollDirection);
+  if (footerCollapseValue == null && prevDirection.current !== scrollDirection) {
+    prevDirection.current = scrollDirection;
     if (scrollDirection === 'down') {
       Animated.timing(translateY, {
         toValue: footerHeight,
-        duration: 300,
+        duration: 150,
         useNativeDriver: true,
       }).start();
     } else if (scrollDirection === 'up' || scrollDirection === null) {
       Animated.timing(translateY, {
         toValue: 0,
-        duration: 300,
+        duration: 150,
         useNativeDriver: true,
       }).start();
     }
-  }, [scrollDirection, footerCollapseValue, translateY, footerHeight]);
+  }
 
   const tabBarTranslateY =
     footerCollapseValue != null
       ? footerCollapseValue.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, footerHeight],
-        })
+        inputRange: [0, 1],
+        outputRange: [0, footerHeight],
+      })
       : translateY;
 
   // Equal flex for all tabs; padding for tap target (gaps handled by tabsRow gap)

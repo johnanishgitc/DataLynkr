@@ -94,7 +94,13 @@ export default function Signup() {
           </View>
         </View>
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{strings.footer_copyright}</Text>
+          <Text style={styles.footerText}>
+            {'© '}
+            <Text style={styles.footerIT}>IT</Text>
+            {' '}
+            <Text style={styles.footerCatalyst}>Catalyst</Text>
+            {' Software India Pvt Ltd, 2025.'}
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -183,7 +189,13 @@ export default function Signup() {
         </ScrollView>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>{strings.footer_copyright}</Text>
+          <Text style={styles.footerText}>
+            {'© '}
+            <Text style={styles.footerIT}>IT</Text>
+            {' '}
+            <Text style={styles.footerCatalyst}>Catalyst</Text>
+            {' Software India Pvt Ltd, 2025.'}
+          </Text>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -303,6 +315,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '400',
     color: '#697282',
+  },
+  footerIT: {
+    fontFamily: 'serif',
+    fontStyle: 'italic',
+    fontWeight: '700',
+    color: '#CC7A2E',
+  },
+  footerCatalyst: {
+    fontFamily: 'serif',
+    fontStyle: 'italic',
+    fontWeight: '700',
+    color: '#000000',
   },
   successWrap: {
     flex: 1,
