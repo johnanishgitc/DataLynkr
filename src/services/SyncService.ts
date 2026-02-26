@@ -60,10 +60,13 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
       const state = getString(v, 'state', 'STATE', 'region');
       const country = getString(v, 'country', 'COUNTRY');
 
-      // Use parseAmount for the main voucher amount
+      // Use parseAmount for the main voucher amount (credit notes = negative for Revenue = Sales − Credit notes)
       const isDeemedPositive = getField(v, 'isdeemedpositive', 'ISDEEMEDPOSITIVE');
       const rawAmount = getField(v, 'amount', 'AMOUNT', 'amt', 'AMT', 'ENTRYAMOUNT', 'VALUE');
-      const amount = parseAmount(rawAmount, isDeemedPositive);
+      const rawParsed = parseAmount(rawAmount, isDeemedPositive);
+      const isCreditNote = vReservedName.toLowerCase().includes('credit note');
+      // Revenue = Sales − Credit Notes: sales must be positive, credit notes negative
+      let amount = isCreditNote ? -Math.abs(rawParsed) : Math.abs(rawParsed);
 
       const isCancelled = getString(v, 'iscancelled', 'ISCANCELLED', 'is_cancelled') || 'No';
       const salesperson = getString(v, 'salesperson', 'SALESPERSON', 'salesprsn');
@@ -121,7 +124,9 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
         const stockItemName = getString(i, 'stockitemname', 'STOCKITEMNAME', 'item');
         const stockItemGroup = getString(i, 'stockitemgroup', 'STOCKITEMGROUP', 'stockitemcategory', 'category');
         const billedQty = getString(i, 'billedqty', 'BILLEDQTY', 'quantity', 'qty');
-        const iAmount = parseAmount(getField(i, 'amount', 'AMOUNT', 'value'), getField(i, 'isdeemedpositive', 'ISDEEMEDPOSITIVE'));
+        const rawIParsed = parseAmount(getField(i, 'amount', 'AMOUNT', 'value'), getField(i, 'isdeemedpositive', 'ISDEEMEDPOSITIVE'));
+        // Match voucher sign: credit note items negative, sales items positive
+        let iAmount = isCreditNote ? -Math.abs(rawIParsed) : Math.abs(rawIParsed);
         const profit = getNumber(i, 'profit', 'PROFIT', 'margin');
 
         // Debug log for inventory entry data extraction

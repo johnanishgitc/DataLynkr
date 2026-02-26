@@ -34,9 +34,21 @@ This document describes **how each KPI card and chart is calculated** and the **
 
 All KPIs use **`filteredSales`** for revenue/quantity/profit/customer, and **`filteredSalesForOrders`** only for **order/invoice counts** and **order-based averages**.
 
+### Revenue formula (Total Revenue)
+
+**Concept:** Revenue = Sales − Credit notes.
+
+**In code:** Total Revenue = **Σ(sale.amount)** over all records in `filteredSales`, where:
+- Sales voucher lines have **positive** amount
+- Credit note lines have **negative** amount (from `isdeemedpositive`)
+
+So in one line: **Total Revenue = Σ(sale.amount)** — with credit note amounts stored as negative, this equals Sales − Credit notes.
+
+---
+
 | KPI | Formula | Data source | Unit |
 |-----|---------|-------------|------|
-| **Total Revenue** | `SUM(sale.amount)` over all records in `filteredSales` | `filteredSales` | Currency |
+| **Total Revenue** | `SUM(sale.amount)` over all records in `filteredSales` (sales positive, credit notes negative) | `filteredSales` | Currency |
 | **Total Invoices** | `COUNT(DISTINCT sale.masterid)` over `filteredSalesForOrders` | `filteredSalesForOrders` | Count |
 | **Total Quantity** | `SUM(sale.quantity)` over `filteredSales` | `filteredSales` | Units |
 | **Unique Customers** | `COUNT(DISTINCT customer)` over `filteredSales`, where `customer = getFieldValue(sale, 'customer')`, excluding null/empty/whitespace; comparison is case-insensitive (e.g. by normalizing to lowercase for distinctness) | `filteredSales` | Count |
@@ -45,10 +57,10 @@ All KPIs use **`filteredSales`** for revenue/quantity/profit/customer, and **`fi
 | **Profit Margin** | `(Total Profit / Total Revenue) * 100`. If Total Revenue is 0, use 0. | `filteredSales` | % |
 | **Avg Profit per Order** | `Total Profit / Total Invoices`. If Total Invoices is 0, use 0. | Both | Currency |
 
-**Pseudocode – core metrics:**
+**Pseudocode – core metrics (revenue = Sales − Credit notes via signed amounts):**
 
 ```text
-totalRevenue     = filteredSales.reduce((sum, s) => sum + s.amount, 0)
+totalRevenue     = filteredSales.reduce((sum, s) => sum + s.amount, 0)   // Σ(sale.amount)
 totalOrders      = new Set(filteredSalesForOrders.map(s => s.masterid)).size
 totalQuantity    = filteredSales.reduce((sum, s) => sum + s.quantity, 0)
 uniqueCustomers  = new Set(filteredSales.map(s => getFieldValue(s, 'customer')).filter(v => v && String(v).trim() !== '').map(v => String(v).trim().toLowerCase())).size

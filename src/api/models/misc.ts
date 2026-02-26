@@ -256,34 +256,66 @@ export interface PlaceOrderItemPayload {
   amount: number;
   description?: string;
   aqty?: string;
+  godownname?: string;
+  batchname?: string;
+  trackingnumber?: string;
+  mfdon?: string;
+  expiryperiod?: string;
+  orderno?: string;
+  orderduedate?: string;
+  ledgername?: string;
 }
 
-/** api/tally/place_order request */
+/** api/tally/place_order request (matches Add Details sections: buyer, consignee, order) */
 export interface PlaceOrderRequest {
   tallyloc_id: number;
   company: string;
+  guid: string;
   masterid: number;
   voucherdate: number;
   date: string;
-  reference: string;
-  guid: string;
+  effectivedate: string;
+  vouchertype: string;
+  classname: string;
+  vouchernumber: string;
   customer: string;
   address: string;
   pincode: string;
   state: string;
   country: string;
   gstno: string;
+  gstregistrationtype: string;
+  placeofsupply: string;
+  basicbuyername: string;
+  basicbuyeraddress: string;
+  consigneestate: string;
+  consigneecountry: string;
+  consigneegstin: string;
+  consigneepincode: string;
   pricelevel: string;
-  buyerorderno: string;
-  paymentterms: string;
-  deliveryterms: string;
   narration: string;
-  isoptional: string;
-  basicduedateofpymt: string;
+  reference: string;
+  referencedate: string;
   basicorderterms: string;
-  vouchertype: string;
-  vouchernumber: string;
+  basicduedateofpymt: string;
+  basicorderref: string;
+  basicshipdocumentno?: string;
+  basicshippedby?: string;
+  basicfinaldestination?: string;
+  eicheckpost?: string;
+  billofladingno?: string;
+  billofladingdate?: string;
+  basicshipvesselno?: string;
+  basicplaceofreceipt?: string;
+  basicportofloading?: string;
+  basicportofdischarge?: string;
+  basicdestinationcountry?: string;
+  shippingbillno?: string;
+  shippingbilldate?: string;
+  portcode?: string;
+  isoptional: string;
   items: PlaceOrderItemPayload[];
+  ledgers: { ledgername: string; amount: number }[];
 }
 
 /** api/tally/place_order success response */

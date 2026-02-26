@@ -4,15 +4,18 @@
  * Lottie: Success_animation_short from PlaceOrder_FigmaScreens/success short.
  */
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import type { OrdersStackParamList } from '../navigation/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import LedgerIcon from '../components/footer-icons/LedgerIcon';
+import { defaultFromDate, defaultToDate } from './ledger/LedgerShared';
 
 const HEADER_BG = '#1e488f';
+const ICON_BG = '#1e488f';
 const VIEW_ORDER_BG = '#1e488f';
 const PLACE_NEW_BG = '#39b57c';
 const TITLE_COLOR = '#1e488f';
@@ -32,20 +35,70 @@ export default function OrderSuccess() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderSuccess'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderSuccess'>>();
-  const { voucherNumber, reference } = route.params ?? {};
+  const { voucherNumber, reference, lastVchId } = route.params ?? {};
 
-  const handleBack = () => navigation.goBack();
-  const handleViewOrder = () => navigation.navigate('OrderEntry', { viewOnly: true });
+  const handleViewOrder = () => {
+    const tabNav = navigation.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
+    if (!tabNav?.navigate) return;
+    const masterId = (lastVchId != null && String(lastVchId).trim() !== '') ? String(lastVchId).trim() : null;
+    if (masterId) {
+      // Navigate to Ledger tab with stack: Past Orders -> Voucher Detail View. Back on voucher details returns to Past Orders.
+      tabNav.navigate('LedgerTab', {
+        state: {
+          routes: [
+            {
+              name: 'LedgerEntries',
+              params: {
+                report_name: 'Past Orders',
+                from_date: defaultFromDate(),
+                to_date: defaultToDate(),
+              },
+            },
+            {
+              name: 'VoucherDetailView',
+              params: {
+                voucher: { MASTERID: masterId },
+                ledger_name: '',
+              },
+            },
+          ],
+          index: 1,
+        },
+      });
+    } else {
+      // No voucher id: open Ledger tab on Past Orders so user can find the order
+      tabNav.navigate('LedgerTab', {
+        screen: 'LedgerEntries',
+        params: {
+          report_name: 'Past Orders',
+          from_date: defaultFromDate(),
+          to_date: defaultToDate(),
+        },
+      });
+    }
+  };
   const handlePlaceNewOrder = () => navigation.navigate('OrderEntry', { clearOrder: true });
+  const handleLedgerPress = () => {
+    const tabNav = navigation.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
+    tabNav?.navigate?.('LedgerTab');
+  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backBtn} hitSlop={12} accessibilityLabel="Go back">
-          <Icon name="chevron-left" size={28} color="#fff" />
+      <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
+      <View style={[styles.topBar, { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }]}>
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity
+          onPress={handleLedgerPress}
+          style={styles.ledgerIconBtn}
+          activeOpacity={0.8}
+          accessibilityLabel="Ledger Book"
+        >
+          <View style={styles.ledgerIconWrap}>
+            <LedgerIcon color="#fff" size={22} />
+          </View>
         </TouchableOpacity>
       </View>
-
       <View style={styles.main}>
         <View style={styles.content}>
           <View style={styles.animationWrap}>
@@ -71,7 +124,7 @@ export default function OrderSuccess() {
             <Text style={styles.btnText}>View Order</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.btnPlaceNew} onPress={handlePlaceNewOrder} activeOpacity={0.8}>
-            <Text style={styles.btnText}>Place a New Order</Text>
+            <Text style={styles.btnText}>New Order</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -83,6 +136,24 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ledgerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: ICON_BG,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ledgerIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 1.3,
+    marginTop: 2.5,
   },
   header: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -70,6 +70,24 @@ export default function LedgerEntries() {
   const [exportData, setExportData] = useState<LedgerReportData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [company, setCompany] = useState('');
+  const customerInputRef = useRef<TextInput>(null);
+  const reportInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    if (customerDropdownOpen) {
+      setTimeout(() => {
+        customerInputRef.current?.focus();
+      }, 100);
+    }
+  }, [customerDropdownOpen]);
+
+  useEffect(() => {
+    if (reportDropdownOpen) {
+      setTimeout(() => {
+        reportInputRef.current?.focus();
+      }, 100);
+    }
+  }, [reportDropdownOpen]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -140,16 +158,17 @@ export default function LedgerEntries() {
     return () => { cancel = true; };
   }, []);
 
-  // Auto-open report name dropdown when screen is focused and no ledger is selected
+  // Auto-open report name dropdown only when on default report with no ledger (e.g. first time on Ledger).
+  // Do not auto-open when returning to Past Orders or other reports (e.g. back from Voucher Details).
   useFocusEffect(
     React.useCallback(() => {
-      if (!ledger_name && ledgerNames.length > 0) {
+      if (!ledger_name && ledgerNames.length > 0 && report_name === DEFAULT_REPORT) {
         const timer = setTimeout(() => {
           setReportDropdownOpen(true);
         }, 100);
         return () => clearTimeout(timer);
       }
-    }, [ledger_name, ledgerNames])
+    }, [ledger_name, ledgerNames, report_name])
   );
 
   const dateRangeStr = `${formatDate(from_date)} – ${formatDate(to_date)}`;
@@ -258,7 +277,15 @@ export default function LedgerEntries() {
     <View style={sharedStyles.root}>
       {renderReportComponent()}
 
-      <Modal visible={customerDropdownOpen} transparent animationType="fade">
+      <Modal
+        visible={customerDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setCustomerDropdownOpen(false);
+          setCustomerSearch('');
+        }}
+      >
         <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setCustomerDropdownOpen(false); setCustomerSearch(''); }}>
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
             <View style={sharedStyles.modalHeaderRow}>
@@ -275,6 +302,7 @@ export default function LedgerEntries() {
             </View>
             <View style={sharedStyles.modalSearchRow}>
               <TextInput
+                ref={customerInputRef}
                 style={sharedStyles.modalSearchInput}
                 placeholder="Search customers…"
                 placeholderTextColor={colors.text_secondary}
@@ -288,6 +316,7 @@ export default function LedgerEntries() {
               keyExtractor={(i) => i}
               style={sharedStyles.modalList}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No customers found</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -312,7 +341,15 @@ export default function LedgerEntries() {
         </TouchableOpacity>
       </Modal>
 
-      <Modal visible={reportDropdownOpen} transparent animationType="fade">
+      <Modal
+        visible={reportDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setReportDropdownOpen(false);
+          setReportSearch('');
+        }}
+      >
         <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setReportDropdownOpen(false); setReportSearch(''); }}>
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
             <View style={sharedStyles.modalHeaderRow}>
@@ -329,6 +366,7 @@ export default function LedgerEntries() {
             </View>
             <View style={sharedStyles.modalSearchRow}>
               <TextInput
+                ref={reportInputRef}
                 style={sharedStyles.modalSearchInput}
                 placeholder={strings.select}
                 placeholderTextColor={colors.text_secondary}
@@ -342,6 +380,7 @@ export default function LedgerEntries() {
               keyExtractor={(i) => i}
               style={sharedStyles.modalList}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No reports found</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity

@@ -14,12 +14,21 @@ export interface DeleteConfirmationModalProps {
     visible: boolean;
     onCancel: () => void;
     onConfirm: () => void;
+    /** Optional custom message. Default: "Are you sure you want to delete this?" */
+    title?: string;
+    /** Optional confirm button label. Default: "Yes" */
+    confirmLabel?: string;
+    /** 'delete' = trash icon (default), 'warning' = warning icon */
+    variant?: 'delete' | 'warning';
 }
 
 export function DeleteConfirmationModal({
     visible,
     onCancel,
     onConfirm,
+    title = 'Are you sure you want to delete this?',
+    confirmLabel = 'Yes',
+    variant = 'delete',
 }: DeleteConfirmationModalProps) {
     return (
         <Modal
@@ -47,11 +56,15 @@ export function DeleteConfirmationModal({
 
                         <View style={styles.body}>
                             <View style={styles.graphicContainer}>
-                                <View style={styles.graphicBackground}>
-                                    <DeletePopupIcon />
+                                <View style={[styles.graphicBackground, variant === 'warning' && styles.graphicBackgroundWarning]}>
+                                    {variant === 'warning' ? (
+                                        <Icon name="alert-circle-outline" size={40} color="#fff" />
+                                    ) : (
+                                        <DeletePopupIcon />
+                                    )}
                                 </View>
                             </View>
-                            <Text style={styles.title}>Are you sure you want to delete this?</Text>
+                            <Text style={styles.title}>{title}</Text>
 
                             <View style={styles.buttonRow}>
                                 <TouchableOpacity
@@ -66,7 +79,7 @@ export function DeleteConfirmationModal({
                                     onPress={onConfirm}
                                     activeOpacity={0.8}
                                 >
-                                    <Text style={styles.confirmBtnText}>Yes</Text>
+                                    <Text style={styles.confirmBtnText}>{confirmLabel}</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -130,6 +143,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    graphicBackgroundWarning: {
+        backgroundColor: '#f59e0b',
     },
     title: {
         fontFamily: 'Roboto',

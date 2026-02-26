@@ -110,7 +110,7 @@ export const strings = {
   order_entry: 'Order Entry',
   select_customer: 'Select Customer',
   class_label: 'Class',
-  party_details: 'Party Details',
+  party_details: 'Details',
   select_item: 'Select Item',
   select_item_name: 'Select Item Name',
   select_customer_voucher_first: 'Select customer and voucher type first',

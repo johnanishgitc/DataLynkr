@@ -12,7 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
-import { apiService } from '../../api';
+import { apiService, isUnauthorizedError } from '../../api';
 import type { SalesOrderReportItem, SalesOrderReportResponse } from '../../api';
 import { StatusBarTopBar } from '../../components';
 import { strings } from '../../constants/strings';
@@ -136,6 +136,10 @@ export default function PastOrders({
         const typed = res as SalesOrderReportResponse;
         setOrders(typed.orders ?? []);
       } catch (e: unknown) {
+        if (isUnauthorizedError(e)) {
+          setOrders(null);
+          return;
+        }
         let msg = 'Network error';
         if (e && typeof e === 'object') {
           if ('response' in e && e.response && typeof e.response === 'object') {

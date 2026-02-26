@@ -11,7 +11,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar } from '../components';
 import { PeriodSelection } from '../components/PeriodSelection';
-import { apiService } from '../api';
+import { apiService, isUnauthorizedError } from '../api';
 import type { StockVoucherEntry, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { colors } from '../constants/colors';
@@ -177,6 +177,7 @@ export default function StockItemVouchers() {
             setOpening(res.data?.opening ?? null);
             setVouchers(res.data?.vouchers ?? []);
         } catch (e: any) {
+            if (isUnauthorizedError(e)) return;
             setError(e?.message || 'Failed to load data');
         } finally {
             setLoading(false);

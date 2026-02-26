@@ -14,7 +14,7 @@ import { PeriodSelection } from '../components/PeriodSelection';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { navigationRef } from '../navigation/navigationRef';
-import { apiService } from '../api';
+import { apiService, isUnauthorizedError } from '../api';
 import type { StockSummaryItem } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { colors } from '../constants/colors';
@@ -172,6 +172,7 @@ export default function StockSummary() {
             const res = await apiService.getStockSummary(payload);
             setItems(res.data?.stocksummary ?? []);
         } catch (e: any) {
+            if (isUnauthorizedError(e)) return;
             setError(e?.message || 'Failed to load data');
         } finally {
             setLoading(false);

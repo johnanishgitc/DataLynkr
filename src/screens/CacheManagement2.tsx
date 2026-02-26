@@ -30,6 +30,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { apiService } from '../api/client';
+import { isUnauthorizedError } from '../api';
 import {
   getUserEmail,
   getTallylocId,
@@ -37,6 +38,7 @@ import {
   getGuid,
 } from '../store/storage';
 import { syncVouchersToNativeDB } from '../services/SyncService';
+import { getDB } from '../database/SQLiteManager';
 
 // Sidebar menu - same as Sales Dashboard
 const SIDEBAR_MENU = [
@@ -345,6 +347,25 @@ async function deleteDashboardCacheEntry(cacheKey: string): Promise<void> {
   }
 }
 
+// Clear ALL sales dashboard data from native sales_cache.db
+async function clearSalesCacheForGuid(_guid: string): Promise<void> {
+  try {
+    console.log('[CacheManagement2] >>> Clearing ALL data from sales_cache.db...');
+    const nativeDb = getDB();
+    nativeDb.execute('DELETE FROM vouchers');
+    nativeDb.execute('DELETE FROM ledger_entries');
+    nativeDb.execute('DELETE FROM inventory_entries');
+    nativeDb.execute('DELETE FROM agg_daily_stats');
+    nativeDb.execute('DELETE FROM agg_charts');
+    // Verify deletion
+    const remaining = nativeDb.execute('SELECT COUNT(*) as cnt FROM vouchers');
+    const cnt = remaining.rows?.item(0)?.cnt ?? 'unknown';
+    console.log('[CacheManagement2] >>> sales_cache.db cleared! Remaining vouchers:', cnt);
+  } catch (error) {
+    console.error('[CacheManagement2] >>> FAILED to clear sales_cache.db:', error);
+  }
+}
+
 // Type for interrupted download state
 interface InterruptedDownloadState {
   cacheKey: string;
@@ -529,6 +550,7 @@ export default function DataManagement() {
         }
       }
     } catch (error) {
+      if (isUnauthorizedError(error)) return;
       console.error('Failed to load cache entries:', error);
       setErrorMessage('Failed to load cache entries');
     }
@@ -658,6 +680,11 @@ export default function DataManagement() {
       } catch (chunkError) {
         const err = lastChunkError ?? chunkError;
         console.error(`Failed to download chunk ${i + 1} after ${maxRetries + 1} attempts:`, err);
+
+        if (isUnauthorizedError(err)) {
+          setIsDownloading(false);
+          return;
+        }
 
         // Save interrupted state for potential resume
         const interruptedState: InterruptedDownloadState = {
@@ -878,6 +905,7 @@ export default function DataManagement() {
         downloadToDate
       );
     } catch (error) {
+      if (isUnauthorizedError(error)) return;
       console.error('Resume download failed:', error);
       setErrorMessage(error instanceof Error ? error.message : 'Resume failed. Please try again.');
       setIsDownloading(false);
@@ -1123,6 +1151,7 @@ export default function DataManagement() {
         toDate
       );
     } catch (error) {
+      if (isUnauthorizedError(error)) return;
       console.error('Download failed:', error);
       setErrorMessage(error instanceof Error ? error.message : 'Download failed. Please try again.');
       setIsDownloading(false);
@@ -1482,6 +1511,7 @@ export default function DataManagement() {
         `Update complete! Updated: ${totalUpdated}, New: ${totalNew}, Deleted: ${totalDeleted}. Total vouchers: ${updatedVouchers.length}. Lastaltid: ${currentLastAltId}`
       );
     } catch (error) {
+      if (isUnauthorizedError(error)) return;
       console.error('Update failed:', error);
       setErrorMessage(error instanceof Error ? error.message : 'Update failed. Please try again.');
     } finally {
@@ -2009,6 +2039,11 @@ export default function DataManagement() {
               sessionCache.delete(jsonPath);
               fileSizeCache.delete(jsonPath);
               await deleteDashboardCacheEntry(entry.key);
+              // Also clear native sales_cache.db so dashboard shows no data
+              console.log('[CacheManagement2] >>> Delete handler: about to clear sales_cache.db');
+              const currentGuid = await getGuid();
+              console.log('[CacheManagement2] >>> Delete handler: got guid =', currentGuid);
+              await clearSalesCacheForGuid(currentGuid || 'none');
               await refreshEntries();
               setStatusMessage('Cache entry deleted.');
               setErrorMessage('');

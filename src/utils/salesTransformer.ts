@@ -161,7 +161,10 @@ export function isSalesVoucher(voucher: SalesVoucher): boolean {
     });
 
     // leniency for reserved name: some APIs send full name like "Sales Invoice"
-    const reservednameMatch = reservedname.includes('sales') || reservedname.includes('credit note');
+    // IMPORTANT: Make sure we DO NOT match "Sales Order" as that is not revenue
+    const isSales = reservedname === 'sales' || reservedname === 'sales invoice';
+    const isCreditNote = reservedname === 'credit note' || reservedname.includes('credit note');
+    const reservednameMatch = isSales || isCreditNote;
     const isoptionalMatch = isoptional === 'no' || isoptional === 'false' || isoptional === '';
     const iscancelledMatch = iscancelled === 'no' || iscancelled === 'false' || iscancelled === '';
 

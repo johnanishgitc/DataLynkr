@@ -27,6 +27,15 @@ export function toDdMmYy(ms: number): string {
   return `${day}-${m}-${yy}`;
 }
 
+/** Convert ms to DD-MM-YYYY string (e.g. 25-02-2025). Used for place order payload date fields. */
+export function toDdMmYyyy(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${day}-${m}-${y}`;
+}
+
 /** Convert ms to YYYYMMDD string (e.g. "20251211"). Used for api/reports/salesorder. */
 export function toYyyyMmDdStr(ms: number): string {
   const d = new Date(ms);

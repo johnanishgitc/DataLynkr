@@ -58,6 +58,15 @@ const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
 export type GetToken = () => Promise<string | null>;
 export type OnUnauthorized = () => void;
 
+/** Use in catch blocks to skip showing error UI when session expired (401); logout will redirect to login. */
+export function isUnauthorizedError(e: unknown): boolean {
+  if (e && typeof e === 'object') {
+    const err = e as { response?: { status?: number }; isUnauthorized?: boolean };
+    return err.response?.status === 401 || err.isUnauthorized === true;
+  }
+  return false;
+}
+
 let getToken: GetToken = async () => null;
 let onUnauthorized: OnUnauthorized = () => { };
 
@@ -133,6 +142,7 @@ function createClient(timeoutMs = 60000): AxiosInstance {
       }
 
       if (e?.response?.status === 401) {
+        (e as { isUnauthorized?: boolean }).isUnauthorized = true;
         onUnauthorized();
       }
       return Promise.reject(e);
@@ -169,6 +179,7 @@ function getDownloadApi(): AxiosInstance {
       (r) => r,
       (e) => {
         if (e?.response?.status === 401) {
+          (e as { isUnauthorized?: boolean }).isUnauthorized = true;
           onUnauthorized();
         }
         return Promise.reject(e);

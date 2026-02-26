@@ -37,7 +37,7 @@ import BoxSvg from '../assets/approvals/box.svg';
 import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
 import CloseSvg from '../assets/clipPopup/close.svg';
 import { colors } from '../constants/colors';
-import { apiService } from '../api';
+import { apiService, isUnauthorizedError } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
 import type { Voucher } from '../api/models/voucher';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
@@ -262,6 +262,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             });
             setAllItems(data?.pendingVchAuth ?? []);
         } catch (e: any) {
+            if (isUnauthorizedError(e)) return;
             setError(e?.message ?? 'Failed to load approvals');
         } finally {
             setLoading(false);
@@ -392,6 +393,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 Alert.alert('Error', data?.message ?? 'Approval failed');
             }
         } catch (e: any) {
+            if (isUnauthorizedError(e)) return;
             Alert.alert('Error', e?.message ?? 'Approval failed');
         }
     }, [toDate, fetchData]);
@@ -460,6 +462,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             }
         } catch (e: any) {
             setShowRejectInput(false);
+            if (isUnauthorizedError(e)) return;
             Alert.alert('Error', e?.message ?? 'Rejection failed');
         }
     }, [rejectingItem, rejectComment, toDate, fetchData]);

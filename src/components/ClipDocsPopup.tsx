@@ -3,10 +3,9 @@
  * No design modifications. Same assets as design.
  */
 import React from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, Pressable, StyleSheet, Dimensions } from 'react-native';
 import FrameCameraSvg from '../assets/clipPopup/frame-2147225875.svg';
 import Line25Svg from '../assets/clipPopup/line-25.svg';
-import CloseSvg from '../assets/clipPopup/close.svg';
 import VectorGallerySvg from '../assets/clipPopup/vector.svg';
 import VectorFilesSvg from '../assets/clipPopup/vector-1.svg';
 import type { SvgProps } from 'react-native-svg';
@@ -56,21 +55,11 @@ export function ClipDocsPopup({ visible, onClose, onOptionClick }: ClipDocsPopup
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={styles.backdrop}>
-        <View style={styles.sheet} pointerEvents="box-none">
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <View style={styles.sheet} onStartShouldSetResponder={() => true} pointerEvents="box-none">
           <View style={styles.header}>
             <View style={styles.dragWrap}>
               <Line25Svg width={48} height={4} />
-            </View>
-            <View style={styles.headerRight}>
-              <TouchableOpacity
-                onPress={onClose}
-                style={styles.closeBtn}
-                hitSlop={12}
-                accessibilityLabel="Close popup"
-              >
-                <CloseSvg width={16} height={16} />
-              </TouchableOpacity>
             </View>
           </View>
           <View style={styles.content}>
@@ -109,7 +98,7 @@ export function ClipDocsPopup({ visible, onClose, onOptionClick }: ClipDocsPopup
             </View>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -139,17 +128,6 @@ const styles = StyleSheet.create({
   dragWrap: {
     marginTop: -4,
     marginBottom: 10,
-  },
-  headerRight: {
-    position: 'absolute',
-    top: 6,
-    right: 20,
-  },
-  closeBtn: {
-    width: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
     width: '100%',

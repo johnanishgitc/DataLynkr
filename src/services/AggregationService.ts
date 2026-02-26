@@ -59,9 +59,14 @@ export const buildAggregations = async (guid: string, db: any) => {
       FROM (
         SELECT 
           date, guid, 
-          SUM(CASE WHEN UPPER(vouchertypereservedname) LIKE '%CREDIT NOTE%' THEN -CAST(REPLACE(amount, ',', '') AS REAL) ELSE CAST(REPLACE(amount, ',', '') AS REAL) END) as total_sales,
+          SUM(
+            CASE WHEN LOWER(vouchertypereservedname) LIKE '%credit note%'
+                 THEN -ABS(CAST(REPLACE(amount, ',', '') AS REAL))
+                 ELSE ABS(CAST(REPLACE(amount, ',', '') AS REAL))
+            END
+          ) as total_sales,
           COUNT(DISTINCT masterid) as total_txns,
-          MAX(CAST(REPLACE(amount, ',', '') AS REAL)) as max_sale,
+          MAX(ABS(CAST(REPLACE(amount, ',', '') AS REAL))) as max_sale,
           COUNT(DISTINCT partyledgername) as unique_customers
         FROM vouchers
         WHERE guid = ? AND (iscancelled IS NULL OR UPPER(TRIM(iscancelled)) = 'NO' OR iscancelled = 'false')
@@ -97,7 +102,12 @@ export const buildAggregations = async (guid: string, db: any) => {
       await db.executeAsync(`
             INSERT INTO agg_charts (guid, date, dim_type, dim_name, amount, profit, qty)
             SELECT guid, date, '${type}', ${nameField}, 
-                SUM(CASE WHEN UPPER(vouchertypereservedname) LIKE '%CREDIT NOTE%' THEN -CAST(REPLACE(item_amount, ',', '') AS REAL) ELSE CAST(REPLACE(item_amount, ',', '') AS REAL) END),
+                SUM(
+                  CASE WHEN LOWER(vouchertypereservedname) LIKE '%credit note%'
+                       THEN -ABS(CAST(REPLACE(item_amount, ',', '') AS REAL))
+                       ELSE ABS(CAST(REPLACE(item_amount, ',', '') AS REAL))
+                  END
+                ),
                 SUM(CAST(REPLACE(profit, ',', '') AS REAL)),
                 SUM(CAST(REPLACE(billedqty, ',', '') AS REAL))
             FROM _items_agg
@@ -129,7 +139,7 @@ export const buildAggregations = async (guid: string, db: any) => {
     await db.executeAsync(`
             INSERT INTO agg_charts (guid, date, dim_type, dim_name, amount, profit, qty)
             SELECT guid, SUBSTR(date, 1, 6) || '01', 'month', SUBSTR(date, 1, 4) || '-' || SUBSTR(date, 5, 2), 
-                SUM(CASE WHEN UPPER(vouchertypereservedname) LIKE '%CREDIT NOTE%' THEN -CAST(REPLACE(item_amount, ',', '') AS REAL) ELSE CAST(REPLACE(item_amount, ',', '') AS REAL) END),
+                SUM(CAST(REPLACE(item_amount, ',', '') AS REAL)),
                 SUM(CAST(REPLACE(profit, ',', '') AS REAL)),
                 SUM(CAST(REPLACE(billedqty, ',', '') AS REAL))
             FROM _items_agg

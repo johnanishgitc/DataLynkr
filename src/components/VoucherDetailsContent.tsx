@@ -10,6 +10,7 @@ import { IconAccountVector4 } from '../assets/bill-allocations';
 import type { InventoryAllocation, LedgerEntryDetail, BatchAllocationRow } from '../api/models/ledger';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import apiService from '../api/client';
+import { isUnauthorizedError } from '../api';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -526,6 +527,7 @@ export function StockBreakdownModal({ visible, item, onClose }: StockBreakdownMo
         setGodownData({ totalGodowns: typeof total === 'number' ? total : rows.length, rows });
       }
     } catch (e) {
+      if (isUnauthorizedError(e)) return;
       setError((e as Error)?.message ?? 'Failed to load godown stock');
       setGodownData(null);
     } finally {
@@ -563,6 +565,7 @@ export function StockBreakdownModal({ visible, item, onClose }: StockBreakdownMo
         setCompanyData({ totalCompanies: typeof total === 'number' ? total : rows.length, rows });
       }
     } catch (e) {
+      if (isUnauthorizedError(e)) return;
       setError((e as Error)?.message ?? 'Failed to load company stock');
       setCompanyData(null);
     } finally {
