@@ -63,6 +63,8 @@ export type AddedOrderItemWithStock = AddedOrderItem & {
   godown?: string;
   batch?: string;
   description?: string;
+  attachmentLinks?: string[];
+  attachmentUris?: string[];
 };
 
 export type OrdersStackParamList = {
@@ -74,6 +76,8 @@ export type OrdersStackParamList = {
     replaceOrderItemIds?: number[];
     clearOrder?: boolean;
     viewOnly?: boolean;
+    attachmentLinks?: string[];
+    attachmentUris?: string[];
   };
   OrderEntryItemDetail: {
     item?: AddedOrderItem;
@@ -96,6 +100,8 @@ export type OrdersStackParamList = {
       batch?: string;
       description?: string;
     };
+    attachmentLinks?: string[];
+    attachmentUris?: string[];
     /** When editing a group (all batches), pass all batches to show on the detail screen. */
     editOrderItems?: Array<{
       id: number;

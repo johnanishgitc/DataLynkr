@@ -288,10 +288,12 @@ export interface PlaceOrderRequest {
   placeofsupply: string;
   basicbuyername: string;
   basicbuyeraddress: string;
+  partymailingname: string;
   consigneestate: string;
   consigneecountry: string;
   consigneegstin: string;
   consigneepincode: string;
+  consigneemailingname: string;
   pricelevel: string;
   narration: string;
   reference: string;
@@ -329,4 +331,12 @@ export interface PlaceOrderResponse {
     tallyResponse?: unknown;
   } | null;
   tallyResponse?: unknown;
+}
+
+/** api/upload-doc response */
+export interface UploadDocResponse {
+  status?: string;
+  google_file_id?: string;
+  file_view_link?: string;
+  message?: string;
 }

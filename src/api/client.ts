@@ -299,6 +299,13 @@ export const apiService = {
   /** Stock Item Vouchers – voucher list for a stock item */
   getStockItemVouchers: (body: StockItemVouchersRequest) =>
     getApi().post<StockItemVouchersResponse>('api/tally/stockitemvouchers', body),
+
+  /** Upload document to Google Drive via api/upload-doc (form-data: file, location_id, type, company_name, co_guid) */
+  uploadDocument: (formData: FormData) =>
+    getApi().post<import('./models').UploadDocResponse>('api/upload-doc', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    }),
 };
 
 export default apiService;

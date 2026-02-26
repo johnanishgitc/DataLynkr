@@ -139,12 +139,22 @@ type OrderEntryOrderItem = AddedOrderItem & {
   godown?: string;
   batch?: string;
   description?: string;
+  attachmentLinks?: string[];
+  attachmentUris?: string[];
 };
 
 const OVERDUE_BANNER_BG = '#fef2f2';
 const OVERDUE_BANNER_BORDER = '#ffc9c9';
 const OVERDUE_BANNER_TEXT_DARK = '#9f0712';
 const OVERDUE_BANNER_TEXT_LIGHT = '#c10007';
+
+/** Dummy "ITEM TO BE ALLOCATED" for dropdown when no real item has that name (no stock/rate). */
+const DUMMY_ITEM_TO_BE_ALLOCATED: StockItem = {
+  MASTERID: '__ITEM_TO_BE_ALLOCATED_DUMMY__',
+  NAME: 'ITEM TO BE ALLOCATED',
+  CLOSINGSTOCK: null,
+  STDPRICE: null,
+};
 
 /** Index of OrdersTab in MainTabs (HomeTab=0, OrdersTab=1, LedgerTab=2, ApprovalsTab=3, SummaryTab=4). */
 const ORDERS_TAB_INDEX = 1;
@@ -244,6 +254,8 @@ export default function OrderEntry() {
   const [addDetailsModalVisible, setAddDetailsModalVisible] = useState(false);
   const [clipPopupVisible, setClipPopupVisible] = useState(false);
   const [attachmentUris, setAttachmentUris] = useState<string[]>([]);
+  const [attachmentLinks, setAttachmentLinks] = useState<string[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [addDetailsTab, setAddDetailsTab] = useState<'buyer' | 'consignee' | 'order'>('buyer');
   const [addDetailsForm, setAddDetailsForm] = useState({
     buyerBillTo: '',
@@ -389,16 +401,17 @@ export default function OrderEntry() {
       .filter(Boolean);
   }, [ledgerItems, ledgerNames, consigneeCustomerSearch]);
 
-  /** Group order items by name so same-item batches appear under one expandable card. */
+  /** Group order items by name so same-item batches appear under one expandable card. For "ITEM TO BE ALLOCATED", each batch is a separate cart item (unique key per line). */
   const groupedOrderItems = useMemo(() => {
     const map = new Map<string, OrderEntryOrderItem[]>();
     for (const oi of orderItems) {
-      const key = oi.name;
+      const key = isItemToBeAllocated(oi.name) ? `alloc-${oi.id}` : oi.name;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(oi);
     }
-    return Array.from(map.entries()).map(([name, items]) => ({
-      name,
+    return Array.from(map.entries()).map(([key, items]) => ({
+      groupKey: key,
+      name: items[0]?.name ?? key,
       items,
       totalQty: items.reduce((s, i) => s + Number(i.qty || 0), 0),
       totalAmt: items.reduce((s, i) => s + (i.total || 0), 0),
@@ -577,7 +590,20 @@ export default function OrderEntry() {
         setCustomerDropdownOpen(false);
         setVoucherTypeDropdownOpen(false);
         setClassDropdownOpen(false);
+        setIsDraftMode(false);
+        setDraftDescription('');
+        setAttachmentUris([]);
+        setAttachmentLinks([]);
         navigation.setParams({ clearOrder: undefined });
+      }
+      // Collect attachment links from ItemDetail (for "ITEM TO BE ALLOCATED")
+      const incomingLinks = route.params?.attachmentLinks;
+      const incomingUris = route.params?.attachmentUris;
+
+      if (incomingLinks !== undefined || incomingUris !== undefined) {
+        if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
+        if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
+        navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
       }
       if (added?.length) {
         const nextId = orderItemsNextId.current;
@@ -758,7 +784,7 @@ export default function OrderEntry() {
     });
   }, [stockItemsList, itemSearch]);
 
-  /** Item list for dropdown: "ITEM TO BE ALLOCATED" (or similar) first, then rest. */
+  /** Item list for dropdown: "ITEM TO BE ALLOCATED" (or similar) first, then rest. If none exists, prepend dummy. */
   const sortedItemListForDropdown = useMemo(() => {
     const list = [...filteredStockItems];
     list.sort((a, b) => {
@@ -770,6 +796,10 @@ export default function OrderEntry() {
       if (!aAlloc && bAlloc) return 1;
       return 0;
     });
+    const hasAllocItem = list.some((item) => isItemToBeAllocated((item.NAME ?? '').trim()));
+    if (!hasAllocItem) {
+      list.unshift(DUMMY_ITEM_TO_BE_ALLOCATED);
+    }
     return list;
   }, [filteredStockItems]);
 
@@ -864,9 +894,33 @@ export default function OrderEntry() {
   const handleQRCancel = useCallback(() => setShowQRScanner(false), []);
   const handleAttachment = () => setClipPopupVisible(true);
 
+  /** Upload a list of file URIs to api/upload-doc and return file_view_links. */
+  const uploadFilesToApi = useCallback(async (uris: string[]): Promise<string[]> => {
+    const [tallylocId, companyName, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+    if (!tallylocId || !companyName || !guid) return [];
+    const links: string[] = [];
+    for (const uri of uris) {
+      try {
+        const fileName = uri.split('/').pop() || 'attachment';
+        const formData = new FormData();
+        formData.append('file', { uri, name: fileName, type: 'application/octet-stream' } as unknown as Blob);
+        formData.append('location_id', String(tallylocId));
+        formData.append('type', 'transactions');
+        formData.append('company_name', companyName);
+        formData.append('co_guid', guid);
+        const { data } = await apiService.uploadDocument(formData);
+        if (data?.file_view_link) links.push(data.file_view_link);
+      } catch (err) {
+        console.warn('[OrderEntry] upload-doc failed for', uri, err);
+      }
+    }
+    return links;
+  }, []);
+
   const handleClipOption = useCallback(
     async (optionId: ClipDocsOptionId) => {
       setClipPopupVisible(false);
+      let pickedUris: string[] = [];
       try {
         if (optionId === 'camera') {
           if (Platform.OS === 'android') {
@@ -884,24 +938,35 @@ export default function OrderEntry() {
           }
           const result = await launchCamera({ mediaType: 'photo', saveToPhotos: false });
           if (result.didCancel || result.errorCode || !result.assets?.[0]?.uri) return;
-          const uri = result.assets[0].uri;
-          setAttachmentUris((prev) => [...prev, uri]);
+          pickedUris = [result.assets[0].uri];
         } else if (optionId === 'gallery') {
           const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 10 });
           if (result.didCancel || result.errorCode || !result.assets?.length) return;
-          const uris = result.assets.map((a: { uri?: string }) => a.uri).filter(Boolean) as string[];
-          setAttachmentUris((prev) => [...prev, ...uris]);
+          pickedUris = result.assets.map((a: { uri?: string }) => a.uri).filter(Boolean) as string[];
         } else if (optionId === 'files') {
           const result = await DocumentPicker.pick({ type: [DocumentPicker.types.allFiles], allowMultiSelection: true });
-          const uris = result.map((f: { uri: string }) => f.uri);
-          setAttachmentUris((prev) => [...prev, ...uris]);
+          pickedUris = result.map((f: { uri: string }) => f.uri);
         }
       } catch (e) {
         if (DocumentPicker.isCancel(e)) return;
         Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong');
+        return;
+      }
+      if (pickedUris.length === 0) return;
+      setAttachmentUris((prev) => [...prev, ...pickedUris]);
+      setUploadingAttachments(true);
+      try {
+        const links = await uploadFilesToApi(pickedUris);
+        if (links.length > 0) {
+          setAttachmentLinks((prev) => [...prev, ...links]);
+        }
+      } catch (err) {
+        console.warn('[OrderEntry] upload failed:', err);
+      } finally {
+        setUploadingAttachments(false);
       }
     },
-    []
+    [uploadFilesToApi]
   );
 
   const handleAddDetails = () => setAddDetailsModalVisible(true);
@@ -1138,7 +1203,7 @@ export default function OrderEntry() {
       Alert.alert('Select Customer', 'Please select a customer before placing the order.');
       return;
     }
-    if (orderItems.length === 0) {
+    if (!isDraftMode && orderItems.length === 0) {
       Alert.alert('Add Items', 'Please add at least one item to the order.');
       return;
     }
@@ -1159,31 +1224,45 @@ export default function OrderEntry() {
     const buyerState = (f.buyerState ?? '').trim();
     const buyerCountry = (f.buyerCountry ?? '').trim();
     const buyerGstno = (f.buyerGstinUin ?? '').trim();
-    const items: PlaceOrderItemPayload[] = orderItems.map((oi) => {
-      const baseUnit = (oi.stockItem?.BASEUNITS ?? '').toString().trim();
-      const rateUnit = (oi.stockItem?.STDPRICEUNIT ?? oi.stockItem?.LASTPRICEUNIT ?? '').toString().trim();
-      const qtyStr = baseUnit ? `${oi.qty} ${baseUnit}` : String(oi.qty);
-      const rateStr = rateUnit ? `${oi.rate}/${rateUnit}` : String(oi.rate);
-      const oiAny = oi as Record<string, unknown>;
-      const itemPayload: PlaceOrderItemPayload = {
-        item: oi.name,
-        qty: qtyStr,
-        rate: rateStr,
-        discount: (oi as { discount?: number }).discount ?? 0,
-        gst: (oi as { tax?: number }).tax ?? 0,
-        amount: Math.round(oi.total * 100) / 100,
-        description: oi.description ?? '',
-      };
-      if (oi.godown != null && String(oi.godown).trim() !== '') itemPayload.godownname = String(oi.godown).trim();
-      if (oi.batch != null && String(oi.batch).trim() !== '') itemPayload.batchname = String(oi.batch).trim();
-      const dueDate = oiAny.dueDate;
-      if (dueDate != null && String(dueDate).trim() !== '') itemPayload.orderduedate = String(dueDate).trim();
-      const mfgDate = oiAny.mfgDate;
-      if (mfgDate != null && String(mfgDate).trim() !== '') itemPayload.mfdon = String(mfgDate).trim();
-      const expiryDate = oiAny.expiryDate;
-      if (expiryDate != null && String(expiryDate).trim() !== '') itemPayload.expiryperiod = String(expiryDate).trim();
-      return itemPayload;
-    });
+    const defaultDraftItemName = DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED';
+    const items: PlaceOrderItemPayload[] =
+      isDraftMode && orderItems.length === 0
+        ? [
+          {
+            item: 'ITEM TO BE ALLOCATED',
+            qty: '1',
+            rate: '0',
+            discount: 0,
+            gst: 0,
+            amount: 0,
+            description: draftDescription ?? '',
+          },
+        ]
+        : orderItems.map((oi) => {
+          const baseUnit = (oi.stockItem?.BASEUNITS ?? '').toString().trim();
+          const rateUnit = (oi.stockItem?.STDPRICEUNIT ?? oi.stockItem?.LASTPRICEUNIT ?? '').toString().trim();
+          const qtyStr = baseUnit ? `${oi.qty} ${baseUnit}` : String(oi.qty);
+          const rateStr = rateUnit ? `${oi.rate}/${rateUnit}` : String(oi.rate);
+          const oiAny = oi as Record<string, unknown>;
+          const itemPayload: PlaceOrderItemPayload = {
+            item: isDraftMode ? defaultDraftItemName : (oi.name ?? ''),
+            qty: qtyStr,
+            rate: rateStr,
+            discount: (oi as { discount?: number }).discount ?? 0,
+            gst: (oi as { tax?: number }).tax ?? 0,
+            amount: Math.round(oi.total * 100) / 100,
+            description: oi.description ?? '',
+          };
+          if (oi.godown != null && String(oi.godown).trim() !== '') itemPayload.godownname = String(oi.godown).trim();
+          if (oi.batch != null && String(oi.batch).trim() !== '') itemPayload.batchname = String(oi.batch).trim();
+          const dueDate = oiAny.dueDate;
+          if (dueDate != null && String(dueDate).trim() !== '') itemPayload.orderduedate = String(dueDate).trim();
+          const mfgDate = oiAny.mfgDate;
+          if (mfgDate != null && String(mfgDate).trim() !== '') itemPayload.mfdon = String(mfgDate).trim();
+          const expiryDate = oiAny.expiryDate;
+          if (expiryDate != null && String(expiryDate).trim() !== '') itemPayload.expiryperiod = String(expiryDate).trim();
+          return itemPayload;
+        });
     const ledgers = selectedClassLedgers.map((le) => {
       const leName = (le.NAME ?? '').trim();
       return { ledgername: leName, amount: calculatedLedgerAmounts.ledgerAmounts[leName] ?? 0 };
@@ -1209,14 +1288,16 @@ export default function OrderEntry() {
       gstno: buyerGstno,
       gstregistrationtype: f.buyerGstRegType || '',
       placeofsupply: f.buyerPlaceOfSupply || buyerState || '',
-      basicbuyername: (f.consigneeShipTo || selectedCustomer).trim(),
+      basicbuyername: (f.consigneeShipTo || '').trim(),
       basicbuyeraddress: f.consigneeAddress ? f.consigneeAddress.replace(/\r\n/g, '\n').trim() : '',
+      partymailingname: f.buyerMailingName || '',
       consigneestate: f.consigneeState || '',
       consigneecountry: f.consigneeCountry || '',
       consigneegstin: f.consigneeGstinUin || '',
       consigneepincode: f.consigneePinCode || '',
+      consigneemailingname: f.consigneeMailingName || '',
       pricelevel: '',
-      narration: '',
+      narration: [...attachmentLinks, ...orderItems.flatMap((oi) => oi.attachmentLinks ?? [])].join('|'),
       reference,
       referencedate: dateStr,
       basicorderterms: f.orderTermsOfDelivery || '',
@@ -1278,6 +1359,8 @@ export default function OrderEntry() {
     selectedCustomer,
     selectedLedger,
     orderItems,
+    isDraftMode,
+    draftDescription,
     addDetailsForm,
     editDetailsOrderDate,
     editDetailsOrderNo,
@@ -1286,6 +1369,7 @@ export default function OrderEntry() {
     selectedClass,
     calculatedLedgerAmounts,
     selectedClassLedgers,
+    attachmentLinks,
     navigation,
   ]);
   const handleAddDetailsClose = () => {
@@ -1420,6 +1504,7 @@ export default function OrderEntry() {
     setEditingDueDateOrderItemId(null);
     setOrderItemDueDatePickerVisible(false);
     setAttachmentUris([]);
+    setAttachmentLinks([]);
     setShowQRScanner(false);
     setSelectedItem('');
     setItemSearch('');
@@ -1468,10 +1553,12 @@ export default function OrderEntry() {
           editOrderItem: { id: oi.id, name: oi.name, qty: oi.qty, rate: oi.rate, discount: oi.discount, total: oi.total, stock: oi.stock, tax: oi.tax, dueDate: oi.dueDate, mfgDate: oi.mfgDate, expiryDate: oi.expiryDate, godown: oi.godown, batch: oi.batch, description: oi.description },
           isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
           viewOnly: route.params?.viewOnly,
+          attachmentLinks: oi.attachmentLinks ?? [],
+          attachmentUris: oi.attachmentUris ?? [],
         });
       }
     },
-    [navigation, selectedLedger]
+    [navigation, selectedLedger, route.params?.viewOnly]
   );
 
   const handleOrderItemDelete = useCallback((oi: OrderEntryOrderItem) => {
@@ -1488,10 +1575,14 @@ export default function OrderEntry() {
 
   const confirmGroupDelete = useCallback(() => {
     if (groupToDelete) {
-      setOrderItems((prev) => prev.filter((i) => i.name !== groupToDelete));
+      const group = groupedOrderItems.find((g) => g.groupKey === groupToDelete);
+      if (group) {
+        const idsToRemove = new Set(group.items.map((i) => i.id));
+        setOrderItems((prev) => prev.filter((i) => !idsToRemove.has(i.id)));
+      }
       setGroupToDelete(null);
     }
-  }, [groupToDelete]);
+  }, [groupToDelete, groupedOrderItems]);
 
   const handleOrderItemEditDueDate = useCallback((oi: OrderEntryOrderItem) => {
     setOrderItemMenuId(null);
@@ -1659,51 +1750,61 @@ export default function OrderEntry() {
                     <Text style={styles.draftAttachmentsTitle}>Attachments</Text>
                   </View>
 
-                  {attachmentUris.length > 0 ? attachmentUris.map((uri, idx) => (
-                    <View key={idx} style={[styles.draftAttachmentRow, { position: 'relative' as const, zIndex: draftAttachmentMenuIdx === idx ? 9999 : 1, elevation: draftAttachmentMenuIdx === idx ? 9999 : 0 }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.draftAttachmentName} numberOfLines={1}>
-                          Attachment #{idx + 1}
-                        </Text>
-                      </View>
-                      <TouchableOpacity onPress={() => setDraftAttachmentMenuIdx(draftAttachmentMenuIdx === idx ? null : idx)}>
-                        <MoreSvg width={24} height={24} />
-                      </TouchableOpacity>
-                      {draftAttachmentMenuIdx === idx && (
-                        <View style={styles.orderItemMenuOverlay}>
-                          <TouchableOpacity
-                            style={styles.orderItemMenuItem}
-                            onPress={() => {
-                              setDraftAttachmentMenuIdx(null);
-                              if (uri) {
-                                const lower = uri.toLowerCase();
-                                const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image');
-                                if (isImage) {
-                                  setPreviewAttachmentUri(uri);
-                                } else {
-                                  Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
-                                }
-                              }
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.orderItemMenuItemText}>View</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.orderItemMenuItem}
-                            onPress={() => {
-                              setDraftAttachmentMenuIdx(null);
-                              setAttachmentUris((prev) => prev.filter((_, i) => i !== idx));
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={styles.orderItemMenuItemText}>Delete</Text>
-                          </TouchableOpacity>
+                  {attachmentLinks.length > 0 ? attachmentLinks.map((link, idx) => {
+                    const uri = attachmentUris[idx] || link;
+                    return (
+                      <View key={idx} style={[styles.draftAttachmentRow, { position: 'relative' as const, zIndex: draftAttachmentMenuIdx === idx ? 9999 : 1, elevation: draftAttachmentMenuIdx === idx ? 9999 : 0 }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.draftAttachmentName} numberOfLines={1}>
+                            Attachment #{idx + 1}
+                          </Text>
                         </View>
-                      )}
+                        <TouchableOpacity onPress={() => setDraftAttachmentMenuIdx(draftAttachmentMenuIdx === idx ? null : idx)}>
+                          <MoreSvg width={24} height={24} />
+                        </TouchableOpacity>
+                        {draftAttachmentMenuIdx === idx && (
+                          <View style={styles.orderItemMenuOverlay}>
+                            <TouchableOpacity
+                              style={styles.orderItemMenuItem}
+                              onPress={() => {
+                                setDraftAttachmentMenuIdx(null);
+                                if (uri) {
+                                  const lower = uri.toLowerCase();
+                                  const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image');
+                                  if (isImage) {
+                                    setPreviewAttachmentUri(uri);
+                                  } else {
+                                    Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
+                                  }
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.orderItemMenuItemText}>View</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.orderItemMenuItem}
+                              onPress={() => {
+                                setDraftAttachmentMenuIdx(null);
+                                setAttachmentUris((prev) => prev.filter((_, i) => i !== idx));
+                                setAttachmentLinks((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.orderItemMenuItemText}>Delete</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    )
+                  }) : (
+                    !uploadingAttachments && <Text style={{ fontSize: 14, color: '#9ca3af', paddingVertical: 8 }}>No attachments yet</Text>
+                  )}
+                  {uploadingAttachments && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 8 }}>
+                      <ActivityIndicator size="small" color="#1e488f" />
+                      <Text style={{ fontSize: 14, color: '#1e488f', fontFamily: 'Roboto' }}>Uploading...</Text>
                     </View>
-                  )) : (
-                    <Text style={{ fontSize: 14, color: '#9ca3af', paddingVertical: 8 }}>No attachments yet</Text>
                   )}
                 </View>
               </ScrollView>
@@ -1989,12 +2090,12 @@ export default function OrderEntry() {
                           </TouchableOpacity>
                         </View>
                         {groupedOrderItems.map((group) => {
-                          const isExpanded = expandedOrderItemNames.has(group.name);
+                          const isExpanded = expandedOrderItemNames.has(group.groupKey);
                           const groupHasOpenMenu =
                             (isExpanded && group.items.some((oi) => orderItemMenuId === oi.id)) ||
-                            (!isExpanded && orderItemGroupMenuName === group.name);
+                            (!isExpanded && orderItemGroupMenuName === group.groupKey);
                           return (
-                            <View key={group.name} pointerEvents="box-none" style={[styles.orderItemCard, groupHasOpenMenu && { zIndex: 999, overflow: 'visible' as const }, isExpanded && { paddingBottom: 4 }]}>
+                            <View key={group.groupKey} pointerEvents="box-none" style={[styles.orderItemCard, groupHasOpenMenu && { zIndex: 999, overflow: 'visible' as const }, isExpanded && { paddingBottom: 4 }]}>
                               <TouchableOpacity
                                 activeOpacity={0.7}
                                 onPress={() => {
@@ -2006,8 +2107,8 @@ export default function OrderEntry() {
                                   });
                                   setExpandedOrderItemNames((prev) => {
                                     const next = new Set(prev);
-                                    if (next.has(group.name)) next.delete(group.name);
-                                    else next.add(group.name);
+                                    if (next.has(group.groupKey)) next.delete(group.groupKey);
+                                    else next.add(group.groupKey);
                                     return next;
                                   });
                                   setOrderItemGroupMenuName(null);
@@ -2018,7 +2119,7 @@ export default function OrderEntry() {
                                   {!isExpanded ? (
                                     <TouchableOpacity
                                       style={[styles.orderItemOptionsBtn, { backgroundColor: '#d1d5db' }]}
-                                      onPress={() => setOrderItemGroupMenuName((prev) => (prev === group.name ? null : group.name))}
+                                      onPress={() => setOrderItemGroupMenuName((prev) => (prev === group.groupKey ? null : group.groupKey))}
                                       accessibilityLabel="Item options"
                                     >
                                       <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
@@ -2061,7 +2162,7 @@ export default function OrderEntry() {
                                   </View>
                                 </View>
                               </TouchableOpacity>
-                              {!isExpanded && orderItemGroupMenuName === group.name ? (
+                              {!isExpanded && orderItemGroupMenuName === group.groupKey ? (
                                 <View style={[styles.orderItemMenuOverlay, { top: 52 }]}>
                                   <TouchableOpacity
                                     style={styles.orderItemMenuItem}
@@ -2090,6 +2191,8 @@ export default function OrderEntry() {
                                           })),
                                           isBatchWiseOn: isBatchWiseOnFromItem(first.stockItem),
                                           viewOnly: route.params?.viewOnly,
+                                          attachmentLinks: first.attachmentLinks ?? [],
+                                          attachmentUris: first.attachmentUris ?? [],
                                         });
                                       }
                                     }}
@@ -2100,7 +2203,7 @@ export default function OrderEntry() {
                                   <TouchableOpacity
                                     style={styles.orderItemMenuItem}
                                     onPress={() => {
-                                      setGroupToDelete(group.name);
+                                      setGroupToDelete(group.groupKey);
                                       setOrderItemGroupMenuName(null);
                                     }}
                                     activeOpacity={0.7}
@@ -2232,6 +2335,8 @@ export default function OrderEntry() {
                                                     editOrderItem: { id: oi.id, name: oi.name, qty: oi.qty, rate: oi.rate, discount: oi.discount, total: oi.total, stock: oi.stock, tax: oi.tax, dueDate: oi.dueDate, mfgDate: oi.mfgDate, expiryDate: oi.expiryDate, godown: oi.godown, batch: oi.batch, description: oi.description },
                                                     isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
                                                     viewOnly: route.params?.viewOnly,
+                                                    attachmentLinks: oi.attachmentLinks ?? [],
+                                                    attachmentUris: oi.attachmentUris ?? [],
                                                   });
                                                 }
                                               }}
@@ -3316,6 +3421,7 @@ export default function OrderEntry() {
               data={sortedItemListForDropdown}
               keyExtractor={(item) => String(item.MASTERID ?? item.NAME ?? Math.random())}
               style={sharedStyles.modalList}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               ListEmptyComponent={
@@ -4027,10 +4133,10 @@ const styles = StyleSheet.create({
   },
   /* Items list — same as OrderEntryItemDetail (itemsSection + lineItemCard) */
   orderItemsSectionWrap: {
-    marginTop: 8,
+    marginTop: 0,
   },
   orderItemsSection: {
-    paddingTop: 10,
+    paddingTop: 4,
     paddingBottom: 0,
   },
   orderItemsSectionHeader: {
