@@ -14,11 +14,11 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LedgerIcon from '../components/footer-icons/LedgerIcon';
 import { defaultFromDate, defaultToDate } from './ledger/LedgerShared';
 
-const HEADER_BG = '#1e488f';
-const ICON_BG = '#1e488f';
-const VIEW_ORDER_BG = '#1e488f';
+const HEADER_BG = '#1f3a89';
+const ICON_BG = '#1f3a89';
+const VIEW_ORDER_BG = '#1f3a89';
 const PLACE_NEW_BG = '#39b57c';
-const TITLE_COLOR = '#1e488f';
+const TITLE_COLOR = '#1f3a89';
 const SUBTITLE_COLOR = '#6a7282';
 
 // Lottie animation – from PlaceOrder_FigmaScreens/success short/Success_animation_short.lottie
@@ -35,7 +35,7 @@ export default function OrderSuccess() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderSuccess'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderSuccess'>>();
-  const { voucherNumber, reference, lastVchId } = route.params ?? {};
+  const { voucherNumber, reference, lastVchId, fromDraftMode } = route.params ?? {};
 
   const handleViewOrder = () => {
     const tabNav = navigation.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
@@ -59,6 +59,8 @@ export default function OrderSuccess() {
               params: {
                 voucher: { MASTERID: masterId },
                 ledger_name: '',
+                returnToOrderEntryClear: true,
+                returnToOrderEntryDraftMode: !!fromDraftMode,
               },
             },
           ],
@@ -77,7 +79,8 @@ export default function OrderSuccess() {
       });
     }
   };
-  const handlePlaceNewOrder = () => navigation.navigate('OrderEntry', { clearOrder: true });
+  const handlePlaceNewOrder = () =>
+    navigation.navigate('OrderEntry', { clearOrder: true, openInDraftMode: !!fromDraftMode });
   const handleLedgerPress = () => {
     const tabNav = navigation.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
     tabNav?.navigate?.('LedgerTab');

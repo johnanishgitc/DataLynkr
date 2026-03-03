@@ -314,6 +314,7 @@ export default function StockSummary() {
                     activeTarget="SummaryTab"
                     onItemPress={onSidebarItemPress}
                     onConnectionsPress={goToAdminDashboard}
+                    onCompanyChange={() => fetchData()}
                 />
             )}
 

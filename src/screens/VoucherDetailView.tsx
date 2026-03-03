@@ -2,7 +2,7 @@
  * Voucher Detail View - Figma 3045-58170 (Datalynkr Mobile)
  * Layout: Header | Customer bar | Voucher summary | Inventory Allocations (n) | ITEM TOTAL | LEDGER DETAILS | Grand Total
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  BackHandler,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match order/invoice voucher)
@@ -67,6 +68,8 @@ export default function VoucherDetailView() {
   const { setScrollDirection, setFooterCollapseValue } = useScroll();
   const initialVoucher = (route.params?.voucher ?? {}) as Record<string, unknown>;
   const ledgerName = (route.params?.ledger_name ?? '') as string;
+  const returnToOrderEntryClear = Boolean(route.params?.returnToOrderEntryClear);
+  const returnToOrderEntryDraftMode = Boolean(route.params?.returnToOrderEntryDraftMode);
 
   const [v, setV] = useState<Record<string, unknown>>(initialVoucher);
   const [loading, setLoading] = useState(true);
@@ -511,12 +514,41 @@ export default function VoucherDetailView() {
     }
   };
 
+  /** When opened from Order Success "View Order", back goes to cleared Order Entry instead of Past Orders. */
+  const handleBack = useCallback(() => {
+    if (returnToOrderEntryClear) {
+      const tabNav = nav.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
+      if (tabNav?.navigate) {
+        tabNav.navigate('OrdersTab', {
+          state: {
+            routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode: returnToOrderEntryDraftMode } }],
+            index: 0,
+          },
+        });
+        return;
+      }
+    }
+    (nav as { goBack?: () => void }).goBack?.();
+  }, [returnToOrderEntryClear, returnToOrderEntryDraftMode, nav]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!returnToOrderEntryClear) return undefined;
+      const onHardwareBack = () => {
+        handleBack();
+        return true;
+      };
+      BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => BackHandler.removeEventListener('hardwareBackPress', onHardwareBack);
+    }, [returnToOrderEntryClear, handleBack]),
+  );
+
   return (
     <View style={[styles.root, { paddingBottom: 10 }]}>
       <StatusBarTopBar
         title="Voucher Details"
         leftIcon="back"
-        onLeftPress={() => (nav as { goBack?: () => void }).goBack?.()}
+        onLeftPress={handleBack}
         rightIcons="share-kebab"
         onSharePress={handleShare}
         onRightIconsPress={() => setMenuVisible(true)}
@@ -529,7 +561,7 @@ export default function VoucherDetailView() {
         animationType="fade"
         onRequestClose={() => {
           setConnectionErrorVisible(false);
-          nav.goBack();
+          handleBack();
         }}
       >
         <View style={styles.connectionErrorOverlay}>
@@ -545,7 +577,7 @@ export default function VoucherDetailView() {
               style={styles.connectionErrorButton}
               onPress={() => {
                 setConnectionErrorVisible(false);
-                nav.goBack();
+                handleBack();
               }}
               activeOpacity={0.8}
             >
@@ -615,7 +647,7 @@ export default function VoucherDetailView() {
           </View>
           {loadingHtml ? (
             <View style={styles.htmlLoadingWrap}>
-              <ActivityIndicator size="large" color="#1e488f" />
+              <ActivityIndicator size="large" color="#1f3a89" />
               <Text style={styles.htmlLoadingText}>Loading…</Text>
             </View>
           ) : (
@@ -631,7 +663,7 @@ export default function VoucherDetailView() {
 
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1e488f" />
+          <ActivityIndicator size="large" color="#1f3a89" />
           <Text style={styles.loadingText}>Loading voucher details…</Text>
         </View>
       ) : (
@@ -663,7 +695,7 @@ export default function VoucherDetailView() {
             >
               {/* Accounting Entries (VDAcc: icon + title, then rows) */}
               <View style={[styles.sectionHead, styles.accSectionHead]}>
-                <Icon name="earth" size={20} color="#1e488f" />
+                <Icon name="earth" size={20} color="#1f3a89" />
                 <Text style={styles.sectionTitle}>Accounting Entries</Text>
               </View>
               <View style={styles.accEntriesWrap}>
@@ -768,7 +800,7 @@ export default function VoucherDetailView() {
 
               {/* More Details (VDAcc: Created by, Name on receipt, Narration) */}
               <View style={[styles.sectionHead, styles.accSectionHeadSpaced]}>
-                <Icon name="earth" size={20} color="#1e488f" />
+                <Icon name="earth" size={20} color="#1f3a89" />
                 <Text style={styles.sectionTitle}>More Details</Text>
               </View>
               <View style={styles.accEntriesWrap}>
@@ -803,7 +835,7 @@ export default function VoucherDetailView() {
               >
                 <View style={styles.invSectionWrap}>
                   <View style={[styles.sectionHead, styles.sectionHeadInv]}>
-                    <Icon name="cube-outline" size={20} color="#1e488f" />
+                    <Icon name="cube-outline" size={20} color="#1f3a89" />
                     <Text style={styles.sectionTitle}>
                       Inventory Allocations ({invAlloc.length})
                     </Text>
@@ -923,7 +955,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   invListWrap: {
     marginHorizontal: -16,
@@ -1098,7 +1130,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     minHeight: 56,
   },
   htmlModalTitle: {

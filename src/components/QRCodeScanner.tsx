@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   primaryButton: {
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',

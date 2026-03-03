@@ -198,7 +198,7 @@ export default function SalesOrderLineDetail() {
                   <Text style={styles.listRowType} numberOfLines={1}>{typeDisplay}</Text>
                 </View>
                 {isLoading ? (
-                  <ActivityIndicator size="small" color="#1e488f" />
+                  <ActivityIndicator size="small" color="#1f3a89" />
                 ) : (
                   <Text style={styles.listRowAmount}>{amountDisplay}</Text>
                 )}

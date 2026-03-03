@@ -17,6 +17,9 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  StatusBar,
+  Image,
+  Dimensions,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/selection (match voucher details)
@@ -52,20 +55,20 @@ import ItemSvg from '../assets/orderEntryOE3/Item.svg';
 import IconSvg from '../assets/orderEntryOE3/icon.svg';
 import { formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
 import { deobfuscatePrice } from '../utils/priceUtils';
-import { isBatchWiseOnFromItem } from '../utils/orderEntryBatchWise';
+import { isBatchWiseOnFromItem, isBatchWiseOnValue } from '../utils/orderEntryBatchWise';
 import CalendarPicker from '../components/CalendarPicker';
 import { OrderEntryChevronDownIcon, OrderEntryQRIcon, OrderEntryPaperclipIcon } from '../assets/OrderEntryIcons';
 import { QRCodeScanner, StockBreakdownModal, DeleteConfirmationModal } from '../components';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import MoreSvg from '../assets/orderEntryOE3/more.svg';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import DocumentPicker from 'react-native-document-picker/lib/commonjs';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
+import { colors } from '../constants/colors';
 
 /** Price level entry in item.PRICELEVELS (TallyCatalyst PlaceOrder.js) */
 type PriceLevelEntry = { PLNAME?: string; RATE?: string; DISCOUNT?: string; RATEUNIT?: string };
 
-const HEADER_BG = '#1e488f';
+const HEADER_BG = '#1f3a89';
 const SECTION_BG = '#e6ecfd';
 const ROW_BORDER = '#c4d4ff';
 const TEXT_ROW = '#0e172b';
@@ -76,7 +79,7 @@ const FOOTER_ADD_BG = '#0e172b';
 const FOOTER_PLACE_BG = '#39b57c';
 const ATTACH_YELLOW = '#f1c74b';
 const CANCEL_BG = '#d3d3d3';
-const LINK_BLUE = '#1e488f';
+const LINK_BLUE = '#1f3a89';
 
 type OrderLineItem = {
   id: number;
@@ -246,6 +249,11 @@ export default function OrderEntryItemDetail() {
   const taxNum = itemTax(item);
   /** Prefer explicit param from OrderEntry so godown/batch show correctly even if item loses keys in nav. */
   const isBatchWiseOn = route.params?.isBatchWiseOn ?? isBatchWiseOnFromItem(item);
+  /** Show mfg/expiry date fields only when batch wise is on AND item has both HASMFGDATE and HASEXPDATE set to Yes. */
+  const showMfgExpiryDates =
+    isBatchWiseOn &&
+    isBatchWiseOnValue((item as StockItem)?.HASMFGDATE) &&
+    isBatchWiseOnValue((item as StockItem)?.HASEXPDATE);
   if (__DEV__ && item && typeof item === 'object') {
     const o = item as Record<string, unknown>;
     const batchKeys = Object.keys(o).filter((k) => /batch|wise/i.test(k));
@@ -285,6 +293,7 @@ export default function OrderEntryItemDetail() {
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [nextId, setNextId] = useState(1);
   const [qtySelection, setQtySelection] = useState<{ start: number; end: number } | undefined>();
+  const [qtyKeyboardType, setQtyKeyboardType] = useState<'numeric' | 'default'>('numeric');
   const [itemMenuLineId, setItemMenuLineId] = useState<number | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
@@ -316,7 +325,12 @@ export default function OrderEntryItemDetail() {
   const [attachmentUris, setAttachmentUris] = useState<string[]>(route.params.attachmentUris ?? []);
   const [attachmentLinks, setAttachmentLinks] = useState<string[]>(route.params.attachmentLinks ?? []);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
-  const [attachmentMenuIdx, setAttachmentMenuIdx] = useState<number | null>(null);
+  const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
+  const [attachmentDeleteIdx, setAttachmentDeleteIdx] = useState<number | null>(null);
+  const [uploadErrorPopup, setUploadErrorPopup] = useState<{ status: string; message: string } | null>(null);
+  const [validationAlert, setValidationAlert] = useState<{ title: string; message: string } | null>(null);
+  const [quantityWarningVisible, setQuantityWarningVisible] = useState(false);
+  const [descriptionRequiredVisible, setDescriptionRequiredVisible] = useState(false);
 
   /** Fetch units from api/tally/stockitem for UOM (shared across items). */
   useEffect(() => {
@@ -642,6 +656,21 @@ export default function OrderEntryItemDetail() {
   }, [selectedLineId, goBack]);
 
   const handleAddToOrder = useCallback(() => {
+    const hasDescription = (description ?? '').trim().length > 0;
+    const hasAttachment = lineItems.length > 0
+      ? lineItems.some((l) => (l.attachmentLinks?.length ?? 0) > 0)
+      : attachmentLinks.length > 0;
+    if (isToBeAllocated && !hasDescription && !hasAttachment) {
+      setDescriptionRequiredVisible(true);
+      return;
+    }
+    const hasZeroQty = lineItems.length === 0
+      ? itemQuantity === 0
+      : lineItems.some((l) => l.qty <= 0);
+    if (hasZeroQty) {
+      setQuantityWarningVisible(true);
+      return;
+    }
     const baseUnit = selectedItemUnitConfig?.BASEUNITS ?? '';
     // Description is common to all batches: use current form value for every line
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
@@ -727,6 +756,16 @@ export default function OrderEntryItemDetail() {
   }, []);
 
   const handleAddItem = useCallback(() => {
+    const hasDescription = (description ?? '').trim().length > 0;
+    const hasAttachment = attachmentLinks.length > 0;
+    if (isToBeAllocated && !hasDescription && !hasAttachment) {
+      setDescriptionRequiredVisible(true);
+      return;
+    }
+    if (itemQuantity === 0) {
+      setQuantityWarningVisible(true);
+      return;
+    }
     const r = Math.max(0, parseFloat(rate) || 0);
     const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
     const total = parseFloat(value) || 0;
@@ -768,6 +807,10 @@ export default function OrderEntryItemDetail() {
 
   const handleUpdateItem = useCallback(() => {
     if (selectedLineId == null) return;
+    if (itemQuantity === 0) {
+      setQuantityWarningVisible(true);
+      return;
+    }
     const r = Math.max(0, parseFloat(rate) || 0);
     const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
     const formTotal = parseFloat(value) || 0;
@@ -891,28 +934,80 @@ export default function OrderEntryItemDetail() {
     setDueDatePickerVisible(false);
   }, [editingDueDateLineId]);
 
-  /** Upload a list of file URIs to api/upload-doc and return file_view_links. */
+  const UPLOAD_MAX_ATTEMPTS = 4;
+
+  /** True if the error is a network/NO_RESPONSE failure (retry in background up to UPLOAD_MAX_ATTEMPTS, then show validation popup). */
+  const isUploadNetworkError = useCallback((err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { response?: { status?: unknown }; message?: string; code?: string; isNetworkError?: boolean };
+    return (
+      e.isNetworkError === true ||
+      e.response?.status === 'NO_RESPONSE' ||
+      (typeof e.message === 'string' && (e.message.includes('Network') || e.message.includes('network'))) ||
+      e.code === 'ERR_NETWORK' ||
+      e.code === 'ECONNABORTED'
+    );
+  }, []);
+
+  /** Upload a list of file URIs to api/upload-doc and return file_view_links. On network error, retries up to 4 times; after 4 failures shows validation-alert popup (same UI as OrderEntry empty-customer). */
   const uploadFilesToApi = useCallback(async (uris: string[]): Promise<string[]> => {
     const [tallylocId, companyName, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
     if (!tallylocId || !companyName || !guid) return [];
     const links: string[] = [];
     for (const uri of uris) {
-      try {
-        const fileName = uri.split('/').pop() || 'attachment';
-        const formData = new FormData();
-        formData.append('file', { uri, name: fileName, type: 'application/octet-stream' } as unknown as Blob);
-        formData.append('location_id', String(tallylocId));
-        formData.append('type', 'transactions');
-        formData.append('company_name', companyName);
-        formData.append('co_guid', guid);
+      const fileName = uri.split('/').pop() || 'attachment';
+      const formData = new FormData();
+      formData.append('file', { uri, name: fileName, type: 'application/octet-stream' } as unknown as Blob);
+      formData.append('location_id', String(tallylocId));
+      formData.append('type', 'transactions');
+      formData.append('company_name', companyName);
+      formData.append('co_guid', guid);
+
+      const doUpload = async (): Promise<string | null> => {
         const { data } = await apiService.uploadDocument(formData);
-        if (data?.file_view_link) links.push(data.file_view_link);
-      } catch (err) {
-        console.warn('[OrderEntryItemDetail] upload-doc failed for', uri, err);
+        if (data?.status === 'error' && data?.message != null) {
+          setUploadErrorPopup({ status: String(data.status), message: String(data.message) });
+          return null;
+        }
+        return data?.file_view_link ?? null;
+      };
+
+      let lastErr: unknown = null;
+      let succeeded = false;
+      for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+        try {
+          const link = await doUpload();
+          if (link) {
+            links.push(link);
+            succeeded = true;
+          }
+          break;
+        } catch (err: unknown) {
+          lastErr = err;
+          if (attempt > 1) console.warn('[OrderEntryItemDetail] upload-doc attempt', attempt, 'failed for', uri, err);
+          else console.warn('[OrderEntryItemDetail] upload-doc failed for', uri, err);
+          if (!isUploadNetworkError(err)) {
+            const responseData = err && typeof err === 'object' && 'response' in err
+              ? (err as { response?: { data?: { status?: string; message?: string } } }).response?.data
+              : undefined;
+            const status = responseData?.status;
+            const message = responseData?.message;
+            if (status != null && message != null) {
+              setUploadErrorPopup({ status: String(status), message: String(message) });
+            }
+            break;
+          }
+        }
+      }
+      if (!succeeded && lastErr != null && isUploadNetworkError(lastErr)) {
+        const msg = (lastErr && typeof lastErr === 'object' && 'message' in lastErr && typeof (lastErr as { message: unknown }).message === 'string')
+          ? (lastErr as { message: string }).message
+          : 'Network Error';
+        setValidationAlert({ title: 'Upload failed', message: msg });
       }
     }
     return links;
-  }, []);
+  }, [isUploadNetworkError]);
 
   const handleClipOption = useCallback(
     async (optionId: ClipDocsOptionId) => {
@@ -968,6 +1063,7 @@ export default function OrderEntryItemDetail() {
 
   return (
     <View style={styles.container}>
+      <StatusBar backgroundColor={HEADER_BG} barStyle="light-content" />
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         <TouchableOpacity onPress={goBack} style={styles.backBtn} accessibilityLabel="Go back">
           <CaretLeftSvg width={24} height={24} />
@@ -1041,6 +1137,7 @@ export default function OrderEntryItemDetail() {
                           const spaceIdx = s.indexOf(' ');
                           const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
                           if (endOfNumber > 0) setQtySelection({ start: endOfNumber, end: endOfNumber });
+                          setQtyKeyboardType('numeric');
                         }}
                         onBlur={() => {
                           let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
@@ -1062,9 +1159,18 @@ export default function OrderEntryItemDetail() {
                             }
                           } else if (validated) setQuantityInput(validated);
                         }}
-                        keyboardType="default"
+                        keyboardType={qtyKeyboardType}
                         selection={qtySelection}
-                        onSelectionChange={() => { if (qtySelection) setQtySelection(undefined); }}
+                        onSelectionChange={(e) => {
+                          if (qtySelection) setQtySelection(undefined);
+                          const cursorPos = e.nativeEvent.selection.start;
+                          const spaceIdx = quantityInput.indexOf(' ');
+                          if (spaceIdx >= 0 && cursorPos > spaceIdx) {
+                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
+                          } else {
+                            if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
+                          }
+                        }}
                         placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
                         placeholderTextColor={LABEL_GRAY}
                       />
@@ -1119,6 +1225,7 @@ export default function OrderEntryItemDetail() {
                           if (endOfNumber > 0) {
                             setQtySelection({ start: endOfNumber, end: endOfNumber });
                           }
+                          setQtyKeyboardType('numeric');
                         }}
                         onBlur={() => {
                           let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
@@ -1146,12 +1253,19 @@ export default function OrderEntryItemDetail() {
                             }
                           } else if (validated) setQuantityInput(validated);
                         }}
-                        keyboardType="default"
+                        keyboardType={qtyKeyboardType}
                         selection={qtySelection}
                         onSelectionChange={(e) => {
                           // Only override our forced selection if the user is actively changing it
                           if (qtySelection) {
                             setQtySelection(undefined);
+                          }
+                          const cursorPos = e.nativeEvent.selection.start;
+                          const spaceIdx = quantityInput.indexOf(' ');
+                          if (spaceIdx >= 0 && cursorPos > spaceIdx) {
+                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
+                          } else {
+                            if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
                           }
                         }}
                         placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
@@ -1304,7 +1418,7 @@ export default function OrderEntryItemDetail() {
                     </View>
                   </View>
 
-                  {isBatchWiseOn ? (
+                  {showMfgExpiryDates ? (
                     <View style={styles.row}>
                       <View style={styles.half}>
                         <Text style={styles.label}>Mfg Date</Text>
@@ -1407,52 +1521,25 @@ export default function OrderEntryItemDetail() {
 
                   {attachmentLinks.length > 0 ? attachmentLinks.map((link, idx) => {
                     const uri = attachmentUris[idx] || link;
+                    const onViewAttachment = () => {
+                      if (!uri) return;
+                      const lower = uri.toLowerCase();
+                      const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image');
+                      if (isImage) setPreviewAttachmentUri(uri);
+                      else Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
+                    };
                     return (
-                      <View key={idx} style={[styles.attachRow, { zIndex: attachmentMenuIdx === idx ? 9999 : 1, elevation: attachmentMenuIdx === idx ? 9999 : 0 }]}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.attachRowName} numberOfLines={1}>
+                      <View key={idx} style={styles.attachRow}>
+                        <TouchableOpacity style={{ flex: 1 }} onPress={onViewAttachment} activeOpacity={0.7}>
+                          <Text style={[styles.attachRowName, { color: '#1f3a89', textDecorationLine: 'underline' }]} numberOfLines={1}>
                             Attachment #{idx + 1}
                           </Text>
-                        </View>
-                        <TouchableOpacity onPress={() => setAttachmentMenuIdx(attachmentMenuIdx === idx ? null : idx)}>
-                          <MoreSvg width={24} height={24} />
                         </TouchableOpacity>
-                        {attachmentMenuIdx === idx && (
-                          <View style={styles.attachMenu}>
-                            <TouchableOpacity
-                              style={styles.attachMenuItem}
-                              onPress={() => {
-                                setAttachmentMenuIdx(null);
-                                if (uri) {
-                                  const lower = uri.toLowerCase();
-                                  const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image');
-                                  if (isImage) {
-                                    // Could add image preview modal here in future
-                                    Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
-                                  } else {
-                                    Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
-                                  }
-                                }
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.attachMenuItemText}>View</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.attachMenuItem}
-                              onPress={() => {
-                                setAttachmentMenuIdx(null);
-                                setAttachmentUris((prev) => prev.filter((_, i) => i !== idx));
-                                setAttachmentLinks((prev) => prev.filter((_, i) => i !== idx));
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.attachMenuItemText}>Delete</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
+                        <TouchableOpacity onPress={() => setAttachmentDeleteIdx(idx)} hitSlop={8} activeOpacity={0.7}>
+                          <Icon name="trash-can-outline" size={24} color="#dc2626" />
+                        </TouchableOpacity>
                       </View>
-                    )
+                    );
                   }) : (
                     !uploadingAttachments && <Text style={{ fontSize: 14, color: '#9ca3af', paddingVertical: 8 }}>No attachments yet</Text>
                   )}
@@ -1533,11 +1620,11 @@ export default function OrderEntryItemDetail() {
                         <View style={{ marginTop: 4, paddingTop: 6, paddingBottom: 6, paddingHorizontal: 10, backgroundColor: '#e6ecfd', borderRadius: 4, overflow: 'visible' }}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
-                              Qty : <Text style={{ textDecorationLine: 'underline', color: '#1e488f' }}>{line.qty}</Text>
+                              Qty : <Text style={{ textDecorationLine: 'underline', color: '#1f3a89' }}>{line.qty}</Text>
                             </Text>
                             <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>Due date : {line.dueDate ?? '-'}</Text>
                           </View>
-                          {(line.mfgDate || line.expiryDate) ? (
+                          {showMfgExpiryDates && (line.mfgDate || line.expiryDate) ? (
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                               <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
                                 {line.mfgDate ? `Mfg Date : ${line.mfgDate}` : ''}
@@ -1761,15 +1848,159 @@ export default function OrderEntryItemDetail() {
         onConfirm={confirmLineItemDelete}
       />
 
+      <DeleteConfirmationModal
+        visible={attachmentDeleteIdx !== null}
+        onCancel={() => setAttachmentDeleteIdx(null)}
+        onConfirm={() => {
+          if (attachmentDeleteIdx !== null) {
+            setAttachmentUris((prev) => prev.filter((_, i) => i !== attachmentDeleteIdx));
+            setAttachmentLinks((prev) => prev.filter((_, i) => i !== attachmentDeleteIdx));
+            setAttachmentDeleteIdx(null);
+          }
+        }}
+        title="Are you sure you want to delete this attachment?"
+      />
+
       <ClipDocsPopup
         visible={clipPopupVisible}
         onClose={() => setClipPopupVisible(false)}
         onOptionClick={handleClipOption}
       />
+
+      {/* Upload error popup – dark blue header, white body with status + message */}
+      <Modal
+        visible={uploadErrorPopup != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setUploadErrorPopup(null)}
+      >
+        <View style={styles.uploadErrorOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setUploadErrorPopup(null)} activeOpacity={1} />
+          <View style={styles.uploadErrorCard}>
+            <View style={styles.uploadErrorHeader}>
+              <Text style={styles.uploadErrorTitle} numberOfLines={1}>
+                {uploadErrorPopup?.status ?? 'Error'}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setUploadErrorPopup(null)}
+                style={styles.uploadErrorCloseBtn}
+                hitSlop={12}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.uploadErrorCloseX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.uploadErrorBody}>
+              <Text style={styles.uploadErrorMessage}>{uploadErrorPopup?.message ?? ''}</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Validation alert – same UI as OrderEntry "Select Customer" (upload failed after retry) */}
+      <Modal
+        visible={validationAlert != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setValidationAlert(null)}
+      >
+        <Pressable style={styles.validationAlertOverlay} onPress={() => setValidationAlert(null)}>
+          <View style={styles.validationAlertCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.validationAlertTitle}>{validationAlert?.title ?? ''}</Text>
+            <Text style={styles.validationAlertMessage}>{validationAlert?.message ?? ''}</Text>
+            <TouchableOpacity
+              style={styles.validationAlertButton}
+              onPress={() => setValidationAlert(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.validationAlertButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Image Preview Modal for "item to be allocated" attachments – same as draft mode */}
+      <Modal visible={previewAttachmentUri != null} transparent animationType="fade" onRequestClose={() => setPreviewAttachmentUri(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' }}>
+          <TouchableOpacity
+            style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+            onPress={() => setPreviewAttachmentUri(null)}
+            activeOpacity={0.7}
+          >
+            <Icon name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+          {previewAttachmentUri && (
+            <Image
+              source={{ uri: previewAttachmentUri }}
+              style={{ width: Dimensions.get('window').width - 32, height: Dimensions.get('window').height * 0.7, borderRadius: 8 }}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* Quantity warning popup – same design as upload error (dark blue header, white body) */}
+      <Modal
+        visible={quantityWarningVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQuantityWarningVisible(false)}
+      >
+        <View style={styles.uploadErrorOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setQuantityWarningVisible(false)} activeOpacity={1} />
+          <View style={styles.uploadErrorCard}>
+            <View style={styles.uploadErrorHeader}>
+              <Text style={styles.uploadErrorTitle} numberOfLines={1}>
+                Warning
+              </Text>
+              <TouchableOpacity
+                onPress={() => setQuantityWarningVisible(false)}
+                style={styles.uploadErrorCloseBtn}
+                hitSlop={12}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.uploadErrorCloseX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.uploadErrorBody}>
+              <Text style={styles.uploadErrorMessage}>Please specify the quantity</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Description required popup – same design as quantity warning (dark blue header, white body) */}
+      <Modal
+        visible={descriptionRequiredVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDescriptionRequiredVisible(false)}
+      >
+        <View style={styles.uploadErrorOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setDescriptionRequiredVisible(false)} activeOpacity={1} />
+          <View style={styles.uploadErrorCard}>
+            <View style={styles.uploadErrorHeader}>
+              <Text style={styles.uploadErrorTitle} numberOfLines={1}>
+                Description Required
+              </Text>
+              <TouchableOpacity
+                onPress={() => setDescriptionRequiredVisible(false)}
+                style={styles.uploadErrorCloseBtn}
+                hitSlop={12}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.uploadErrorCloseX}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.uploadErrorBody}>
+              <Text style={styles.uploadErrorMessage}>Please enter a description.</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View >
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -2224,7 +2455,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     fontSize: 17,
     fontWeight: '600',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   attachRow: {
     flexDirection: 'row',
@@ -2467,5 +2698,108 @@ const styles = StyleSheet.create({
   expandedValueBlue: {
     color: '#3352B4',
     textDecorationLine: 'underline',
+  },
+  // Upload error popup – dark blue header, white body (match OrderEntry)
+  uploadErrorOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  uploadErrorCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  uploadErrorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1f3a89',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  uploadErrorTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    flex: 1,
+  },
+  uploadErrorCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  uploadErrorCloseX: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  uploadErrorBody: {
+    padding: 16,
+  },
+  uploadErrorMessage: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: '#0e172b',
+    lineHeight: 22,
+  },
+  // Validation alert popup – same as OrderEntry "Select Customer" (upload failed after retry)
+  validationAlertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  validationAlertCard: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    minWidth: 280,
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  validationAlertTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#0e172b',
+    marginBottom: 10,
+  },
+  validationAlertMessage: {
+    fontSize: 15,
+    color: colors.text_secondary,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  validationAlertButton: {
+    alignSelf: 'flex-end',
+    backgroundColor: colors.primary_blue,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  validationAlertButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.white,
   },
 });

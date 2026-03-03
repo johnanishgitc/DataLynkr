@@ -127,6 +127,10 @@ export default function LedgerMain() {
           companyName={company || undefined}
           onItemPress={onSidebarItemPress}
           onConnectionsPress={goToAdminDashboard}
+          onCompanyChange={(name) => {
+            setCompany(name);
+            loadCompany().then(fetchLedgers);
+          }}
         />
       </View>
     );
@@ -159,6 +163,10 @@ export default function LedgerMain() {
         companyName={company || undefined}
         onItemPress={onSidebarItemPress}
         onConnectionsPress={goToAdminDashboard}
+        onCompanyChange={(name) => {
+          setCompany(name);
+          loadCompany().then(fetchLedgers);
+        }}
       />
     </View>
   );

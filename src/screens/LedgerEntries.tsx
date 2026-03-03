@@ -436,6 +436,10 @@ export default function LedgerEntries() {
         companyName={company || undefined}
         onItemPress={onSidebarItemPress}
         onConnectionsPress={goToAdminDashboard}
+        onCompanyChange={(name) => {
+          setCompany(name);
+          loadCompany().then(fetchEntries);
+        }}
       />
     </View>
   );

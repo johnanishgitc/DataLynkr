@@ -1,8 +1,8 @@
 /**
  * Shared app sidebar (hamburger menu).
- * Same design and behavior as used in Sales Dashboard and Order Entry.
+ * Matches Figma design node 3414:109062 exactly.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,15 +13,25 @@ import {
   Animated,
   Dimensions,
   Pressable,
+  Alert,
+  PanResponder,
+  StatusBar,
+  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
-import Logo from './Logo';
-import LogoYellowSvg from '../../logosvgyellow.svg';
+import { useAuth } from '../store';
+import { apiService } from '../api/client';
+import { saveCompanyInfo, getCompany, getTallylocId, getGuid } from '../store/storage';
+import type { UserConnection } from '../api/models/connections';
+import FullYellowLogo from '../../assets/fullyellow.svg';
+import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 
-const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.78, 320);
+const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
 
 export interface AppSidebarMenuItem {
   id: string;
@@ -40,6 +50,8 @@ export interface AppSidebarProps {
   companyName?: string;
   onItemPress: (item: AppSidebarMenuItem) => void;
   onConnectionsPress?: () => void;
+  /** Called when user selects a different company from the dropdown */
+  onCompanyChange?: (companyName: string) => void;
 }
 
 export function AppSidebar({
@@ -50,9 +62,126 @@ export function AppSidebar({
   companyName = 'DataLynkr',
   onItemPress,
   onConnectionsPress,
+  onCompanyChange,
 }: AppSidebarProps) {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
+  const { logout } = useAuth();
+
+  // Company dropdown state
+  const [companies, setCompanies] = useState<UserConnection[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState(companyName);
+  const [selectedTallylocId, setSelectedTallylocId] = useState<number>(0);
+  const [selectedGuid, setSelectedGuid] = useState<string>('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+
+  // Fetch companies when sidebar becomes visible
+  useEffect(() => {
+    if (visible) {
+      setLoadingCompanies(true);
+      apiService.getUserConnections()
+        .then(res => {
+          const d = res.data as
+            | { data?: UserConnection[] | null; createdByMe?: UserConnection[]; sharedWithMe?: UserConnection[]; error?: string | null }
+            | UserConnection[]
+            | null
+            | undefined;
+          if (!d) {
+            setCompanies([]);
+            return;
+          }
+          if (Array.isArray(d)) {
+            setCompanies(d);
+            return;
+          }
+          if (d.error) {
+            setCompanies([]);
+            return;
+          }
+          let list: UserConnection[] = d.data ?? [];
+          if (list.length === 0 && (d.createdByMe || d.sharedWithMe)) {
+            list = [...(d.createdByMe || []), ...(d.sharedWithMe || [])];
+          }
+          setCompanies(list);
+        })
+        .catch(err => console.warn('[AppSidebar] Failed to fetch companies:', err))
+        .finally(() => setLoadingCompanies(false));
+      // Also sync the current company and ids from storage
+      Promise.all([getCompany(), getTallylocId(), getGuid()]).then(([c, id, g]) => {
+        if (c) setSelectedCompany(c);
+        setSelectedTallylocId(id);
+        setSelectedGuid(g ?? '');
+      });
+    } else {
+      setDropdownOpen(false);
+    }
+  }, [visible]);
+
+  const handleSelectCompany = useCallback(async (connection: UserConnection) => {
+    const name = connection.company || '';
+    setSelectedCompany(name);
+    setSelectedTallylocId(connection.tallyloc_id ?? 0);
+    setSelectedGuid(connection.guid ?? '');
+    setDropdownOpen(false);
+    // Save all company info to storage
+    try {
+      await saveCompanyInfo({
+        tallyloc_id: connection.tallyloc_id ?? 0,
+        company: name,
+        guid: connection.guid ?? '',
+        conn_name: connection.conn_name ?? '',
+        shared_email: connection.shared_email ?? '',
+        status: connection.status ?? '',
+        access_type: connection.access_type ?? '',
+        address: connection.address ?? '',
+        pincode: connection.pincode ?? '',
+        statename: connection.statename ?? '',
+        countryname: connection.countryname ?? '',
+        company_email: connection.email ?? '',
+        phonenumber: connection.phonenumber ?? '',
+        mobilenumbers: connection.mobilenumbers ?? '',
+        gstinno: connection.gstinno ?? '',
+        startingfrom: connection.startingfrom ?? '',
+        booksfrom: connection.booksfrom ?? '',
+        createdAt: connection.createdAt ?? '',
+      });
+      onCompanyChange?.(name);
+    } catch (err) {
+      console.warn('[AppSidebar] Failed to save company info:', err);
+    }
+  }, [onCompanyChange]);
+
+  const doLogout = () => {
+    Alert.alert(strings.logout, 'Are you sure?', [
+      { text: strings.cancel, style: 'cancel' },
+      { text: strings.logout, style: 'destructive', onPress: () => { onClose(); logout(); } },
+    ]);
+  };
+
+  // Swipe-left to close
+  const panResponder = useMemo(() =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only capture horizontal left swipes
+        return gestureState.dx < -10 && Math.abs(gestureState.dy) < Math.abs(gestureState.dx);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -50 || gestureState.vx < -0.5) {
+          onClose();
+        }
+      },
+    }),
+    [onClose]);
+
+  useEffect(() => {
+    if (visible) {
+      SystemNavigationBar.setNavigationColor('#1f3a89', 'light');
+    } else {
+      SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
+    }
+  }, [visible]);
 
   useEffect(() => {
     Animated.timing(anim, {
@@ -62,64 +191,147 @@ export function AppSidebar({
     }).start();
   }, [visible, anim]);
 
-  const overlayOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] });
+  const overlayOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] });
   const panelTranslateX = anim.interpolate({ inputRange: [0, 1], outputRange: [-SIDEBAR_WIDTH, 0] });
 
   return (
     <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
+      <StatusBar backgroundColor="#1f3a89" barStyle="light-content" />
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
         <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]} />
       </Pressable>
       <Animated.View
+        {...panResponder.panHandlers}
         style={[styles.panel, { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] }]}
       >
-        <View style={[styles.header, { paddingTop: insets.top + 30 }]}>
-          <View style={styles.headerLeft}>
-            <LogoYellowSvg width={32} height={21} />
-            <Text style={styles.title} numberOfLines={1}>
-              {companyName}
-            </Text>
+        {/* Padded inner container matching Figma px-24 py-20 */}
+        <View style={[styles.innerContainer, { paddingTop: insets.top + 20 }]}>
+
+          {/* Logo + DataLynkr text row */}
+          <View style={styles.logoRow}>
+            <FullYellowLogo width={55} height={55} />
+            <DataLynkrTextSvg width={150} height={35} />
           </View>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <Icon name="close" size={24} color={colors.white} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.mainContent}>
-          {onConnectionsPress ? (
-            <TouchableOpacity style={styles.connectionsBtn} onPress={onConnectionsPress} activeOpacity={0.7}>
-              <View style={styles.connectionsIconCircle}>
-                <Icon name="office-building" size={20} color={colors.primary_blue} />
+
+          {/* Company dropdown section */}
+          <View style={styles.companySection}>
+            <Text style={styles.companyTextLabel}>COMPANY</Text>
+            <TouchableOpacity
+              style={styles.companyInputBox}
+              onPress={() => setDropdownOpen(!dropdownOpen)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.companyDropdownRow}>
+                <Text style={styles.companyInputText} numberOfLines={1}>
+                  {selectedCompany || 'Select Company'}
+                </Text>
+                <Icon
+                  name={dropdownOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color="#ffffff"
+                />
               </View>
-              <Text style={styles.connectionsText}>{strings.list_of_connections}</Text>
-              <Icon name="chevron-right" size={20} color={colors.primary_blue} />
             </TouchableOpacity>
-          ) : null}
-          <FlatList
-            data={menuItems}
-            keyExtractor={(i) => i.id}
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            renderItem={({ item }) => {
-              const isActive = activeTarget != null && item.target === activeTarget;
-              return (
-                <TouchableOpacity
-                  style={[styles.row, isActive && styles.rowActive]}
-                  onPress={() => onItemPress(item)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.rowIconContainer, isActive && styles.rowIconContainerActive]}>
-                    <Icon
-                      name={item.icon}
-                      size={22}
-                      color={isActive ? colors.primary_blue : colors.text_secondary}
-                    />
+            {dropdownOpen && (
+              <View style={styles.dropdownContainer}>
+                {loadingCompanies ? (
+                  <View style={styles.dropdownLoading}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                    <Text style={styles.dropdownLoadingText}>Loading...</Text>
                   </View>
-                  <Text style={[styles.rowLabel, isActive && styles.rowLabelActive]}>{item.label}</Text>
-                  {isActive && <View style={styles.activeDot} />}
+                ) : companies.length === 0 ? (
+                  <Text style={styles.dropdownEmptyText}>No companies found</Text>
+                ) : (
+                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                    {companies.map((conn, idx) => {
+                      const isSelected =
+                        (selectedTallylocId !== 0 && selectedGuid !== ''
+                          ? conn.tallyloc_id === selectedTallylocId && (conn.guid ?? '') === selectedGuid
+                          : conn.company === selectedCompany);
+                      return (
+                        <TouchableOpacity
+                          key={conn.tallyloc_id ?? idx}
+                          style={[
+                            styles.dropdownItem,
+                            isSelected && styles.dropdownItemSelected,
+                          ]}
+                          onPress={() => handleSelectCompany(conn)}
+                          activeOpacity={0.7}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              isSelected && styles.dropdownItemTextSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {conn.company || 'Unknown'}
+                          </Text>
+                          {isSelected && (
+                            <Icon name="check" size={16} color="#ffffff" />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Menu items + Customize shortcuts + Logout */}
+          <View style={styles.menuAndLogoutContainer}>
+            {/* Menu list */}
+            <FlatList
+              data={menuItems}
+              keyExtractor={(i) => i.id}
+              style={styles.list}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => {
+                const hasChevron = item.params && (item.params as any).hasChevron;
+                return (
+                  <TouchableOpacity
+                    style={styles.row}
+                    onPress={() => onItemPress(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.rowIconContainer}>
+                      <Icon
+                        name={item.icon}
+                        size={24}
+                        color="#d1d5dc"
+                      />
+                    </View>
+                    <Text style={styles.rowLabel}>{item.label}</Text>
+                    {hasChevron && (
+                      <Icon name="chevron-right" size={20} color="#d1d5dc" />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+              ListFooterComponent={() => (
+                <TouchableOpacity style={styles.customizeBtn} activeOpacity={0.7}>
+                  <View style={styles.rowIconContainer}>
+                    <Icon name="tune-variant" size={24} color="#ffffff" />
+                  </View>
+                  <Text style={styles.customizeText}>Customize shortcuts</Text>
+                  <Icon name="chevron-right" size={20} color="#ffffff" />
                 </TouchableOpacity>
-              );
-            }}
-          />
+              )}
+            />
+
+            {/* Logout button at bottom */}
+            <View style={[styles.bottomContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+              <TouchableOpacity style={styles.logoutBtn} onPress={doLogout} activeOpacity={0.7}>
+                <View style={styles.logoutContent}>
+                  <Icon name="logout" size={24} color="#d1d5dc" style={{ transform: [{ rotateY: '180deg' }] }} />
+                  <Text style={styles.logoutText}>Logout</Text>
+                </View>
+                <Icon name="chevron-right" size={20} color="#d1d5dc" />
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Animated.View>
     </Modal>
@@ -129,119 +341,177 @@ export function AppSidebar({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
   panel: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: colors.white,
-    borderRightWidth: 1,
-    borderRightColor: colors.border_light,
+    backgroundColor: '#1f3a89',
   },
-  header: {
+  innerContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 40,
+    marginBottom: 10,
+    marginLeft: 30,
+  },
+  companySection: {
+    gap: 6,
+    marginTop: 10,
+  },
+  companyTextLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#ffffff',
+    fontFamily: 'Inter',
+  },
+  companyInputBox: {
+    borderWidth: 1,
+    borderColor: '#ffffff',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  companyDropdownRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    backgroundColor: colors.primary_blue,
   },
-  headerLeft: {
+  companyInputText: {
+    color: '#ffffff',
+    fontSize: 14,
+    flex: 1,
+    fontFamily: 'Inter',
+  },
+  dropdownContainer: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    maxHeight: 180,
+    overflow: 'hidden',
+  },
+  dropdownScroll: {
+    maxHeight: 180,
+  },
+  dropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+  },
+  dropdownItemSelected: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  dropdownItemText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    fontFamily: 'Inter',
     flex: 1,
   },
-  mainContent: {
-    flex: 1,
-    backgroundColor: colors.white,
+  dropdownItemTextSelected: {
+    color: '#ffffff',
+    fontWeight: '600',
   },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.white,
-    fontFamily: 'System',
-  },
-  closeBtn: {
-    padding: 4,
-  },
-  connectionsBtn: {
+  dropdownLoading: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginHorizontal: 16,
-    marginTop: 20,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: colors.bg_light_blue,
-  },
-  connectionsIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.primary_blue,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    gap: 8,
+    padding: 12,
   },
-  connectionsText: {
-    fontSize: 14,
-    color: colors.primary_blue,
-    fontWeight: '600',
+  dropdownLoadingText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontFamily: 'Inter',
+  },
+  dropdownEmptyText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    fontFamily: 'Inter',
+    textAlign: 'center',
+    padding: 12,
+  },
+  menuAndLogoutContainer: {
     flex: 1,
+    marginTop: 10,
+    justifyContent: 'space-between',
   },
   list: {
     flex: 1,
-    marginTop: 20,
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    gap: 5,
+    paddingBottom: 10,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    borderRadius: 10,
-    gap: 12,
-  },
-  rowActive: {
-    backgroundColor: colors.bg_light_blue,
+    padding: 10,
+    borderRadius: 12,
+    gap: 10,
   },
   rowIconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
-    backgroundColor: colors.bg_light_blue2,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rowIconContainerActive: {
-    backgroundColor: colors.white,
-  },
   rowLabel: {
-    fontSize: 15,
-    color: colors.text_secondary,
+    fontSize: 17,
+    color: '#d1d5dc',
+    fontWeight: '400',
+    flex: 1,
+    fontFamily: 'Roboto',
+  },
+  customizeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    padding: 10,
+    gap: 10,
+  },
+  customizeText: {
+    color: '#ffffff',
+    fontSize: 17,
     fontWeight: '500',
     flex: 1,
+    fontFamily: 'Roboto',
   },
-  rowLabelActive: {
-    color: colors.primary_blue,
-    fontWeight: '700',
+  bottomContainer: {
+    paddingTop: 16,
   },
-  activeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.primary_blue,
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#d1d5dc',
+    borderRadius: 4,
+    padding: 10,
+  },
+  logoutContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logoutText: {
+    color: '#d1d5dc',
+    fontSize: 17,
+    fontWeight: '400',
+    fontFamily: 'Roboto',
   },
 });
 

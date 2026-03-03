@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
     confirmBtn: {
         flex: 1,
         height: 48,
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         borderRadius: 4,
         alignItems: 'center',
         justifyContent: 'center',

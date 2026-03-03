@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   StatusBar,
+  Keyboard,
 } from 'react-native';
 import Logo from '../components/Logo';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -36,6 +37,18 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(show, () => setKeyboardVisible(true));
+    const subHide = Keyboard.addListener(hide, () => setKeyboardVisible(false));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
 
   const validate = (): boolean => {
     const e = email.trim();
@@ -163,15 +176,17 @@ export default function Login() {
           </View>
         </ScrollView>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {'© '}
-            <Text style={styles.footerIT}>IT</Text>
-            {' '}
-            <Text style={styles.footerCatalyst}>Catalyst</Text>
-            {' Software India Pvt Ltd, 2025.'}
-          </Text>
-        </View>
+        {!keyboardVisible && (
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              {'© '}
+              <Text style={styles.footerIT}>IT</Text>
+              {' '}
+              <Text style={styles.footerCatalyst}>Catalyst</Text>
+              {' Software India Pvt Ltd, 2025.'}
+            </Text>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -257,7 +272,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   btn: {
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     borderRadius: 4,
     paddingVertical: 10,
     alignItems: 'center',
@@ -276,7 +291,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   link: {
-    color: '#1e488f',
+    color: '#1f3a89',
     fontSize: 14,
     fontWeight: '500',
   },
@@ -294,7 +309,7 @@ const styles = StyleSheet.create({
   signupLink: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   footer: {
     borderTopWidth: 1.27,

@@ -2,7 +2,7 @@
  * App color palette - ported from Android colors.xml
  */
 export const colors = {
-  primary_blue: '#1e488f',
+  primary_blue: '#1f3a89',
   yellow_accent: '#f1c74b',
   bg_light_blue: '#e6ecfd',
   bg_light_blue2: '#e8eeff',
@@ -13,16 +13,16 @@ export const colors = {
   text_disabled: '#d4d4d4',
   border_gray: '#d4d4d4',
   border_light: '#e3eaf2',
-  status_bar_bg: '#1e488f',
+  status_bar_bg: '#1f3a89',
   card_bg_white: '#ffffff',
   card_bg_light: '#e8eeff',
   card_bg_yellow_tint: '#F5E6C7',
   card_bg_yellow_tint_22: '#39F1C74B',
   footer_text: '#6a7282',
-  footer_active: '#1e488f',
+  footer_active: '#1f3a89',
   date_picker_selected_bg: '#f1c74b',
   date_picker_light_bg: '#e6ecfd',
-  ledger_blue: '#1e488f',
+  ledger_blue: '#1f3a89',
   ledger_light_blue: '#e8eeff',
   ledger_border: '#e3eaf2',
   ledger_yellow: '#f1c74b',

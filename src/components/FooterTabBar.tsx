@@ -12,7 +12,7 @@ import { useScroll } from '../store/ScrollContext';
  * - inline-flex items-start gap-[42px]
  * - Tab widths: Home 41px, Orders 51px, Ledger 41px, Approvals 64px
  * - Icons: 24x24 (w-6 h-6)
- * - Text: 10px, Roboto, active=medium #1e488f, inactive=light #6a7282
+ * - Text: 10px, Roboto, active=medium #1f3a89, inactive=light #6a7282
  */
 export default function FooterTabBar({
   state,
@@ -105,10 +105,34 @@ export default function FooterTabBar({
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
-              navigation.dispatch({
-                ...CommonActions.navigate({ name: route.name, merge: true }),
-                target: state.key,
-              });
+              // When switching to Orders from Voucher Details (opened via Order Success "View Order"),
+              // show a cleared Order Entry instead of the previous order state.
+              const currentTab = state.routes[state.index];
+              const ledgerState = currentTab?.state as {
+                routes?: { name: string; params?: { returnToOrderEntryClear?: boolean; returnToOrderEntryDraftMode?: boolean } }[];
+                index?: number;
+              } | undefined;
+              const currentLedgerRoute = ledgerState?.routes?.[ledgerState.index ?? 0];
+              const shouldClearOrder =
+                route.name === 'OrdersTab' &&
+                currentTab?.name === 'LedgerTab' &&
+                currentLedgerRoute?.name === 'VoucherDetailView' &&
+                Boolean(currentLedgerRoute?.params?.returnToOrderEntryClear);
+
+              if (shouldClearOrder) {
+                const openInDraftMode = Boolean(currentLedgerRoute?.params?.returnToOrderEntryDraftMode);
+                navigation.navigate('OrdersTab', {
+                  state: {
+                    routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode } }],
+                    index: 0,
+                  },
+                });
+              } else {
+                navigation.dispatch({
+                  ...CommonActions.navigate({ name: route.name, merge: true }),
+                  target: state.key,
+                });
+              }
             }
           };
 

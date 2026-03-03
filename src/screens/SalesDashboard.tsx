@@ -24,7 +24,7 @@ import {
 import RNFS from 'react-native-fs';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
 import type { HomeStackParamList } from '../navigation/types';
@@ -168,10 +168,26 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         }
     }, [filters, setDashboardData, getFilterValues]);
 
-    // Load company name for sidebar
+    // Load company name for sidebar (and keep in sync when screen is focused so we consider both guid + tallyloc_id)
     useEffect(() => {
         getCompany().then(setCompany);
     }, []);
+
+    // When screen gains focus, re-read company/guid/tallyloc from storage and reload data so we always consider both
+    useFocusEffect(
+        useCallback(() => {
+            setDashboardData({ isLoading: true });
+            Promise.all([getCompany(), getGuid(), getTallylocId()]).then(([name, guid, tallylocId]) => {
+                if (name) setCompany(name);
+                if (guid && tallylocId) {
+                    loadSalesData();
+                } else {
+                    setError('No company selected. Please select a company first.');
+                    setDashboardData({ isLoading: false, kpi: null, charts: null });
+                }
+            });
+        }, [loadSalesData, setDashboardData])
+    );
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -204,11 +220,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
         [closeSidebar, nav],
     );
 
-    // Initial load
-    useEffect(() => {
-        setDashboardData({ isLoading: true });
-        loadSalesData();
-    }, [loadSalesData, setDashboardData]);
+    // Initial load and reload on focus are handled by useFocusEffect above (using both guid + tallyloc_id)
 
     // Refresh handler
     const onRefresh = useCallback(async () => {
@@ -430,6 +442,10 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 companyName={company || undefined}
                 onItemPress={onSidebarItemPress}
                 onConnectionsPress={goToAdminDashboard}
+                onCompanyChange={(name) => {
+                    setCompany(name);
+                    loadSalesData();
+                }}
             />
 
             {/* Period Selection Modal */}

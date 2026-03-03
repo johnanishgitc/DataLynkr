@@ -249,7 +249,7 @@ export default function ClearedOrderDetails() {
                   {line.description}
                 </Text>
                 {isLoading ? (
-                  <ActivityIndicator size="small" color="#1e488f" />
+                  <ActivityIndicator size="small" color="#1f3a89" />
                 ) : (
                   <Text style={styles.listAmount}>
                     {fmtNum(line.amount)} {line.isDebit ? 'Dr.' : 'Cr.'}

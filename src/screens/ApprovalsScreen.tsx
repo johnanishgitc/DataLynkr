@@ -877,7 +877,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                             style={[popupStyles.filterPickerItem, filterPerson === p && popupStyles.filterPickerItemActive]}
                                             onPress={() => { setFilterPerson(p); setPersonDropOpen(false); }}
                                         >
-                                            <Text style={[popupStyles.filterPickerText, filterPerson === p && { color: '#1e488f', fontWeight: '600' }]}>{p}</Text>
+                                            <Text style={[popupStyles.filterPickerText, filterPerson === p && { color: '#1f3a89', fontWeight: '600' }]}>{p}</Text>
                                         </TouchableOpacity>
                                     ))}
                                 </ScrollView>
@@ -911,7 +911,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                             style={[popupStyles.filterPickerItem, filterVoucher === v && popupStyles.filterPickerItemActive]}
                                             onPress={() => { setFilterVoucher(v); setVoucherDropOpen(false); }}
                                         >
-                                            <Text style={[popupStyles.filterPickerText, filterVoucher === v && { color: '#1e488f', fontWeight: '600' }]}>{v}</Text>
+                                            <Text style={[popupStyles.filterPickerText, filterVoucher === v && { color: '#1f3a89', fontWeight: '600' }]}>{v}</Text>
                                         </TouchableOpacity>
                                     ))}
                                 </ScrollView>
@@ -1244,6 +1244,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 onConnectionsPress={() => {
                     closeSidebar();
                     (navigation as any).replace('AdminDashboard');
+                }}
+                onCompanyChange={(name) => {
+                    setCompanyName(name);
+                    fetchData();
                 }}
             />
         </View>
@@ -1648,7 +1652,7 @@ const popupStyles = StyleSheet.create({
         color: '#fff',
     },
     continueBtn: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         borderRadius: 4,
         height: 48,
         alignItems: 'center',
@@ -1724,7 +1728,7 @@ const popupStyles = StyleSheet.create({
     },
     rejectContinueBtn: {
         flex: 1,
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         borderRadius: 4,
         height: 48,
         alignItems: 'center',
@@ -1812,7 +1816,7 @@ const popupStyles = StyleSheet.create({
         color: '#333',
     },
     applyBtn: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         borderRadius: 6,
         height: 50,
         alignItems: 'center' as const,
@@ -1872,8 +1876,8 @@ const popupStyles = StyleSheet.create({
         paddingVertical: 10,
     },
     sortChipActive: {
-        backgroundColor: '#1e488f',
-        borderColor: '#1e488f',
+        backgroundColor: '#1f3a89',
+        borderColor: '#1f3a89',
     },
     sortChipText: {
         fontFamily: 'Roboto',
@@ -1900,7 +1904,7 @@ const popupStyles = StyleSheet.create({
         shadowRadius: 10,
     },
     detailHeader: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         height: 44,
         flexDirection: 'row' as const,
         alignItems: 'center' as const,
@@ -2012,7 +2016,7 @@ const popupStyles = StyleSheet.create({
         fontFamily: 'Roboto',
         fontWeight: '600',
         fontSize: 17,
-        color: '#1e488f',
+        color: '#1f3a89',
     },
     switchTrack: {
         width: 34,
@@ -2023,7 +2027,7 @@ const popupStyles = StyleSheet.create({
         justifyContent: 'center' as const,
     },
     switchTrackOn: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
     },
     switchThumb: {
         width: 14,
@@ -2074,7 +2078,7 @@ const popupStyles = StyleSheet.create({
         color: '#6a7282',
     },
     inventoryDetailValue: {
-        color: '#1e488f',
+        color: '#1f3a89',
         textDecorationLine: 'underline' as const,
     },
     noInventoryText: {
@@ -2112,7 +2116,7 @@ const popupStyles = StyleSheet.create({
         color: '#0e172b',
     },
     ledgerDetailsBar: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         flexDirection: 'row' as const,
         justifyContent: 'space-between' as const,
         alignItems: 'center' as const,
@@ -2238,7 +2242,7 @@ const popupStyles = StyleSheet.create({
         color: '#fff',
     },
     updateOrderBtnBlue: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         flex: 1,
     },
 });
@@ -2257,11 +2261,11 @@ const reasonPopupStyles = StyleSheet.create({
         backgroundColor: '#fff',
         borderRadius: 4,
         borderWidth: 1,
-        borderColor: '#1e488f',
+        borderColor: '#1f3a89',
         overflow: 'hidden',
     },
     header: {
-        backgroundColor: '#1e488f',
+        backgroundColor: '#1f3a89',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',

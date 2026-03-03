@@ -36,6 +36,7 @@
     "react-native-screens": "^4.4.0",
     "react-native-share": "^12.2.4",
     "react-native-svg": "^15.15.1",
+    "react-native-system-navigation-bar": "^2.8.0",
     "react-native-vector-icons": "^10.2.0",
     "react-native-vision-camera": "^4.7.3",
     "react-native-webview": "^13.16.0",

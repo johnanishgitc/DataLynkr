@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   modalHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     paddingVertical: 6,
     paddingHorizontal: 16,
     justifyContent: 'space-between',
