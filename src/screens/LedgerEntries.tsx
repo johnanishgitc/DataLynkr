@@ -13,10 +13,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { LedgerStackParamList } from '../navigation/types';
-import { getTallylocId, getCompany, getGuid } from '../store/storage';
-import { cacheManager } from '../cache';
+import { getCompany, getGuid } from '../store/storage';
+import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { apiService } from '../api';
-import type { LedgerListResponse, LedgerReportData } from '../api';
+import type { LedgerReportData } from '../api';
 import { ExportMenu, PeriodSelection, AppSidebar } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
@@ -141,27 +141,15 @@ export default function LedgerEntries() {
     return REPORT_OPTIONS.filter((n) => n.toLowerCase().includes(q));
   }, [reportSearch]);
 
-  // Load ledger names
+  // Load ledger names from Data Management customers cache (no API call)
   useEffect(() => {
     let cancel = false;
     (async () => {
-      const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-      if (t === 0 || !c || !g) return;
       try {
-        const { data: listRes } = await apiService.getLedgerList({ tallyloc_id: t, company: c, guid: g });
-        const res = listRes as LedgerListResponse;
-        const list = res?.ledgers ?? res?.data ?? [];
-        if (!cancel) setLedgerNames(list.map((i) => (i.NAME ?? '').trim()).filter(Boolean));
+        const names = await getLedgerListNamesFromDataManagementCache();
+        if (!cancel) setLedgerNames(names);
       } catch {
-        try {
-          const key = `ledgerlist-w-addrs_${t}_${c}`;
-          const cached = await cacheManager.readCache<LedgerListResponse>(key);
-          const raw = (cached as LedgerListResponse | null)?.ledgers ?? (cached as LedgerListResponse | null)?.data ?? (Array.isArray(cached) ? cached : []);
-          const list = Array.isArray(raw) ? raw : [];
-          if (!cancel) setLedgerNames((list as { NAME?: string | null }[]).map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
-        } catch {
-          if (!cancel) setLedgerNames([]);
-        }
+        if (!cancel) setLedgerNames([]);
       }
     })();
     return () => { cancel = true; };
@@ -281,9 +269,9 @@ export default function LedgerEntries() {
   // Render the appropriate component based on report_name
   const renderReportComponent = () => {
     switch (report_name) {
-      case 'Ledger Voucher':
+      case 'Ledger Vouchers':
         return <LedgerVoucher {...sharedProps} />;
-      case 'Bill Wise Outstanding':
+      case 'Bill Wise Outstandings':
         return <BillWiseOutstanding {...sharedProps} />;
       case 'Sales Order Ledger Outstandings':
         return <SalesOrderLedgerOutstandings {...sharedProps} />;

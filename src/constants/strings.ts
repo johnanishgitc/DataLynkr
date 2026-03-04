@@ -137,7 +137,7 @@ export const strings = {
   cache_management_2: 'Data management',
   available_soon: 'Available Soon',
   // Bill Wise
-  bill_wise_outstanding: 'Bill Wise Outstanding',
+  bill_wise_outstanding: 'Bill Wise Outstandings',
   due_on: 'Due on',
   overdue_days: 'Overdue Days',
   bill_ref: 'Bill Ref',

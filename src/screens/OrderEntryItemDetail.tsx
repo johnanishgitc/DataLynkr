@@ -254,15 +254,7 @@ export default function OrderEntryItemDetail() {
     isBatchWiseOn &&
     isBatchWiseOnValue((item as StockItem)?.HASMFGDATE) &&
     isBatchWiseOnValue((item as StockItem)?.HASEXPDATE);
-  if (__DEV__ && item && typeof item === 'object') {
-    const o = item as Record<string, unknown>;
-    const batchKeys = Object.keys(o).filter((k) => /batch|wise/i.test(k));
-    if (batchKeys.length > 0 || (o as StockItem).ISBATCHWISEON !== undefined) {
-      const batchWiseInfo = batchKeys.map((k) => `${k}=${JSON.stringify(o[k])}`);
-      if ((o as StockItem).ISBATCHWISEON !== undefined) batchWiseInfo.push(`ISBATCHWISEON=${JSON.stringify((o as StockItem).ISBATCHWISEON)}`);
-      console.log('[OrderEntryItemDetail] batch-wise keys:', batchWiseInfo.join(', '), '→ isBatchWiseOn:', isBatchWiseOn);
-    }
-  }
+
   const defaultRate = computeRateForItem(item, selectedLedger);
   const defaultDiscount = computeDiscountForItem(item, selectedLedger);
   const fromPl = rateFromPriceLevel(item, selectedLedger);
@@ -551,6 +543,24 @@ export default function OrderEntryItemDetail() {
 
   const isEditMode = editOrderItem != null || (editOrderItems != null && editOrderItems.length > 0);
 
+  /** Show Alternate Qty field per doc §4.1: ADDITIONALUNITS exists AND DENOMINATOR > 0 AND CONVERSION > 0. */
+  const showAlternateQty =
+    !!selectedItemUnitConfig?.ADDITIONALUNITS &&
+    parseFloat(String(selectedItemUnitConfig.DENOMINATOR ?? 0)) > 0 &&
+    parseFloat(String(selectedItemUnitConfig.CONVERSION ?? 0)) > 0;
+
+  /** Format alternate qty for display per doc §4.6: use ADDITIONAL unit DECIMALPLACES. */
+  const formatAlternateQtyDisplay = useCallback(
+    (qtyStr: string, config: UnitConfig | null): string => {
+      if (!config) return qtyStr;
+      const n = parseFloat(qtyStr);
+      if (!Number.isFinite(n)) return qtyStr;
+      const dec = Number(config.ADDITIONALUNITS_DECIMAL ?? 0);
+      return dec === 0 ? String(Math.round(n)) : n.toFixed(dec);
+    },
+    []
+  );
+
   useEffect(() => {
     if (!name?.trim()) {
       setBatchDataList([]);
@@ -586,9 +596,6 @@ export default function OrderEntryItemDetail() {
           list = raw.slice();
         } else if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
           list = Object.values(raw).filter((v): v is BatchDataItem => v != null && typeof v === 'object');
-        }
-        if (__DEV__ && list.length > 0) {
-          console.log('[OrderEntryItemDetail] batchDataList set, length:', list.length, 'items:', list.map((b) => ({ Batchname: b.Batchname, godown: b.godown })));
         }
         setBatchDataList(list);
         if (!isEditMode) {
@@ -1118,104 +1125,44 @@ export default function OrderEntryItemDetail() {
                   <Text style={styles.label}>Description</Text>
                   <Text style={styles.labelHint}>(max 500 characters)</Text>
                 </View>
-                <TextInput
-                  style={[styles.textArea, isToBeAllocated && styles.textAreaToBeAllocated]}
-                  value={description}
-                  onChangeText={setDescription}
-                  placeholder=""
-                  placeholderTextColor={LABEL_GRAY}
-                  multiline
-                  maxLength={500}
-                  numberOfLines={4}
-                />
+                <View style={isToBeAllocated ? styles.descriptionBoxWithAttach : undefined}>
+                  <TextInput
+                    style={[
+                      styles.textArea,
+                      isToBeAllocated && styles.textAreaToBeAllocated,
+                      isToBeAllocated && styles.textAreaWithAttachButton,
+                    ]}
+                    value={description}
+                    onChangeText={setDescription}
+                    placeholder=""
+                    placeholderTextColor={LABEL_GRAY}
+                    multiline
+                    maxLength={500}
+                    numberOfLines={4}
+                  />
+                  {isToBeAllocated && (
+                    <TouchableOpacity
+                      style={styles.attachBtnInDescriptionCorner}
+                      onPress={() => setClipPopupVisible(true)}
+                      activeOpacity={0.8}
+                      accessibilityLabel="Attach file"
+                    >
+                      {uploadingAttachments ? (
+                        <ActivityIndicator size="small" color={TEXT_ROW} />
+                      ) : (
+                        <OrderEntryPaperclipIcon width={20} height={20} color={TEXT_ROW} />
+                      )}
+                      {attachmentLinks.length > 0 && (
+                        <View style={styles.attachBadge}>
+                          <Text style={styles.attachBadgeText}>{attachmentLinks.length}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
 
-              {isToBeAllocated ? (
-                <>
-                  <View style={styles.fieldBlock}>
-                    <Text style={styles.label}>Qty</Text>
-                    <View style={styles.qtyAttachRow}>
-                      <TextInput
-                        ref={qtyInputRef}
-                        style={[styles.input, styles.inputRowField, styles.qtyFieldToBeAllocated]}
-                        value={quantityInput}
-                        onChangeText={(text) => {
-                          const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
-                          setQuantityInput(validated);
-                        }}
-                        onFocus={() => {
-                          const s = quantityInput;
-                          const spaceIdx = s.indexOf(' ');
-                          const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
-                          if (endOfNumber > 0) setQtySelection({ start: endOfNumber, end: endOfNumber });
-                          setQtyKeyboardType('numeric');
-                        }}
-                        onBlur={() => {
-                          let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
-                          if (validated.trim() === '' && selectedItemUnitConfig) {
-                            const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
-                            validated = baseUnit ? `1 ${baseUnit}` : '1';
-                            setQuantityInput(validated);
-                            setItemQuantity(1);
-                            return;
-                          }
-                          if (validated && selectedItemUnitConfig) {
-                            const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                            if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
-                              setQuantityInput(formatCompoundBaseUnit(parsed.qty, parsed.subQty, selectedItemUnitConfig, units));
-                            } else if (parsed.uom === 'base' && parsed.qty != null) {
-                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                              const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
-                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                            }
-                          } else if (validated) setQuantityInput(validated);
-                        }}
-                        keyboardType={qtyKeyboardType}
-                        selection={qtySelection}
-                        onSelectionChange={(e) => {
-                          if (qtySelection) setQtySelection(undefined);
-                          const cursorPos = e.nativeEvent.selection.start;
-                          const spaceIdx = quantityInput.indexOf(' ');
-                          if (spaceIdx >= 0 && cursorPos > spaceIdx) {
-                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
-                          } else {
-                            if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
-                          }
-                        }}
-                        placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
-                        placeholderTextColor={LABEL_GRAY}
-                      />
-                      <TouchableOpacity
-                        style={styles.attachBtnNextToQty}
-                        onPress={() => setClipPopupVisible(true)}
-                        activeOpacity={0.8}
-                        accessibilityLabel="Attach file"
-                      >
-                        {uploadingAttachments ? (
-                          <ActivityIndicator size="small" color={TEXT_ROW} />
-                        ) : (
-                          <OrderEntryPaperclipIcon width={20} height={20} color={TEXT_ROW} />
-                        )}
-                        {attachmentLinks.length > 0 && (
-                          <View style={styles.attachBadge}>
-                            <Text style={styles.attachBadgeText}>{attachmentLinks.length}</Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                    {selectedItemUnitConfig?.ADDITIONALUNITS ? (
-                      (() => {
-                        const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-                        return (
-                          <Text style={[styles.labelHint, { marginTop: 2 }]}>
-                            ({alt.qty} {alt.unit})
-                          </Text>
-                        );
-                      })()
-                    ) : null}
-                  </View>
-                </>
-              ) : (
+              {!isToBeAllocated ? (
                 <>
                   <View style={styles.row}>
                     <View style={styles.half}>
@@ -1231,8 +1178,13 @@ export default function OrderEntryItemDetail() {
                         onFocus={() => {
                           const s = quantityInput;
                           const spaceIdx = s.indexOf(' ');
+                          // When empty or no space yet, use default keyboard so user can type numbers or unit names
+                          if (s.trim() === '' || spaceIdx < 0) {
+                            setQtyKeyboardType('default');
+                            setQtySelection(undefined);
+                            return;
+                          }
                           const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
-
                           if (endOfNumber > 0) {
                             setQtySelection({ start: endOfNumber, end: endOfNumber });
                           }
@@ -1267,13 +1219,15 @@ export default function OrderEntryItemDetail() {
                         keyboardType={qtyKeyboardType}
                         selection={qtySelection}
                         onSelectionChange={(e) => {
-                          // Only override our forced selection if the user is actively changing it
-                          if (qtySelection) {
-                            setQtySelection(undefined);
-                          }
+                          if (qtySelection) setQtySelection(undefined);
                           const cursorPos = e.nativeEvent.selection.start;
                           const spaceIdx = quantityInput.indexOf(' ');
-                          if (spaceIdx >= 0 && cursorPos > spaceIdx) {
+                          // Empty or no space: default keyboard (allow numbers and letters)
+                          if (spaceIdx < 0) {
+                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
+                            return;
+                          }
+                          if (cursorPos > spaceIdx) {
                             if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
                           } else {
                             if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
@@ -1282,12 +1236,12 @@ export default function OrderEntryItemDetail() {
                         placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
                         placeholderTextColor={LABEL_GRAY}
                       />
-                      {selectedItemUnitConfig?.ADDITIONALUNITS ? (
+                      {showAlternateQty ? (
                         (() => {
                           const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
                           return (
                             <Text style={[styles.labelHint, { marginTop: 2 }]}>
-                              ({alt.qty} {alt.unit})
+                              ({formatAlternateQtyDisplay(alt.qty, selectedItemUnitConfig)} {alt.unit})
                             </Text>
                           );
                         })()
@@ -1482,7 +1436,7 @@ export default function OrderEntryItemDetail() {
                     </View>
                   </View>
                 </>
-              )}
+              ) : null}
 
               <View style={styles.buttonsRow}>
                 <TouchableOpacity
@@ -1822,6 +1776,25 @@ export default function OrderEntryItemDetail() {
                     onPress={() => {
                       setRateUOM(opt.value);
                       setPerDropdownOpen(false);
+                      // Doc §5.3: When Rate UOM changes, quantity stays same; preserve amount by auto-adjusting rate.
+                      if (selectedItemUnitConfig && opt.value !== rateUOM) {
+                        const qtyInNewUOM = getQuantityInRateUOM(itemQuantity, opt.value, selectedItemUnitConfig, units, {
+                          compoundBaseQty,
+                          compoundAddlQty,
+                          baseQtyOnly,
+                          customAddlQty,
+                          customConversion,
+                        });
+                        if (qtyInNewUOM > 0) {
+                          const currentTotal = parseFloat(value) || 0;
+                          const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
+                          const amountBeforeDiscount = d < 100 ? currentTotal / (1 - d / 100) : currentTotal;
+                          const newRate = amountBeforeDiscount / qtyInNewUOM;
+                          if (Number.isFinite(newRate) && newRate >= 0) {
+                            setRate(newRate.toFixed(2));
+                          }
+                        }
+                      }
                     }}
                     activeOpacity={0.7}
                   >
@@ -2112,6 +2085,27 @@ const styles = StyleSheet.create({
   /** Taller description box when item is "ITEM TO BE ALLOCATED". */
   textAreaToBeAllocated: {
     minHeight: 200,
+  },
+  /** Wrapper for description + attachment button (to-be-allocated); button at bottom-right. */
+  descriptionBoxWithAttach: {
+    position: 'relative',
+  },
+  /** Extra padding so description text does not go under the attachment button. */
+  textAreaWithAttachButton: {
+    paddingRight: 48,
+    paddingBottom: 44,
+  },
+  /** Attachment button at bottom-right corner of description field (ITEM TO BE ALLOCATED). */
+  attachBtnInDescriptionCorner: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 35,
+    height: 35,
+    borderRadius: 18,
+    backgroundColor: ATTACH_YELLOW,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   row: {
     flexDirection: 'row',

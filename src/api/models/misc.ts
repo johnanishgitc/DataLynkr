@@ -55,6 +55,29 @@ export interface StockItemResponse {
   [key: string]: unknown;
 }
 
+/** Request for api/tally/stockgroups (same shape as ledger/stock: tallyloc_id, company, guid). */
+export interface StockGroupsRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** Single item from api/tally/stockgroups response (stockGroups array). */
+export interface StockGroupItem {
+  MASTERID?: string | null;
+  NAME?: string | null;
+  GROUPLIST?: string | null;
+  [key: string]: unknown;
+}
+
+export interface StockGroupsResponse {
+  stockGroups?: StockGroupItem[] | null;
+  count?: number | null;
+  error?: string | null;
+  message?: string | null;
+  [key: string]: unknown;
+}
+
 export interface ExternalUserCacheEnabledResponse {
   enabled?: boolean;
   error?: string | null;
@@ -250,15 +273,16 @@ export interface ItemwiseBatchwiseBalResponse {
   message?: string | null;
 }
 
-/** api/tally/place_order – single line item */
+/** api/tally/place_order – single line item. qty omitted for "ITEM TO BE ALLOCATED". */
 export interface PlaceOrderItemPayload {
   item: string;
-  qty: string;
+  qty?: string;
   rate: string;
   discount: number;
   gst: number;
   amount: number;
   description?: string;
+  attachdescription?: string;
   aqty?: string;
   godownname?: string;
   batchname?: string;

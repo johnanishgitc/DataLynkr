@@ -163,8 +163,11 @@ export default function StockItemMonthly() {
     }, [fetchData]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        const fromdate = route.params?.fromdate;
+        const todate = route.params?.todate;
+        const paramRange = (fromdate && todate) ? { fromdate: String(fromdate), todate: String(todate) } : undefined;
+        fetchData(paramRange);
+    }, [fetchData, route.params?.fromdate, route.params?.todate]);
 
     const onMonthPress = (m: MonthData) => {
         // Navigate to vouchers for this month's date range

@@ -96,6 +96,9 @@ export interface InventoryAllocation {
   BATCHNAME?: string | null;
   BATCH?: string | null;
   BATCHNO?: string | null;
+  /** Pipe-separated attachment links (e.g. Google Drive); used for "ITEM TO BE ALLOCATED" */
+  ATTACHDESCRIPTION?: string | null;
+  attachdescription?: string | null;
 }
 
 export interface BatchAllocationRow {

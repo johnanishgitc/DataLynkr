@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View,
     Text,
@@ -6,6 +6,7 @@ import {
     FlatList,
     StyleSheet,
     ActivityIndicator,
+    Animated,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -109,6 +110,28 @@ function fmtQty(q?: string): string {
     return q;
 }
 
+/** Format closing.amt string (e.g. "-72000.00") for display with Indian number format */
+function fmtAmt(amt: string | undefined): string {
+    if (amt == null || amt === '') return '- - - -';
+    const s = String(amt).trim();
+    const neg = s.startsWith('(-)') || (s.length > 0 && s[0] === '-');
+    const numStr = s.replace(/^\(-\)/, '').replace(/^-/, '').replace(/,/g, '');
+    const n = parseFloat(numStr);
+    if (Number.isNaN(n)) return s;
+    const abs = Math.abs(n);
+    const parts = abs.toFixed(2).split('.');
+    let intPart = parts[0];
+    const decPart = parts[1];
+    if (intPart.length > 3) {
+        const last3 = intPart.slice(-3);
+        const rest = intPart.slice(0, -3);
+        const grouped = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+        intPart = grouped + ',' + last3;
+    }
+    const formatted = intPart + '.' + decPart;
+    return neg ? `(-)${formatted}` : formatted;
+}
+
 import Svg, { Path } from 'react-native-svg';
 
 /* ── Icons ───────────────────────────────────────────────── */
@@ -149,6 +172,11 @@ export default function StockItemVouchers() {
     const [vouchers, setVouchers] = useState<StockVoucherEntry[]>([]);
     const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
     const [periodOpen, setPeriodOpen] = useState(false);
+    const lastScrollY = useRef(0);
+    const localScrollDirection = useRef<'up' | 'down'>('up');
+    const footerTranslateY = useRef(new Animated.Value(0)).current;
+    const FOOTER_HEIGHT = 44;
+    const SCROLL_UP_THRESHOLD = 10;
 
     const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }) => {
         setLoading(true);
@@ -192,6 +220,43 @@ export default function StockItemVouchers() {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    /** Closing balance from last voucher's closing.amt or closing.value */
+    const closingBalanceDisplay = useMemo(() => {
+        const last = vouchers.length > 0 ? vouchers[vouchers.length - 1] : null;
+        const closing = last?.closing;
+        if (!closing) return '- - - -';
+        if (typeof (closing as { amt?: string }).amt === 'string' && (closing as { amt?: string }).amt !== '') {
+            return fmtAmt((closing as { amt: string }).amt);
+        }
+        if (typeof closing.value === 'number') return fmtValue(closing.value);
+        return '- - - -';
+    }, [vouchers]);
+
+    const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number } } }) => {
+        const currentScrollY = event.nativeEvent.contentOffset.y;
+        const scrollDiff = currentScrollY - lastScrollY.current;
+        if (scrollDiff > 0 && currentScrollY > 10) {
+            if (localScrollDirection.current !== 'down') {
+                localScrollDirection.current = 'down';
+                Animated.timing(footerTranslateY, {
+                    toValue: FOOTER_HEIGHT,
+                    duration: 300,
+                    useNativeDriver: true,
+                }).start();
+            }
+        } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+            if (localScrollDirection.current !== 'up') {
+                localScrollDirection.current = 'up';
+                Animated.timing(footerTranslateY, {
+                    toValue: 0,
+                    duration: 300,
+                    useNativeDriver: true,
+                }).start();
+            }
+        }
+        lastScrollY.current = currentScrollY;
+    }, [FOOTER_HEIGHT]);
 
     const renderInwardOutward = (label: string, type: 'inward' | 'outward', data: StockQtyValue) => (
         <View style={s.ioRow}>
@@ -261,7 +326,11 @@ export default function StockItemVouchers() {
                             <Text style={s.ioValText} numberOfLines={1}>{fmtQty(v.closing?.qty)}</Text>
                         </View>
                         <View style={s.ioValue}>
-                            <Text style={s.ioValText} numberOfLines={1}>{fmtValue(v.closing?.value)}</Text>
+                            <Text style={s.ioValText} numberOfLines={1}>
+                                {typeof (v.closing as { amt?: string })?.amt === 'string'
+                                    ? fmtAmt((v.closing as { amt: string }).amt)
+                                    : fmtValue(v.closing?.value)}
+                            </Text>
                         </View>
                     </View>
                 </View>
@@ -341,16 +410,25 @@ export default function StockItemVouchers() {
                     data={listData}
                     keyExtractor={(item, idx) => String(idx)}
                     renderItem={renderItem}
-                    contentContainerStyle={s.listContent}
+                    contentContainerStyle={[s.listContent, { paddingBottom: FOOTER_HEIGHT + 49 + 24 }]}
                     showsVerticalScrollIndicator={false}
+                    onScroll={handleScroll}
+                    scrollEventThrottle={16}
                 />
             )}
 
-            {/* Grand Total footer */}
-            <View style={s.grandTotalBar}>
-                <Text style={s.grandTotalText}>{strings.grand_total.toUpperCase()}</Text>
-                <Icon name="chevron-right" size={22} color={colors.white} />
-            </View>
+            {/* Closing Balance bar (collapses on scroll down) */}
+            <Animated.View
+                style={[
+                    s.footerWrapper,
+                    { transform: [{ translateY: footerTranslateY }] },
+                ]}
+            >
+                <View style={s.closingBalanceBar}>
+                    <Text style={s.closingBalanceLabel}>{strings.closing_balance.toUpperCase()}</Text>
+                    <Text style={s.closingBalanceValue}>{closingBalanceDisplay}</Text>
+                </View>
+            </Animated.View>
 
             <PeriodSelection
                 visible={periodOpen}
@@ -534,7 +612,16 @@ const s = StyleSheet.create({
         color: colors.stock_text_dark,
     },
 
-    grandTotalBar: {
+    footerWrapper: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 49, // above tab bar (match Sales Order Ledger Outstandings)
+        zIndex: 999,
+        borderTopWidth: 1,
+        borderTopColor: colors.stock_border,
+    },
+    closingBalanceBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -542,7 +629,13 @@ const s = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 10,
     },
-    grandTotalText: {
+    closingBalanceLabel: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        fontWeight: '700',
+        color: colors.white,
+    },
+    closingBalanceValue: {
         fontFamily: 'Roboto',
         fontSize: 14,
         fontWeight: '700',

@@ -12,6 +12,10 @@ export {
   getStockItemNamesFromDataManagementCache,
 } from './stockItemsCacheReader';
 export {
+  getStockItemsAndGroupsFromDataManagementCache,
+  type StockListEntry,
+} from './stockListCacheReader';
+export {
   getSessionStockItems,
   setSessionStockItems,
   getSessionStockItemsKey,

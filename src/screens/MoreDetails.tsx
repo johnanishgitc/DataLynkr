@@ -365,7 +365,7 @@ function OrderDetailsContent({ voucher }: { voucher: VoucherRecord }) {
         title={strings.order_details ?? 'Order Details'}
         rows={[
           { label: 'Mode/Terms of payment:', value: get(v, 'basicorderterms') || get(v, 'basicduedateofpymt') },
-          { label: 'Other References:', value: get(v, 'basicorderref') || get(v, 'reference') },
+          { label: 'Other References:', value: get(v, 'reference') },
           { label: 'Reference Date:', value: get(v, 'referencedate') },
           { label: 'Terms of Delivery:', value: get(v, 'basicshipdocumentno') || get(v, 'eicheckpost') },
         ]}

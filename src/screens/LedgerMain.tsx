@@ -11,7 +11,7 @@ import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { colors } from '../constants/colors';
 
-const DEFAULT_REPORT = 'Ledger Voucher';
+const DEFAULT_REPORT = 'Ledger Vouchers';
 
 function defaultFromDate(): number {
   const d = new Date();
@@ -125,7 +125,7 @@ export default function LedgerMain() {
   if (tallylocId === 0 || !company || !guid) {
     return (
       <View style={styles.root}>
-        <StatusBarTopBar title="Ledger Book" rightIcons="share-bell" onMenuPress={openSidebar} />
+        <StatusBarTopBar title="Ledger Reports" rightIcons="share-bell" onMenuPress={openSidebar} />
         <View style={styles.content}>
           <Text style={styles.msg}>Please configure company connection first.</Text>
         </View>
@@ -145,7 +145,7 @@ export default function LedgerMain() {
 
   return (
     <View style={styles.root}>
-      <StatusBarTopBar title="Ledger Book" rightIcons="share-bell" onMenuPress={openSidebar} />
+      <StatusBarTopBar title="Ledger Reports" rightIcons="share-bell" onMenuPress={openSidebar} />
       <View style={styles.content}>
         {loading ? (
           <View style={styles.centered}>
