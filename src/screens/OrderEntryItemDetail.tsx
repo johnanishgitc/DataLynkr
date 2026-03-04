@@ -409,6 +409,8 @@ export default function OrderEntryItemDetail() {
             godown: oi.godown,
             batch: oi.batch,
             description: lineDesc ?? (commonDesc || undefined),
+            attachmentLinks: oi.attachmentLinks ?? undefined,
+            attachmentUris: oi.attachmentUris ?? undefined,
           };
         })
       );
@@ -447,6 +449,8 @@ export default function OrderEntryItemDetail() {
           godown: editOrderItem.godown,
           batch: editOrderItem.batch,
           description: editOrderItem.description,
+          attachmentLinks: route.params?.attachmentLinks ?? undefined,
+          attachmentUris: route.params?.attachmentUris ?? undefined,
         },
       ]);
       setNextId(editOrderItem.id + 1);
@@ -656,15 +660,17 @@ export default function OrderEntryItemDetail() {
   }, [selectedLineId, goBack]);
 
   const handleAddToOrder = useCallback(() => {
+    const isSingleLineEdit =
+      (editOrderItem != null || (editOrderItems != null && editOrderItems.length > 0)) && lineItems.length === 1;
     const hasDescription = (description ?? '').trim().length > 0;
-    const hasAttachment = lineItems.length > 0
-      ? lineItems.some((l) => (l.attachmentLinks?.length ?? 0) > 0)
-      : attachmentLinks.length > 0;
+    const hasAttachment = lineItems.length === 0 || isSingleLineEdit
+      ? attachmentLinks.length > 0
+      : lineItems.some((l) => (l.attachmentLinks?.length ?? 0) > 0);
     if (isToBeAllocated && !hasDescription && !hasAttachment) {
       setDescriptionRequiredVisible(true);
       return;
     }
-    const hasZeroQty = lineItems.length === 0
+    const hasZeroQty = lineItems.length === 0 || isSingleLineEdit
       ? itemQuantity === 0
       : lineItems.some((l) => l.qty <= 0);
     if (hasZeroQty) {
@@ -672,6 +678,29 @@ export default function OrderEntryItemDetail() {
       return;
     }
     const baseUnit = selectedItemUnitConfig?.BASEUNITS ?? '';
+    const r = Math.max(0, parseFloat(rate) || 0);
+    const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
+    const formTotal = parseFloat(value) || 0;
+    // When there is only one item in the list and we're in edit mode, use current form values so "Update Cart" without "Update Batch" still applies edits.
+    const singleItemFromForm = (): AddedOrderItemWithStock => ({
+      name,
+      qty: String(Math.max(0, itemQuantity)),
+      rate: String(r),
+      unit: baseUnit,
+      discount: d,
+      total: formTotal,
+      stock: stockNum,
+      tax: taxNum,
+      dueDate,
+      mfgDate: mfgDate || undefined,
+      expiryDate: expiryDate || undefined,
+      godown: godown || undefined,
+      batch: batch || undefined,
+      description: description || undefined,
+      stockItem: item ?? undefined,
+      attachmentLinks: [...attachmentLinks],
+      attachmentUris: [...attachmentUris],
+    });
     // Description is common to all batches: use current form value for every line
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
       name: line.name,
@@ -693,29 +722,11 @@ export default function OrderEntryItemDetail() {
       attachmentUris: line.attachmentUris ?? [],
     });
     const addedItems: AddedOrderItemWithStock[] =
-      lineItems.length > 0
-        ? lineItems.map(toAddedItem)
-        : [
-          {
-            name,
-            qty: String(Math.max(0, itemQuantity)),
-            rate: String(Math.max(0, parseFloat(rate) || 0)),
-            unit: baseUnit,
-            discount: Math.max(0, Math.min(100, parseFloat(discount) || 0)),
-            total: parseFloat(value) || 0,
-            stock: stockNum,
-            tax: taxNum,
-            dueDate,
-            mfgDate: mfgDate || undefined,
-            expiryDate: expiryDate || undefined,
-            godown: godown || undefined,
-            batch: batch || undefined,
-            description: description || undefined,
-            stockItem: item ?? undefined,
-            attachmentLinks: [...attachmentLinks],
-            attachmentUris: [...attachmentUris],
-          },
-        ];
+      isSingleLineEdit
+        ? [singleItemFromForm()]
+        : lineItems.length > 0
+          ? lineItems.map(toAddedItem)
+          : [singleItemFromForm()];
     // Collect all attachments from all items for order-level narration
     const allLinks: string[] = [];
     const allUris: string[] = [];

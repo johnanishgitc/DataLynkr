@@ -40,6 +40,7 @@ import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { navigationRef } from '../navigation/navigationRef';
+import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { AppSidebar, type AppSidebarMenuItem } from '../components/AppSidebar';
 import { StatusBarTopBar } from '../components';
 import { SIDEBAR_MENU_ORDER_ENTRY } from '../components/appSidebarMenu';
@@ -237,6 +238,8 @@ export default function OrderEntry() {
   const pendingLeaveActionRef = useRef<(() => void) | null>(null);
   const tabIndexRef = useRef(ORDERS_TAB_INDEX);
   const prevTabIndexRef = useRef(ORDERS_TAB_INDEX);
+  /** When true, the next focus event will auto-open the customer dropdown. Set on mount and every clear. */
+  const needsAutoOpenCustomerRef = useRef(true);
   const [stockBreakdownItem, setStockBreakdownItem] = useState<string | null>(null);
   const [expandedOrderItemNames, setExpandedOrderItemNames] = useState<Set<string>>(() => new Set());
   const [editingDueDateOrderItemId, setEditingDueDateOrderItemId] = useState<number | null>(null);
@@ -547,35 +550,34 @@ export default function OrderEntry() {
     return () => { cancel = true; };
   }, [selectedCustomer]);
 
+  /** Fetch voucher types from API; updates state and returns the list. Call when dropdown opens or when customer selected (to auto-select first). */
+  const fetchVoucherTypesAsync = useCallback(async (): Promise<VoucherTypeItem[]> => {
+    const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+    if (!t || !c || !g) return [];
+    try {
+      const { data } = await apiService.getVoucherTypes({ tallyloc_id: t, company: c, guid: g });
+      const list = data?.voucherTypes ?? [];
+      const names = list.map((v) => (v.NAME ?? '').trim()).filter(Boolean);
+      setVoucherTypeOptions(names);
+      setVoucherTypesList(Array.isArray(list) ? list : []);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      setVoucherTypeOptions([]);
+      setVoucherTypesList([]);
+      return [];
+    }
+  }, []);
+
   // Fetch voucher types when Voucher Type dropdown is opened
   useEffect(() => {
     let cancel = false;
     if (!voucherTypeDropdownOpen || voucherTypesList.length > 0) return;
     setVoucherTypeLoading(true);
-    (async () => {
-      const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-      if (!t || !c || !g) {
-        if (!cancel) setVoucherTypeLoading(false);
-        return;
-      }
-      try {
-        const { data } = await apiService.getVoucherTypes({ tallyloc_id: t, company: c, guid: g });
-        if (cancel) return;
-        const list = data?.voucherTypes ?? [];
-        const names = list.map((v) => (v.NAME ?? '').trim()).filter(Boolean);
-        setVoucherTypeOptions(names);
-        setVoucherTypesList(Array.isArray(list) ? list : []);
-      } catch {
-        if (!cancel) {
-          setVoucherTypeOptions([]);
-          setVoucherTypesList([]);
-        }
-      } finally {
-        if (!cancel) setVoucherTypeLoading(false);
-      }
-    })();
+    fetchVoucherTypesAsync().finally(() => {
+      if (!cancel) setVoucherTypeLoading(false);
+    });
     return () => { cancel = true; };
-  }, [voucherTypeDropdownOpen, voucherTypesList.length]);
+  }, [voucherTypeDropdownOpen, voucherTypesList.length, fetchVoucherTypesAsync]);
 
   const collapseVal = useRef(new Animated.Value(1)).current;
   useFocusEffect(
@@ -629,9 +631,38 @@ export default function OrderEntry() {
         setAttachmentUris([]);
         setAttachmentLinks([]);
         setDraftAttachmentDeleteIdx(null);
-        navigation.setParams({ clearOrder: undefined, openInDraftMode: undefined });
+        // Open customer dropdown after state is applied, then clear params (clearing params first would re-run this effect and skip the open)
+        const openDropdownTimer = setTimeout(() => {
+          setCustomerDropdownOpen(true);
+          navigation.setParams({ clearOrder: undefined, openInDraftMode: undefined });
+        }, 250);
+        return () => clearTimeout(openDropdownTimer);
       }
-      // Collect attachment links from ItemDetail (for "ITEM TO BE ALLOCATED")
+      // When returning from Item Detail with "Update Cart": apply cart replacement so changes are accepted for both item-to-be-allocated and other items.
+      const hasReplace = replaceId != null || (replaceIds != null && replaceIds.length > 0);
+      const addedLength = added?.length ?? 0;
+      if (addedLength > 0 && hasReplace) {
+        const nextId = orderItemsNextId.current;
+        const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
+        if (replaceIds != null && replaceIds.length > 0) {
+          const idSet = new Set(replaceIds);
+          setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
+        } else {
+          setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
+        }
+        orderItemsNextId.current = nextId + addedLength;
+        navigation.setParams({ addedItems: undefined, replaceOrderItemId: undefined, replaceOrderItemIds: undefined });
+        // Apply attachments from Item Detail (e.g. "item to be allocated") so they're not lost
+        const incomingLinks = route.params?.attachmentLinks;
+        const incomingUris = route.params?.attachmentUris;
+        if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
+        if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
+        navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
+        needsAutoOpenCustomerRef.current = false;
+        setTimeout(() => setItemDropdownOpen(true), 250);
+        return;
+      }
+      // Add to cart (no replace) or legacy path: handle attachments then add items
       const incomingLinks = route.params?.attachmentLinks;
       const incomingUris = route.params?.attachmentUris;
 
@@ -640,9 +671,9 @@ export default function OrderEntry() {
         if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
         navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
       }
-      if (added?.length) {
+      if (addedLength > 0) {
         const nextId = orderItemsNextId.current;
-        const withIds = added.map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
+        const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
         if (replaceIds != null && replaceIds.length > 0) {
           const idSet = new Set(replaceIds);
           setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
@@ -651,10 +682,13 @@ export default function OrderEntry() {
         } else {
           setOrderItems((prev) => [...prev, ...withIds]);
         }
-        orderItemsNextId.current = nextId + added.length;
+        orderItemsNextId.current = nextId + addedLength;
         navigation.setParams({ addedItems: undefined, replaceOrderItemId: undefined, replaceOrderItemIds: undefined });
+        needsAutoOpenCustomerRef.current = false;
+        // Coming back from Item Detail (Add to Cart): open items dropdown so user can add more
+        setTimeout(() => setItemDropdownOpen(true), 250);
       }
-    }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.openInDraftMode, navigation])
+    }, [route.params])
   );
 
   useFocusEffect(
@@ -705,7 +739,12 @@ export default function OrderEntry() {
       if (item.target === 'OrderEntry') {
         // Already on Order Entry
       } else if (item.target === 'LedgerTab' || item.target === 'HomeTab') {
-        tabNav?.navigate?.(item.target);
+        const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
+        if (item.target === 'LedgerTab' && p?.report_name) {
+          tabNav?.navigate?.('LedgerTab', { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } });
+        } else {
+          tabNav?.navigate?.(item.target);
+        }
       } else if (item.target === 'DataManagement') {
         tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
       } else if (item.target === 'ComingSoon' && item.params) {
@@ -1122,9 +1161,10 @@ export default function OrderEntry() {
     return Array.isArray(list) ? (list as LedgerEntryConfig[]) : [];
   }, [selectedVoucherType, selectedClass, voucherTypesList]);
 
-  /** Parse numeric field from ledger config (CLASSRATE, ROUNDLIMIT, GSTRATE, RATEOFTAXCALCULATION). */
+  /** Parse numeric field from ledger config (CLASSRATE, ROUNDLIMIT, GSTRATE, RATEOFTAXCALCULATION). Tries key as-is then lowercase for API casing. */
   const ledgerNum = useCallback((ledger: LedgerEntryConfig, key: string): number => {
-    const v = (ledger as Record<string, unknown>)[key];
+    const rec = ledger as Record<string, unknown>;
+    const v = rec[key] ?? rec[key.toLowerCase()];
     if (v == null) return 0;
     if (typeof v === 'number' && !isNaN(v)) return v;
     const n = parseFloat(String(v));
@@ -1232,7 +1272,8 @@ export default function OrderEntry() {
       }
     }
 
-    // 6) GST (per-item, state + rate filter)
+    // 6) GST (per-item, state + rate filter). Fallback: if no item-level tax yields amount, use ledger rate on taxable base.
+    const totalTaxableForGst = itemTaxableAmounts.reduce((a, b) => a + b, 0);
     let totalGST = 0;
     for (const le of ledgers) {
       if ((le.METHODTYPE ?? '').trim() !== 'GST') continue;
@@ -1249,7 +1290,8 @@ export default function OrderEntry() {
         ledgerAmounts[name] = 0;
         continue;
       }
-      const rateFilter = ledgerNum(le, 'RATEOFTAXCALCULATION');
+      // Rate is percentage: RATEOFTAXCALCULATION (e.g. CGST/SGST split) or CLASSRATE (e.g. IGST: 5 = 5%)
+      const rateFilter = ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE');
       let sum = 0;
       for (let i = 0; i < orderItems.length; i++) {
         const itemGstPercent = orderItems[i].tax ?? 0;
@@ -1261,6 +1303,10 @@ export default function OrderEntry() {
           if (!match) continue;
         }
         sum += (taxable * effectiveRate) / 100;
+      }
+      // When percentage is present but per-item calculation is 0 (e.g. items have no tax set), use ledger rate on total taxable base
+      if (sum === 0 && rateFilter > 0 && totalTaxableForGst > 0) {
+        sum = (totalTaxableForGst * rateFilter) / 100;
       }
       ledgerAmounts[name] = sum;
       totalGST += sum;
@@ -1484,7 +1530,6 @@ export default function OrderEntry() {
         setSelectedVoucherType('');
         setSelectedClass('');
         setLedgerValues({});
-        setCustomerDropdownOpen(false);
         setVoucherTypeDropdownOpen(false);
         setClassDropdownOpen(false);
         if (isDraftMode) {
@@ -1493,6 +1538,8 @@ export default function OrderEntry() {
           setAttachmentLinks([]);
           setDraftAttachmentDeleteIdx(null);
         }
+        // Auto-open customer dropdown when user returns from OrderSuccess
+        needsAutoOpenCustomerRef.current = true;
         navigation.navigate('OrderSuccess', {
           voucherNumber: res.data.voucherNumber ?? vouchernumber,
           reference: res.data.reference ?? reference,
@@ -1643,7 +1690,7 @@ export default function OrderEntry() {
       exportPortCode: '',
       exportDate: null,
     });
-    setCustomerDropdownOpen(false);
+    needsAutoOpenCustomerRef.current = true;
     setVoucherTypeDropdownOpen(false);
     setClassDropdownOpen(false);
     setItemDropdownOpen(false);
@@ -1700,6 +1747,17 @@ export default function OrderEntry() {
         setTimeout(runAfterTabChange, 0);
       };
     }, [clearOrderEntryState, navigation])
+  );
+
+  /** Auto-open customer dropdown whenever the screen gains focus in a cleared state. */
+  useFocusEffect(
+    React.useCallback(() => {
+      if (needsAutoOpenCustomerRef.current) {
+        needsAutoOpenCustomerRef.current = false;
+        const timer = setTimeout(() => setCustomerDropdownOpen(true), 400);
+        return () => clearTimeout(timer);
+      }
+    }, [])
   );
 
   const setAddDetails = useCallback(<K extends keyof typeof addDetailsForm>(key: K, value: typeof addDetailsForm[K]) => {
@@ -2370,6 +2428,8 @@ export default function OrderEntry() {
                                             godown: oi.godown,
                                             batch: oi.batch,
                                             description: oi.description,
+                                            attachmentLinks: oi.attachmentLinks,
+                                            attachmentUris: oi.attachmentUris,
                                           })),
                                           isBatchWiseOn: isBatchWiseOnFromItem(first.stockItem),
                                           viewOnly: route.params?.viewOnly,
@@ -2513,6 +2573,8 @@ export default function OrderEntry() {
                                                       godown: child.godown,
                                                       batch: child.batch,
                                                       description: child.description,
+                                                      attachmentLinks: child.attachmentLinks,
+                                                      attachmentUris: child.attachmentUris,
                                                     })),
                                                     editOrderItem: { id: oi.id, name: oi.name, qty: oi.qty, rate: oi.rate, discount: oi.discount, total: oi.total, stock: oi.stock, tax: oi.tax, dueDate: oi.dueDate, mfgDate: oi.mfgDate, expiryDate: oi.expiryDate, godown: oi.godown, batch: oi.batch, description: oi.description },
                                                     isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
@@ -2630,14 +2692,27 @@ export default function OrderEntry() {
                             </View>
                           </>
                         ) : (
-                          <>
-                            <Text style={styles.ledgerDetailsPct}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
+                            <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
                               {methodType === 'As Total Amount Rounding' ? ''
-                                : methodType === 'GST' ? `${ledgerNum(le, 'RATEOFTAXCALCULATION')}%`
-                                  : `${ledgerNum(le, 'CLASSRATE')}%`}
+                                : (() => {
+                                    const formatPct = (n: number) => {
+                                      if (!Number.isFinite(n)) return '0';
+                                      if (n === Math.round(n)) return String(Math.round(n));
+                                      return n.toFixed(2).replace(/\.?0+$/, '');
+                                    };
+                                    const configRate = methodType === 'GST'
+                                      ? (ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE'))
+                                      : ledgerNum(le, 'CLASSRATE');
+                                    if (configRate > 0) return `${formatPct(configRate)}%`;
+                                    if (calculatedLedgerAmounts.subtotal > 0 && amount > 0) {
+                                      return `${formatPct((amount / calculatedLedgerAmounts.subtotal) * 100)}%`;
+                                    }
+                                    return configRate === 0 ? '0%' : `${formatPct(configRate)}%`;
+                                  })()}
                             </Text>
-                            <Text style={styles.ledgerDetailsAmt}>₹{amount.toFixed(2)}</Text>
-                          </>
+                            <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>₹{amount.toFixed(2)}</Text>
+                          </View>
                         )}
                       </View>
                       {gstOnThis > 0 ? (
@@ -3498,6 +3573,7 @@ export default function OrderEntry() {
         companyName={company || undefined}
         onItemPress={onSidebarItemPress}
         onConnectionsPress={goToAdminDashboard}
+        onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
 
       {/* Customer list modal - same as Ledger Book */}
@@ -3546,12 +3622,33 @@ export default function OrderEntry() {
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
-                  onPress={() => {
+                  onPress={async () => {
                     setSelectedCustomer(item);
                     const ledger = ledgerItems.find((l) => (l.NAME ?? '').trim() === item) ?? null;
                     setSelectedLedger(ledger);
                     setCustomerDropdownOpen(false);
                     setCustomerSearch('');
+                    // In quick (draft) mode: do not auto-select voucher type/class or open items dropdown
+                    if (isDraftMode) return;
+                    // Auto-select first voucher type and class, then show items dropdown
+                    let list = voucherTypesList;
+                    if (list.length === 0) {
+                      setVoucherTypeLoading(true);
+                      list = await fetchVoucherTypesAsync();
+                      setVoucherTypeLoading(false);
+                    }
+                    const first = list[0];
+                    if (first) {
+                      const name = (first.NAME ?? '').trim();
+                      setSelectedVoucherType(name);
+                      setLedgerValues({});
+                      const classes = first.VOUCHERCLASSLIST ?? [];
+                      const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
+                      const hasClasses = classNames.length > 0;
+                      setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
+                      setSelectedClass(hasClasses ? classNames[0] : '');
+                      setItemDropdownOpen(true);
+                    }
                   }}
                   activeOpacity={0.7}
                 >
@@ -3603,7 +3700,7 @@ export default function OrderEntry() {
                     const classes = vt?.VOUCHERCLASSLIST ?? [];
                     const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
                     const hasClasses = classNames.length > 0;
-                    setClassOptions(hasClasses ? [...classNames, NOT_APPLICABLE_CLASS] : []);
+                    setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
                     setSelectedClass((prev) => (hasClasses ? (classNames.includes(prev) || prev === NOT_APPLICABLE_CLASS ? prev : '') : ''));
                     setVoucherTypeDropdownOpen(false);
                     if (hasClasses) setClassDropdownOpen(true);
@@ -4125,10 +4222,12 @@ export default function OrderEntry() {
           setSelectedVoucherType('');
           setSelectedClass('');
           setLedgerValues({});
-          setCustomerDropdownOpen(false);
           setVoucherTypeDropdownOpen(false);
           setClassDropdownOpen(false);
           setClearAllConfirmVisible(false);
+          // Auto-open customer dropdown after clearing all items
+          needsAutoOpenCustomerRef.current = true;
+          setTimeout(() => setCustomerDropdownOpen(true), 400);
         }}
         title="Are you sure you want to clear all items?"
       />
@@ -4824,7 +4923,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     marginBottom: 8,
   },
   ledgerDetailsLabel: {
@@ -4840,6 +4939,7 @@ const styles = StyleSheet.create({
     color: TEXT_ROW,
     width: 36,
     textAlign: 'right',
+    flexShrink: 0,
   },
   ledgerDetailsAmt: {
     fontFamily: 'Roboto',
@@ -4847,6 +4947,7 @@ const styles = StyleSheet.create({
     color: TEXT_ROW,
     minWidth: 70,
     textAlign: 'right',
+    flexShrink: 0,
   },
   ledgerDetailsInputWrap: {
     flexDirection: 'row',

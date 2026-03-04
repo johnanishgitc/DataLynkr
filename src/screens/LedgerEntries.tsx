@@ -21,6 +21,7 @@ import { ExportMenu, PeriodSelection, AppSidebar } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { navigationRef } from '../navigation/navigationRef';
+import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import { formatDate } from '../utils/dateUtils';
@@ -72,6 +73,7 @@ export default function LedgerEntries() {
   const [company, setCompany] = useState('');
   const customerInputRef = useRef<TextInput>(null);
   const reportInputRef = useRef<TextInput>(null);
+  const hasShownReportDropdownRef = useRef(false);
 
   useEffect(() => {
     if (customerDropdownOpen) {
@@ -104,7 +106,14 @@ export default function LedgerEntries() {
       closeSidebar();
       const tabNav = nav.getParent()?.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
       if (item.target === 'LedgerTab') {
-        // Already on Ledger
+        // Already on Ledger – apply any report params from sidebar sub-items
+        const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
+        if (p?.report_name) {
+          (nav as unknown as { setParams: (p: object) => void }).setParams({
+            report_name: p.report_name,
+            auto_open_customer: p.auto_open_customer,
+          });
+        }
       } else if (item.target === 'OrderEntry') {
         tabNav?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
       } else if (item.target === 'HomeTab') {
@@ -158,17 +167,28 @@ export default function LedgerEntries() {
     return () => { cancel = true; };
   }, []);
 
-  // Auto-open report name dropdown only when on default report with no ledger (e.g. first time on Ledger).
-  // Do not auto-open when returning to Past Orders or other reports (e.g. back from Voucher Details).
+  // Auto-open report name or customer dropdown based on context
   useFocusEffect(
     React.useCallback(() => {
-      if (!ledger_name && ledgerNames.length > 0 && report_name === DEFAULT_REPORT) {
+      const autoOpen = (routeParams as any).auto_open_customer;
+      if (autoOpen) {
+        // Delay slightly to ensure screen is mounted and ledgers are loaded/loading
+        const timer = setTimeout(() => {
+          setCustomerDropdownOpen(true);
+          // clear the param so it doesn't reopen unnecessarily
+          nav.setParams({ auto_open_customer: undefined } as any);
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+
+      if (!ledger_name && ledgerNames.length > 0 && report_name === DEFAULT_REPORT && !hasShownReportDropdownRef.current) {
+        hasShownReportDropdownRef.current = true;
         const timer = setTimeout(() => {
           setReportDropdownOpen(true);
         }, 100);
         return () => clearTimeout(timer);
       }
-    }, [ledger_name, ledgerNames, report_name])
+    }, [ledger_name, ledgerNames, report_name, routeParams, nav])
   );
 
   const dateRangeStr = `${formatDate(from_date)} – ${formatDate(to_date)}`;
@@ -181,7 +201,10 @@ export default function LedgerEntries() {
   const onNavigateHome = openSidebar;
 
   const onCustomerDropdownOpen = () => setCustomerDropdownOpen(true);
-  const onReportDropdownOpen = () => setReportDropdownOpen(true);
+  const onReportDropdownOpen = () => {
+    hasShownReportDropdownRef.current = true;
+    setReportDropdownOpen(true);
+  };
   const onPeriodSelectionOpen = () => setPeriodSelectionOpen(true);
   const onExportOpen = () => setExportVisible(true);
 
@@ -436,10 +459,7 @@ export default function LedgerEntries() {
         companyName={company || undefined}
         onItemPress={onSidebarItemPress}
         onConnectionsPress={goToAdminDashboard}
-        onCompanyChange={(name) => {
-          setCompany(name);
-          loadCompany().then(fetchEntries);
-        }}
+        onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
     </View>
   );

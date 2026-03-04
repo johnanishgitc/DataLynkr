@@ -41,6 +41,7 @@ import { apiService, isUnauthorizedError } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
 import type { Voucher } from '../api/models/voucher';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
+import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { toYyyyMmDd } from '../utils/dateUtils';
 import PeriodSelection from '../components/PeriodSelection';
 import { useScroll } from '../store/ScrollContext';
@@ -192,7 +193,16 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
                 return;
             }
-            (navigation as any).navigate(item.target, item.params);
+            if (item.target === 'DataManagement') {
+                tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
+                return;
+            }
+            const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
+            if (item.target === 'LedgerTab' && p?.report_name) {
+                (navigation as any).navigate('LedgerTab', { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } });
+            } else {
+                (navigation as any).navigate(item.target, item.params);
+            }
         },
         [closeSidebar, navigation]
     );
@@ -1245,10 +1255,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     closeSidebar();
                     (navigation as any).replace('AdminDashboard');
                 }}
-                onCompanyChange={(name) => {
-                    setCompanyName(name);
-                    fetchData();
-                }}
+                onCompanyChange={() => resetNavigationOnCompanyChange()}
             />
         </View>
     );

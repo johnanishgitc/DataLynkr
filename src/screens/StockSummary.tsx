@@ -14,6 +14,7 @@ import { PeriodSelection } from '../components/PeriodSelection';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { navigationRef } from '../navigation/navigationRef';
+import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { apiService, isUnauthorizedError } from '../api';
 import type { StockSummaryItem } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
@@ -141,7 +142,12 @@ export default function StockSummary() {
             } else if (item.target === 'ComingSoon' && item.params) {
                 tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
             } else {
-                tabNav?.navigate?.(item.target);
+                const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
+                if (item.target === 'LedgerTab' && p?.report_name) {
+                    tabNav?.navigate?.('LedgerTab', { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } });
+                } else {
+                    tabNav?.navigate?.(item.target);
+                }
             }
         },
         [closeSidebar, nav],
@@ -314,7 +320,7 @@ export default function StockSummary() {
                     activeTarget="SummaryTab"
                     onItemPress={onSidebarItemPress}
                     onConnectionsPress={goToAdminDashboard}
-                    onCompanyChange={() => fetchData()}
+                    onCompanyChange={() => resetNavigationOnCompanyChange()}
                 />
             )}
 

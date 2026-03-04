@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
@@ -52,6 +52,26 @@ export function StatusBarTopBar({
 
   const renderRightContent = () => {
     if (isDraftSwitch) {
+      const slideAnim = React.useRef(new Animated.Value(isDraftMode ? 1 : 0)).current;
+
+      React.useEffect(() => {
+        Animated.timing(slideAnim, {
+          toValue: isDraftMode ? 1 : 0,
+          duration: 250,
+          useNativeDriver: false, // backgroundColor doesn't support true yet, left/right does but let's keep it simple
+        }).start();
+      }, [isDraftMode]);
+
+      const bgColor = slideAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['#767577', '#39B57C'],
+      });
+
+      const alignOffset = slideAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [3, 72 - 20 - 3], // padding is 3, pill width is 72, thumb width is 20
+      });
+
       return (
         <TouchableOpacity
           onPress={() => onDraftModeChange?.(!isDraftMode)}
@@ -60,22 +80,42 @@ export function StatusBarTopBar({
           accessibilityState={{ checked: isDraftMode }}
           accessibilityLabel="Toggle draft mode"
         >
-          <View style={{
-            width: 39,
-            height: 24,
-            borderRadius: 12,
-            backgroundColor: isDraftMode ? '#39B57C' : '#767577',
+          <Animated.View style={{
+            width: 72,
+            height: 26,
+            borderRadius: 13,
+            backgroundColor: bgColor,
             justifyContent: 'center',
-            paddingHorizontal: 2,
           }}>
             <View style={{
-              width: 17,
-              height: 17,
-              borderRadius: 8.5,
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: isDraftMode ? 'flex-start' : 'flex-end',
+              paddingHorizontal: 9,
+            }}>
+              <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '600' }}>
+                Quick
+              </Text>
+            </View>
+            <Animated.View style={{
+              width: 20,
+              height: 20,
+              borderRadius: 10,
               backgroundColor: '#ffffff',
-              alignSelf: isDraftMode ? 'flex-end' : 'flex-start',
+              position: 'absolute',
+              left: alignOffset,
+              elevation: 2,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.2,
+              shadowRadius: 1,
             }} />
-          </View>
+          </Animated.View>
         </TouchableOpacity>
       );
     }

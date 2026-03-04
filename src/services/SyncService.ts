@@ -27,16 +27,30 @@ export interface SyncVoucher {
   [key: string]: any;
 }
 
-export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
+export const syncVouchersToNativeDB = async (vouchers: any[], guid: string, tallylocId: number) => {
   const db = getDB();
 
-  console.log(`[SyncService] Starting robust sync for ${vouchers.length} vouchers, guid: ${guid}`);
+  console.log(`[SyncService] Starting robust sync for ${vouchers.length} vouchers, guid: ${guid}, tallylocId: ${tallylocId}`);
 
   await db.executeAsync('BEGIN TRANSACTION');
 
   let salesCount = 0;
 
   try {
+    // Clear existing data for this (guid, tallyloc_id) so we replace with fresh sync (and clear legacy NULL rows for this guid)
+    await db.executeAsync(
+      'DELETE FROM vouchers WHERE guid = ? AND (tallyloc_id = ? OR tallyloc_id IS NULL)',
+      [guid, tallylocId]
+    );
+    await db.executeAsync(
+      'DELETE FROM ledger_entries WHERE guid = ? AND (tallyloc_id = ? OR tallyloc_id IS NULL)',
+      [guid, tallylocId]
+    );
+    await db.executeAsync(
+      'DELETE FROM inventory_entries WHERE guid = ? AND (tallyloc_id = ? OR tallyloc_id IS NULL)',
+      [guid, tallylocId]
+    );
+
     for (let vIndex = 0; vIndex < vouchers.length; vIndex++) {
       const rawV = vouchers[vIndex];
       const v = rawV as Record<string, unknown>;
@@ -71,17 +85,17 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
       const isCancelled = getString(v, 'iscancelled', 'ISCANCELLED', 'is_cancelled') || 'No';
       const salesperson = getString(v, 'salesperson', 'SALESPERSON', 'salesprsn');
 
-      // 1. Insert/Update Voucher
+      // 1. Insert Voucher (with tallyloc_id)
       if (vIndex < 3) {
         console.log(`[SyncService] Sample Voucher: Date=${normalizedDate}, Type=${vReservedName}, Cancelled=${isCancelled}, Party=${partyName}`);
       }
 
       await db.executeAsync(`
-                INSERT OR REPLACE INTO vouchers (
-                    masterid, alterid, vouchertypename, vouchertypereservedname, 
-                    vouchernumber, date, partyledgername, state, country, 
-                    amount, iscancelled, guid, salesperson
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO vouchers (
+                    masterid, alterid, vouchertypename, vouchertypereservedname,
+                    vouchernumber, date, partyledgername, state, country,
+                    amount, iscancelled, guid, salesperson, tallyloc_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             `, [
         masterid,
         alterid,
@@ -95,14 +109,11 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
         String(amount),
         isCancelled,
         guid,
-        salesperson
+        salesperson,
+        tallylocId
       ]);
 
-      // 2. Clear old entries for this voucher
-      await db.executeAsync('DELETE FROM ledger_entries WHERE voucher_masterid = ? AND guid = ?', [masterid, guid]);
-      await db.executeAsync('DELETE FROM inventory_entries WHERE voucher_masterid = ? AND guid = ?', [masterid, guid]);
-
-      // 3. Insert Ledger Entries
+      // 2. Insert Ledger Entries (with tallyloc_id)
       const ledgerEntries = (getField(v, 'ledgerentries', 'LEDGERENTRIES', 'ledgers', 'LEDGERS') || []) as any[];
       for (const rawL of ledgerEntries) {
         const l = rawL as Record<string, unknown>;
@@ -111,12 +122,12 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
         const lAmount = parseAmount(getField(l, 'amount', 'AMOUNT', 'value'), getField(l, 'isdeemedpositive', 'ISDEEMEDPOSITIVE'));
 
         await db.executeAsync(`
-                    INSERT INTO ledger_entries (voucher_masterid, guid, ledgername, groupname, amount)
-                    VALUES (?, ?, ?, ?, ?);
-                `, [masterid, guid, ledgerName, groupName, String(lAmount)]);
+                    INSERT INTO ledger_entries (voucher_masterid, guid, ledgername, groupname, amount, tallyloc_id)
+                    VALUES (?, ?, ?, ?, ?, ?);
+                `, [masterid, guid, ledgerName, groupName, String(lAmount), tallylocId]);
       }
 
-      // 4. Insert Inventory Entries
+      // 3. Insert Inventory Entries (with tallyloc_id)
       const inventoryEntries = (getField(v, 'inventoryentries', 'INVENTORYENTRIES', 'allinventoryentries', 'inventry') || []) as any[];
       for (let iIndex = 0; iIndex < inventoryEntries.length; iIndex++) { // Added iIndex for logging condition
         const rawI = inventoryEntries[iIndex]; // Use iIndex to get rawI
@@ -136,9 +147,9 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
 
         await db.executeAsync(`
                     INSERT INTO inventory_entries (
-                        voucher_masterid, guid, stockitemname, stockitemgroup, 
-                        billedqty, amount, profit
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                        voucher_masterid, guid, stockitemname, stockitemgroup,
+                        billedqty, amount, profit, tallyloc_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                 `, [
           masterid,
           guid,
@@ -146,7 +157,8 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
           stockItemGroup,
           billedQty,
           String(iAmount),
-          String(profit)
+          String(profit),
+          tallylocId
         ]);
       }
     }
@@ -154,9 +166,9 @@ export const syncVouchersToNativeDB = async (vouchers: any[], guid: string) => {
     await db.executeAsync('COMMIT');
     console.log(`[SyncService] ${salesCount} sales vouchers synced successfully. Building aggregations...`);
 
-    // 5. Rebuild aggregations
+    // 4. Rebuild aggregations for this (guid, tallyloc_id)
     try {
-      await buildAggregations(guid, db);
+      await buildAggregations(guid, tallylocId, db);
     } catch (aggError) {
       console.error('[SyncService] Aggregation build failed but sync was committed:', aggError);
     }

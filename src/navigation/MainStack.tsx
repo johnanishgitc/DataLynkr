@@ -6,6 +6,7 @@ import SalesOrderVoucherDetails from '../screens/SalesOrderVoucherDetails';
 import SalesOrderLineDetail from '../screens/SalesOrderLineDetail';
 import SalesOrderOrderDetails from '../screens/SalesOrderOrderDetails';
 import ClearedOrderDetails from '../screens/ClearedOrderDetails';
+import VoucherDetailView from '../screens/VoucherDetailView';
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
@@ -18,6 +19,7 @@ export default function MainStack() {
       <Stack.Screen name="SalesOrderLineDetail" component={SalesOrderLineDetail} />
       <Stack.Screen name="SalesOrderOrderDetails" component={SalesOrderOrderDetails} />
       <Stack.Screen name="ClearedOrderDetails" component={ClearedOrderDetails} />
+      <Stack.Screen name="VoucherDetailView" component={VoucherDetailView} />
     </Stack.Navigator>
   );
 }

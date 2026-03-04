@@ -16,6 +16,7 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];
 
 /** Menu items for Order Entry (active target: OrderEntry) */
@@ -29,6 +30,7 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];
 
 /** Menu items for Ledger Book (active target: LedgerTab) */
@@ -42,6 +44,7 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];
 
 /** Menu items for Approvals (active target: ApprovalsTab) */
@@ -55,4 +58,5 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];

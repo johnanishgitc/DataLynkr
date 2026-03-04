@@ -71,10 +71,9 @@ export default function ClearedOrders({
   const [salesOrderRows, setSalesOrderRows] = useState<SalesOrderOutstandingRow[] | null>(null);
   const [footerExpanded, setFooterExpanded] = useState(false);
 
-  // Scroll-based header (blue bar) + footer collapse
+  // Scroll-based footer collapse only (header stays visible)
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
 
@@ -91,35 +90,21 @@ export default function ClearedOrders({
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
-        Animated.parallel([
-          Animated.timing(headerTranslateY, {
-            toValue: -40,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(footerTranslateY, {
-            toValue: footerHeight,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start();
+        Animated.timing(footerTranslateY, {
+          toValue: footerHeight,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
       }
     } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
       if (localScrollDirection.current !== 'up') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
-        Animated.parallel([
-          Animated.timing(headerTranslateY, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(footerTranslateY, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start();
+        Animated.timing(footerTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
       }
     }
 
@@ -277,12 +262,7 @@ export default function ClearedOrders({
 
   return (
     <View style={sharedStyles.root}>
-      <Animated.View
-        style={[
-          sharedStyles.headerWrapper,
-          { transform: [{ translateY: headerTranslateY }] },
-        ]}
-      >
+      <View style={sharedStyles.headerWrapper}>
         <StatusBarTopBar
           title="Ledger Book"
           leftIcon="menu"
@@ -332,7 +312,7 @@ export default function ClearedOrders({
             <Text style={sharedStyles.topTxtDate}>{dateRangeStr}</Text>
           </TouchableOpacity>
         </View>
-      </Animated.View>
+      </View>
 
       {loading ? (
         <View style={sharedStyles.centered}>
@@ -349,7 +329,7 @@ export default function ClearedOrders({
             style={sharedStyles.container}
             contentContainerStyle={[
               sharedStyles.containerContent,
-              { paddingTop: headerHeight + 10 },
+              { paddingTop: headerHeight +15 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}

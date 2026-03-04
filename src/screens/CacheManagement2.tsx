@@ -12,9 +12,6 @@ import {
   TextInput,
   InteractionManager,
   StatusBar,
-  Animated,
-  Dimensions,
-  Pressable,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -22,6 +19,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
 import type { HomeStackParamList } from '../navigation/types';
 import { navigationRef } from '../navigation/navigationRef';
+import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import RNFS from 'react-native-fs';
 import JSONTree from 'react-native-json-tree';
 import SQLite from '../database/SqliteShim';
@@ -36,20 +34,15 @@ import {
   getTallylocId,
   getCompany,
   getGuid,
+  getBooksfrom,
+  getLastVoucherDate,
 } from '../store/storage';
+import { PeriodSelection } from '../components/PeriodSelection';
 import { syncVouchersToNativeDB } from '../services/SyncService';
 import { getDB } from '../database/SQLiteManager';
-
-// Sidebar menu - same as Sales Dashboard
-const SIDEBAR_MENU = [
-  { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard' as const, params: undefined },
-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' as const, params: undefined },
-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon' as const, params: { tab_name: strings.b_commerce_place_orders } },
-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' as const, params: undefined },
-  { id: 'approvals', label: strings.voucher_approvals, target: 'ComingSoon' as const, params: { tab_name: strings.voucher_approvals } },
-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' as const, params: undefined },
-];
-const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.78, 320);
+import { AppSidebar } from '../components/AppSidebar';
+import type { AppSidebarMenuItem } from '../components/AppSidebar';
+import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 
 // Enable SQLite promises
 SQLite.enablePromise(true);
@@ -95,6 +88,23 @@ function formatDateToDisplay(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// Parse YYYYMMDD string to Date (start of day). Returns null if invalid.
+function parseYyyyMmDdToDate(str: string): Date | null {
+  if (!str || !/^\d{8}$/.test(str)) return null;
+  const y = parseInt(str.substring(0, 4), 10);
+  const m = parseInt(str.substring(4, 6), 10) - 1;
+  const d = parseInt(str.substring(6, 8), 10);
+  const date = new Date(y, m, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m || date.getDate() !== d) return null;
+  return date;
+}
+
+function startOfDayMs(date: Date): number {
+  const t = new Date(date);
+  t.setHours(0, 0, 0, 0);
+  return t.getTime();
 }
 
 // Helper: add days to a date
@@ -397,9 +407,10 @@ const FOOTER_TAB_BAR_HEIGHT = 100;
 
 export default function DataManagement() {
   const insets = useSafeAreaInsets();
-  // State - default from date is start of current financial year, to date is today
+  // State - default from/to set from booksfrom and lastvoucherdate in useEffect
   const [fromDate, setFromDate] = useState<Date>(() => getCurrentFinancialYearStart());
   const [toDate, setToDate] = useState<Date>(() => new Date());
+  const [periodSelectionVisible, setPeriodSelectionVisible] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [entries, setEntries] = useState<CacheEntry[]>([]);
@@ -417,17 +428,10 @@ export default function DataManagement() {
   const [pageInputText, setPageInputText] = useState<string>('1');
   const [isLargeFile, setIsLargeFile] = useState(false);
   const [currentFileSizeMB, setCurrentFileSizeMB] = useState<number>(0);
-  const [calendarVisible, setCalendarVisible] = useState(false);
-  const [calendarMode, setCalendarMode] = useState<'from' | 'to' | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState<number>(new Date().getMonth());
-  const [calendarYear, setCalendarYear] = useState<number>(new Date().getFullYear());
-  const [calendarViewMode, setCalendarViewMode] = useState<'day' | 'monthYear'>('day');
 
-  // Sidebar (hamburger menu)
+  // Sidebar (hamburger menu) - uses shared AppSidebar
   const nav = useNavigation<NativeStackNavigationProp<HomeStackParamList, 'DataManagement'>>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [company, setCompany] = useState('');
-  const sidebarAnim = useRef(new Animated.Value(0)).current;
 
   // State for interrupted download resume
   const [interruptedDownload, setInterruptedDownload] = useState<InterruptedDownloadState | null>(null);
@@ -450,18 +454,19 @@ export default function DataManagement() {
     };
   }, []);
 
+  // Default time range from booksfrom (start) and lastvoucherdate (end)
   useEffect(() => {
-    getCompany().then(setCompany);
+    let cancelled = false;
+    (async () => {
+      const [booksfrom, lastVoucher] = await Promise.all([getBooksfrom(), getLastVoucherDate()]);
+      if (cancelled) return;
+      const from = parseYyyyMmDdToDate(booksfrom);
+      const to = parseYyyyMmDdToDate(lastVoucher);
+      if (from) setFromDate(from);
+      if (to) setToDate(to);
+    })();
+    return () => { cancelled = true; };
   }, []);
-
-  // Sidebar open/close animation
-  useEffect(() => {
-    Animated.timing(sidebarAnim, {
-      toValue: sidebarOpen ? 1 : 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  }, [sidebarOpen, sidebarAnim]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -474,19 +479,26 @@ export default function DataManagement() {
   }, [closeSidebar]);
 
   const onSidebarItemPress = useCallback(
-    (item: (typeof SIDEBAR_MENU)[0]) => {
+    (item: AppSidebarMenuItem) => {
       closeSidebar();
       const tab = nav.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
       if (item.target === 'LedgerTab') {
-        tab?.navigate?.('LedgerTab');
+        const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
+        tab?.navigate?.('LedgerTab', p?.report_name ? { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } } : undefined);
       } else if (item.target === 'OrderEntry') {
         tab?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
+      } else if (item.target === 'ApprovalsTab') {
+        tab?.navigate?.('ApprovalsTab');
       } else if (item.target === 'DataManagement') {
         // Already here
+      } else if (item.target === 'SalesDashboard') {
+        tab?.navigate?.('HomeTab');
+      } else if (item.target === 'SummaryTab') {
+        tab?.navigate?.('SummaryTab');
       } else if (item.params) {
-        nav.navigate(item.target, item.params);
+        nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
       } else {
-        (nav.navigate as (name: string) => void)(item.target);
+        tab?.navigate?.(item.target);
       }
     },
     [closeSidebar, nav],
@@ -555,48 +567,6 @@ export default function DataManagement() {
       setErrorMessage('Failed to load cache entries');
     }
   }, []);
-
-  // Calendar helpers
-  const openCalendar = (mode: 'from' | 'to') => {
-    setCalendarMode(mode);
-    const baseDate = mode === 'from' ? fromDate : toDate;
-    setCalendarMonth(baseDate.getMonth());
-    setCalendarYear(baseDate.getFullYear());
-    setCalendarViewMode('day');
-    setCalendarVisible(true);
-  };
-
-  const closeCalendar = () => {
-    setCalendarVisible(false);
-    setCalendarMode(null);
-    setCalendarViewMode('day');
-  };
-
-  const changeMonth = (delta: number) => {
-    setCalendarMonth((prevMonth) => {
-      let newMonth = prevMonth + delta;
-      let newYear = calendarYear;
-      if (newMonth < 0) {
-        newMonth = 11;
-        newYear -= 1;
-      } else if (newMonth > 11) {
-        newMonth = 0;
-        newYear += 1;
-      }
-      setCalendarYear(newYear);
-      return newMonth;
-    });
-  };
-
-  const handleSelectDateFromCalendar = (day: number) => {
-    const selected = new Date(calendarYear, calendarMonth, day);
-    if (calendarMode === 'from') {
-      setFromDate(selected);
-    } else if (calendarMode === 'to') {
-      setToDate(selected);
-    }
-    closeCalendar();
-  };
 
   // Validate date range
   const validateDateRange = (): boolean => {
@@ -851,7 +821,7 @@ export default function DataManagement() {
       }
 
       if (allVouchers.length > 0) {
-        await syncVouchersToNativeDB(allVouchers, guid);
+        await syncVouchersToNativeDB(allVouchers, guid, tallylocId);
         console.log('[CacheManagement2] Native SQLite sync successful');
       }
     } catch (syncError) {
@@ -1499,7 +1469,7 @@ export default function DataManagement() {
       if (updatedVouchers.length > 0) {
         try {
           setStatusMessage('Syncing to native database...');
-          await syncVouchersToNativeDB(updatedVouchers, guid);
+          await syncVouchersToNativeDB(updatedVouchers, guid, tallylocId);
           console.log('[CacheManagement2] Native SQLite sync successful');
         } catch (err) {
           console.warn('[CacheManagement2] Native SQLite sync failed:', err);
@@ -1954,7 +1924,28 @@ export default function DataManagement() {
 
   const handleClearAllCache = () => {
     if (!entries.length) {
-      Alert.alert('No cache', 'There is no cached data to clear.');
+      // Cache list is empty but sales_cache.db may still have data (e.g. from a previous clear that didn't wipe native DB). Allow clearing dashboard data.
+      Alert.alert(
+        'Clear dashboard data?',
+        'The cache list is empty. This will clear the sales database so the dashboard shows no data.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Clear',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await clearSalesCacheForGuid('');
+                setStatusMessage('Dashboard data cleared.');
+                setErrorMessage('');
+              } catch (e) {
+                console.error('Failed to clear sales DB:', e);
+                Alert.alert('Error', 'Failed to clear dashboard data.');
+              }
+            },
+          },
+        ]
+      );
       return;
     }
 
@@ -2000,6 +1991,9 @@ export default function DataManagement() {
                   }
                 })
               );
+
+              // Clear native sales_cache.db so the dashboard shows no data
+              await clearSalesCacheForGuid('');
 
               // Refresh list
               await refreshEntries();
@@ -2096,206 +2090,6 @@ export default function DataManagement() {
       </View>
     </View>
   );
-
-  const monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-
-  const getDaysInMonth = (year: number, month: number) => {
-    return new Date(year, month + 1, 0).getDate();
-  };
-
-  const renderCalendar = () => {
-    if (!calendarVisible) return null;
-
-    const firstDayOfMonth = new Date(calendarYear, calendarMonth, 1).getDay(); // 0 (Sun) - 6 (Sat)
-    const totalDays = getDaysInMonth(calendarYear, calendarMonth);
-
-    const weeks: (number | null)[][] = [];
-    let currentDay = 1 - firstDayOfMonth;
-
-    // Build up to 6 weeks for day view
-    for (let week = 0; week < 6; week++) {
-      const days: (number | null)[] = [];
-      for (let d = 0; d < 7; d++) {
-        if (currentDay < 1 || currentDay > totalDays) {
-          days.push(null);
-        } else {
-          days.push(currentDay);
-        }
-        currentDay += 1;
-      }
-      weeks.push(days);
-    }
-
-    return (
-      <Modal
-        visible={calendarVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeCalendar}
-      >
-        <View style={styles.calendarOverlay}>
-          <View style={styles.calendarContainer}>
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity
-                onPress={() => changeMonth(-1)}
-                style={styles.calendarNavButton}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.calendarNavText}>{'<'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.calendarHeaderTitleButton}
-                activeOpacity={0.7}
-                onPress={() =>
-                  setCalendarViewMode((prev) => (prev === 'day' ? 'monthYear' : 'day'))
-                }
-              >
-                <Text style={styles.calendarHeaderTitle}>
-                  {monthNames[calendarMonth]} {calendarYear}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => changeMonth(1)}
-                style={styles.calendarNavButton}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.calendarNavText}>{'>'}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {calendarViewMode === 'day' ? (
-              <>
-                <View style={styles.calendarWeekDaysRow}>
-                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-                    <Text key={d} style={styles.calendarWeekDayText}>
-                      {d}
-                    </Text>
-                  ))}
-                </View>
-
-                {weeks.map((week, idx) => (
-                  <View key={idx} style={styles.calendarWeekRow}>
-                    {week.map((day, i) => {
-                      if (!day) {
-                        return <View key={i} style={styles.calendarDayCell} />;
-                      }
-
-                      const isSelected =
-                        (calendarMode === 'from' &&
-                          day === fromDate.getDate() &&
-                          calendarMonth === fromDate.getMonth() &&
-                          calendarYear === fromDate.getFullYear()) ||
-                        (calendarMode === 'to' &&
-                          day === toDate.getDate() &&
-                          calendarMonth === toDate.getMonth() &&
-                          calendarYear === toDate.getFullYear());
-
-                      return (
-                        <TouchableOpacity
-                          key={i}
-                          style={[
-                            styles.calendarDayCell,
-                            isSelected && styles.calendarDayCellSelected,
-                          ]}
-                          onPress={() => handleSelectDateFromCalendar(day)}
-                          activeOpacity={0.7}
-                        >
-                          <Text
-                            style={[
-                              styles.calendarDayText,
-                              isSelected && styles.calendarDayTextSelected,
-                            ]}
-                          >
-                            {day}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ))}
-              </>
-            ) : (
-              <>
-                <Text style={styles.monthYearPickerLabel}>Select month & year</Text>
-                <View style={styles.monthGrid}>
-                  {monthNames.map((name, index) => {
-                    const isSelectedMonth = index === calendarMonth;
-                    return (
-                      <TouchableOpacity
-                        key={name}
-                        style={[
-                          styles.monthChip,
-                          isSelectedMonth && styles.monthChipSelected,
-                        ]}
-                        onPress={() => setCalendarMonth(index)}
-                        activeOpacity={0.7}
-                      >
-                        <Text
-                          style={[
-                            styles.monthChipText,
-                            isSelectedMonth && styles.monthChipTextSelected,
-                          ]}
-                        >
-                          {name.slice(0, 3)}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <View style={styles.yearPickerRow}>
-                  <TouchableOpacity
-                    style={styles.yearButton}
-                    onPress={() => setCalendarYear((y) => y - 1)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.yearButtonText}>{'<'}</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.yearLabel}>{calendarYear}</Text>
-                  <TouchableOpacity
-                    style={styles.yearButton}
-                    onPress={() => setCalendarYear((y) => y + 1)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.yearButtonText}>{'>'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.monthYearDoneButton}
-                  onPress={() => setCalendarViewMode('day')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.monthYearDoneButtonText}>Done</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            <TouchableOpacity
-              style={styles.calendarCloseButton}
-              onPress={closeCalendar}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.calendarCloseButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    );
-  };
 
   const renderPreviewModal = () => {
     if (!previewVisible || (!previewContent && !previewRaw)) return null;
@@ -2449,8 +2243,203 @@ export default function DataManagement() {
     );
   };
 
-  const overlayOpacity = sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] });
-  const panelTranslateX = sidebarAnim.interpolate({ inputRange: [0, 1], outputRange: [-SIDEBAR_WIDTH, 0] });
+  // Compute display info for the info bar
+  const [infoCompany, setInfoCompany] = useState<string>('');
+  const [infoId, setInfoId] = useState<string>('');
+  const [infoCache, setInfoCache] = useState<string>('');
+  const [customerCount, setCustomerCount] = useState<number>(0);
+  const [itemCount, setItemCount] = useState<number>(0);
+  const [isRefreshingCustomers, setIsRefreshingCustomers] = useState(false);
+  const [isRefreshingItems, setIsRefreshingItems] = useState(false);
+  const [expiryType, setExpiryType] = useState<string>('Never (Keep Forever)');
+  const [expiryDropdownOpen, setExpiryDropdownOpen] = useState(false);
+  const [dataContentsModalVisible, setDataContentsModalVisible] = useState(false);
+
+  // Expiry period options from design
+  const expiryOptions = [
+    'Never (Keep Forever)',
+    '1 Day',
+    '3 Days',
+    '7 Days',
+    '14 Days',
+    '30 Days',
+    '60 Days',
+    '90 Days',
+    'Custom...'
+  ];
+
+  // Load company info for info bar
+  useEffect(() => {
+    (async () => {
+      try {
+        const [company, tallylocId, guid, email] = await Promise.all([
+          getCompany(),
+          getTallylocId(),
+          getGuid(),
+          getUserEmail(),
+        ]);
+        setInfoCompany(company || 'Data Lynkr');
+        setInfoId(tallylocId ? String(tallylocId) : '');
+        setInfoCache(guid ? guid.substring(0, 7) + '...' : '');
+        // Load counts
+        if (email && guid && tallylocId) {
+          const ledgerKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+          const stockKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+          try {
+            const db2 = await getDatabase();
+            const [custRes] = await db2.executeSql(
+              `SELECT names_json FROM ${CUSTOMERS_TABLE} WHERE cache_key = ? LIMIT 1`,
+              [ledgerKey]
+            );
+            if (custRes.rows.length > 0) {
+              const nj = custRes.rows.item(0)?.names_json;
+              if (nj) { try { setCustomerCount(JSON.parse(nj).length); } catch (_) { } }
+            }
+            const [stockRes] = await db2.executeSql(
+              `SELECT names_json FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
+              [stockKey]
+            );
+            if (stockRes.rows.length > 0) {
+              const nj = stockRes.rows.item(0)?.names_json;
+              if (nj) { try { setItemCount(JSON.parse(nj).length); } catch (_) { } }
+            }
+          } catch (_) { }
+        }
+      } catch (_) { }
+    })();
+  }, [entries]);
+
+  const handleRefreshCustomers = async () => {
+    setIsRefreshingCustomers(true);
+    try {
+      const [email, tallylocId, company, guid] = await Promise.all([
+        getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+      ]);
+      if (!email || !guid || !tallylocId || !company) return;
+      const ledgerListCacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+      const payload = { tallyloc_id: Number(tallylocId), company, guid };
+      const result = await apiService.getLedgerList(payload);
+      const body = (result as { data?: unknown })?.data ?? result;
+      await saveCustomersForCacheKey(ledgerListCacheKey, body);
+      const names = ledgerNamesFromPayload(body);
+      setCustomerCount(names.length);
+    } catch (e) {
+      console.warn('Refresh customers failed:', e);
+    } finally {
+      setIsRefreshingCustomers(false);
+    }
+  };
+
+  const handleRefreshItems = async () => {
+    setIsRefreshingItems(true);
+    try {
+      const [email, tallylocId, company, guid] = await Promise.all([
+        getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+      ]);
+      if (!email || !guid || !tallylocId || !company) return;
+      const stockItemsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+      const payload = { tallyloc_id: Number(tallylocId), company, guid };
+      const result = await apiService.getStockItems(payload);
+      const body = (result as { data?: unknown })?.data ?? result;
+      await saveStockItemsForCacheKey(stockItemsCacheKey, body);
+      const names = stockItemNamesFromPayload(body);
+      setItemCount(names.length);
+    } catch (e) {
+      console.warn('Refresh items failed:', e);
+    } finally {
+      setIsRefreshingItems(false);
+    }
+  };
+
+  // Clear company data handler
+  const handleClearCompanyData = async () => {
+    Alert.alert(
+      'Clear Company Data?',
+      'Remove all data for the currently selected company. This includes sales data.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const [email, tallylocId, , guid] = await Promise.all([
+                getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+              ]);
+              if (!email || !guid || !tallylocId) return;
+              const cacheKey = generateCacheKey(email, guid, tallylocId);
+              const ledgerKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+              const stockKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+              const database = await getDatabase();
+              // Delete main cache entries for this company
+              const [results2] = await database.executeSql(
+                `SELECT json_path FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]
+              );
+              for (let i = 0; i < results2.rows.length; i++) {
+                const p = results2.rows.item(i)?.json_path;
+                if (p) { try { const exists = await RNFS.exists(p); if (exists) await RNFS.unlink(p); } catch (_) { } }
+              }
+              await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
+              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ?`, [stockKey]);
+              await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE} WHERE cache_key = ?`, [ledgerKey]);
+              await clearSalesCacheForGuid(guid);
+              await refreshEntries();
+              setCustomerCount(0);
+              setItemCount(0);
+              setStatusMessage('Company data cleared.');
+            } catch (e) {
+              console.error('Clear company data failed:', e);
+              Alert.alert('Error', 'Failed to clear company data.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Clear sales data handler
+  const handleClearSalesData = async () => {
+    Alert.alert(
+      'Clear Sales Data?',
+      'Remove only sales data cache for the currently selected company.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const [email, tallylocId, , guid] = await Promise.all([
+                getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+              ]);
+              if (!email || !guid || !tallylocId) return;
+              const cacheKey = generateCacheKey(email, guid, tallylocId);
+              const database = await getDatabase();
+              const [results2] = await database.executeSql(
+                `SELECT json_path FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]
+              );
+              for (let i = 0; i < results2.rows.length; i++) {
+                const p = results2.rows.item(i)?.json_path;
+                if (p) { try { const exists = await RNFS.exists(p); if (exists) await RNFS.unlink(p); } catch (_) { } }
+              }
+              await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
+              await clearSalesCacheForGuid(guid);
+              await refreshEntries();
+              setStatusMessage('Sales data cleared.');
+            } catch (e) {
+              console.error('Clear sales data failed:', e);
+              Alert.alert('Error', 'Failed to clear sales data.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Build a time range label
+  const getTimeRangeLabel = (): string => {
+    return `${formatDateToDisplay(fromDate)} to ${formatDateToDisplay(toDate)}`;
+  };
 
   return (
     <View style={styles.root}>
@@ -2458,54 +2447,34 @@ export default function DataManagement() {
       {/* Keep screen awake during downloads/updates */}
       {(isDownloading || isUpdating) && <KeepAwake />}
 
-      {/* Header - same style as Sales Dashboard */}
+      {/* Header */}
       <SafeAreaView edges={['top']} style={styles.headerWrapper}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={openSidebar} style={styles.headerMenuButton}>
-            <Icon name="menu" size={24} color={colors.white} />
+          <TouchableOpacity onPress={() => nav.goBack()} style={styles.headerBackButton}>
+            <Icon name="chevron-left" size={28} color={colors.white} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Data Management</Text>
         </View>
       </SafeAreaView>
 
-      {/* Sidebar */}
-      <Modal visible={sidebarOpen} transparent animationType="none" statusBarTranslucent>
-        <Pressable style={StyleSheet.absoluteFill} onPress={closeSidebar}>
-          <Animated.View style={[styles.sidebarOverlay, { opacity: overlayOpacity }]} />
-        </Pressable>
-        <Animated.View
-          style={[
-            styles.sidebarPanel,
-            { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] },
-          ]}>
-          <View style={styles.sidebarHeader}>
-            <Text style={styles.sidebarTitle} numberOfLines={1}>{company || 'DataLynkr'}</Text>
-            <TouchableOpacity onPress={closeSidebar} style={styles.sidebarClose}>
-              <Icon name="close" size={24} color="#1e293b" />
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity style={styles.sidebarConnectionsBtn} onPress={goToAdminDashboard} activeOpacity={0.7}>
-            <Icon name="business" size={20} color={colors.primary_blue} />
-            <Text style={styles.sidebarConnectionsText}>{strings.list_of_connections}</Text>
-          </TouchableOpacity>
-          <FlatList
-            data={SIDEBAR_MENU}
-            keyExtractor={(i) => i.id}
-            style={styles.sidebarList}
-            contentContainerStyle={styles.sidebarListContent}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[styles.sidebarRow, item.target === 'DataManagement' && styles.sidebarRowActive]}
-                onPress={() => onSidebarItemPress(item)}
-                activeOpacity={0.7}>
-                <Text style={[styles.sidebarRowLabel, item.target === 'DataManagement' && styles.sidebarRowLabelActive]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            )}
-          />
-        </Animated.View>
-      </Modal>
+      <AppSidebar
+        visible={sidebarOpen}
+        onClose={closeSidebar}
+        menuItems={SIDEBAR_MENU_SALES}
+        activeTarget="DataManagement"
+        companyName={infoCompany || undefined}
+        onItemPress={onSidebarItemPress}
+        onConnectionsPress={goToAdminDashboard}
+        onCompanyChange={() => resetNavigationOnCompanyChange()}
+      />
+
+      {/* Info Bar */}
+      <View style={styles.infoBar}>
+        <Text style={styles.infoBarLeft}>{infoCompany || 'Data Lynkr'}</Text>
+        <Text style={styles.infoBarRight}>
+          {infoId ? `ID: ${infoId}` : ''}{infoId && infoCache ? ' | ' : ''}{infoCache ? `Cache: ${infoCache}` : ''}
+        </Text>
+      </View>
 
       <ScrollView
         style={styles.mainScroll}
@@ -2516,62 +2485,60 @@ export default function DataManagement() {
         showsVerticalScrollIndicator={true}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Date Range Section */}
-        <View style={styles.dateSection}>
-          <Text style={styles.sectionTitle}>Select Date Range</Text>
 
-          <View style={styles.dateRow}>
-            <View style={styles.dateField}>
-              <Text style={styles.dateLabel}>From Date:</Text>
-              <TouchableOpacity
-                style={styles.dateButton}
-                onPress={() => openCalendar('from')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.dateButtonText}>{formatDateToDisplay(fromDate)}</Text>
-              </TouchableOpacity>
+        {/* Card 1: Complete Sales Data */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardIconCircle}>
+              <Icon name="cloud-download" size={16} color={colors.primary_blue} />
             </View>
+            <Text style={styles.cardTitle}>Complete Sales Data</Text>
+          </View>
 
-            <View style={styles.dateField}>
-              <Text style={styles.dateLabel}>To Date:</Text>
+          <View style={styles.cardContentPadded}>
+            <Text style={styles.fieldLabel}>Time Range</Text>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => setPeriodSelectionVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.dropdownButtonText}>{getTimeRangeLabel()}</Text>
+            </TouchableOpacity>
+
+            <View style={styles.twoButtonRow}>
               <TouchableOpacity
-                style={styles.dateButton}
-                onPress={() => openCalendar('to')}
+                style={[styles.greenButton, (isDownloading || isUpdating) && styles.disabledButton]}
+                onPress={handleDownload}
+                disabled={isDownloading || isUpdating}
                 activeOpacity={0.7}
               >
-                <Text style={styles.dateButtonText}>{formatDateToDisplay(toDate)}</Text>
+                {isDownloading ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <>
+                    <Icon name="cloud-download" size={16} color={colors.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.greenButtonText}>Download</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.blueButton, (isDownloading || isUpdating) && styles.disabledButton]}
+                onPress={handleUpdate}
+                disabled={isDownloading || isUpdating}
+                activeOpacity={0.7}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <>
+                    <Icon name="refresh" size={16} color={colors.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.blueButtonText}>Update</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actionSection}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.downloadButton, (isDownloading || isUpdating) && styles.disabledButton]}
-            onPress={handleDownload}
-            disabled={isDownloading || isUpdating}
-            activeOpacity={0.7}
-          >
-            {isDownloading ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <Text style={styles.actionButtonText}>Download</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.updateButton, (isDownloading || isUpdating) && styles.disabledButton]}
-            onPress={handleUpdate}
-            disabled={isDownloading || isUpdating}
-            activeOpacity={0.7}
-          >
-            {isUpdating ? (
-              <ActivityIndicator size="small" color={colors.white} />
-            ) : (
-              <Text style={styles.actionButtonText}>Update</Text>
-            )}
-          </TouchableOpacity>
         </View>
 
         {/* Interrupted Download Banner */}
@@ -2611,76 +2578,304 @@ export default function DataManagement() {
           <Text style={styles.errorMessage}>{errorMessage}</Text>
         ) : null}
 
-        {/* View Cache Content Section */}
-        <View style={styles.cacheSection}>
-          <View style={styles.cacheHeaderRow}>
-            <Text style={styles.sectionTitle}>View Cache Content</Text>
-            <TouchableOpacity
-              style={[
-                styles.clearAllButton,
-                !entries.length && styles.clearAllButtonDisabled,
-              ]}
-              onPress={handleClearAllCache}
-              disabled={!entries.length}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.clearAllButtonText}>Clear All</Text>
+        {/* Card 2: Ledger Data */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardIconCircle}>
+              <Icon name="people" size={16} color={colors.primary_blue} />
+            </View>
+            <Text style={styles.cardTitle}>Ledger Data</Text>
+          </View>
+
+          <View style={styles.ledgerRow}>
+            <View style={styles.ledgerRowLeft}>
+              <Text style={styles.ledgerRowTitle}>Customers</Text>
+              <Text style={styles.ledgerRowSubtitle}>{customerCount} cached</Text>
+            </View>
+            <TouchableOpacity onPress={handleRefreshCustomers} activeOpacity={0.7} style={styles.refreshIconButton}>
+              {isRefreshingCustomers ? (
+                <ActivityIndicator size="small" color={colors.primary_blue} />
+              ) : (
+                <Icon name="refresh" size={20} color={colors.primary_blue} />
+              )}
             </TouchableOpacity>
           </View>
 
-          {entries.length === 0 ? (
-            <Text style={styles.emptyText}>No cached data yet. Download some data to see it here.</Text>
-          ) : (
-            <View style={styles.entriesList}>
-              {entries.map((item) => (
-                <View key={String(item.id)}>{renderCacheEntry({ item })}</View>
-              ))}
-            </View>
-          )}
+          <View style={styles.ledgerDivider} />
 
-          {/* Reference data: Stock Items & Customers (Ledger List) */}
-          <View style={styles.referenceDataSection}>
-            <Text style={styles.referenceDataTitle}>Reference data</Text>
-            <View style={styles.referenceDataRow}>
-              <Text style={styles.referenceDataLabel}>Stock Items</Text>
-              <TouchableOpacity
-                style={styles.viewRawButton}
-                onPress={handleViewStockItems}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.viewRawButtonText}>View</Text>
-              </TouchableOpacity>
+          <View style={styles.ledgerRow}>
+            <View style={styles.ledgerRowLeft}>
+              <Text style={styles.ledgerRowTitle}>Items</Text>
+              <Text style={styles.ledgerRowSubtitle}>{itemCount} cached</Text>
             </View>
-            <View style={styles.referenceDataRow}>
-              <Text style={styles.referenceDataLabel}>Customers (Ledger List)</Text>
-              <TouchableOpacity
-                style={styles.viewRawButton}
-                onPress={handleViewCustomers}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.viewRawButtonText}>View</Text>
-              </TouchableOpacity>
+            <TouchableOpacity onPress={handleRefreshItems} activeOpacity={0.7} style={styles.refreshIconButton}>
+              {isRefreshingItems ? (
+                <ActivityIndicator size="small" color={colors.primary_blue} />
+              ) : (
+                <Icon name="refresh" size={20} color={colors.primary_blue} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Card 3: View Data Contents */}
+        <TouchableOpacity
+          style={styles.sectionCard}
+          activeOpacity={0.7}
+          onPress={() => setDataContentsModalVisible(true)}
+        >
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardIconCircle}>
+              <Icon name="folder" size={16} color={colors.primary_blue} />
             </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>View Data Contents</Text>
+            </View>
+            <Icon name="visibility" size={22} color={colors.primary_blue} />
+          </View>
+        </TouchableOpacity>
+
+        {/* Card 4: Data Expiry Period */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardIconCircle}>
+              <Icon name="schedule" size={16} color={colors.primary_blue} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Data Expiry Period</Text>
+              <Text style={styles.cardSubtitle}>
+                Set how long the data should be kept before automati-cally expiring. Set to "Never" to keep data indefinitely.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.cardContentPadded}>
+            <TouchableOpacity
+              style={styles.dropdownButton}
+              onPress={() => setExpiryDropdownOpen(!expiryDropdownOpen)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.dropdownButtonText}>{expiryType}</Text>
+              <Icon name="keyboard-arrow-down" size={20} color={colors.text_secondary} />
+            </TouchableOpacity>
+            {expiryDropdownOpen && (
+              <View style={styles.dropdownMenu}>
+                {expiryOptions.map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[
+                      styles.dropdownMenuItem,
+                      opt === 'Never (Keep Forever)' && { backgroundColor: '#4a75cc' }
+                    ]}
+                    onPress={() => { setExpiryType(opt); setExpiryDropdownOpen(false); }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.dropdownMenuItemText,
+                      opt === expiryType && { fontWeight: '600' },
+                      opt === 'Never (Keep Forever)' && { color: colors.white }
+                    ]}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            <Text style={styles.expiryHint}>Cache will never expire automatically</Text>
+          </View>
+        </View>
+
+        {/* Card 5: Clear All Data */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={[styles.cardIconCircle, { backgroundColor: '#FFEBEE' }]}>
+              <Icon name="delete" size={16} color="#dc3545" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cardTitle, { color: '#dc3545' }]}>Clear All Data</Text>
+              <Text style={styles.cardSubtitle}>
+                Remove all data for all companies. This includes sales data and metadata.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.cardContentPadded}>
+            <TouchableOpacity
+              style={styles.clearAllRedButton}
+              onPress={handleClearAllCache}
+              activeOpacity={0.7}
+            >
+              <Icon name="delete" size={18} color="#dc3545" style={{ marginRight: 6 }} />
+              <Text style={styles.clearAllRedButtonText}>Clear All Data</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Card 6: Clear Company Data */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={[styles.cardIconCircle, { backgroundColor: '#FFF3E0' }]}>
+              <Icon name="business-center" size={16} color="#e67e22" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cardTitle, { color: '#e67e22' }]}>Clear Company Data</Text>
+              <Text style={styles.cardSubtitle}>
+                Remove all data for the currently selected company. This includes sales data.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.cardContentPadded}>
+            <TouchableOpacity
+              style={styles.clearCompanyOrangeButton}
+              onPress={handleClearCompanyData}
+              activeOpacity={0.7}
+            >
+              <Icon name="delete" size={18} color="#e67e22" style={{ marginRight: 6 }} />
+              <Text style={styles.clearCompanyOrangeButtonText}>Clear Company Data</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Card 7: Clear Sales Data */}
+        <View style={styles.sectionCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={[styles.cardIconCircle, { backgroundColor: '#E3F2FD' }]}>
+              <Icon name="show-chart" size={16} color={colors.primary_blue} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>Clear Sales Data</Text>
+              <Text style={styles.cardSubtitle}>
+                Remove only sales data cache for the currently selected company.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.cardContentPadded}>
+            <TouchableOpacity
+              style={styles.clearSalesBlueButton}
+              onPress={handleClearSalesData}
+              activeOpacity={0.7}
+            >
+              <Icon name="delete" size={18} color={colors.primary_blue} style={{ marginRight: 6 }} />
+              <Text style={styles.clearSalesBlueButtonText}>Clear Sales Data</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
       </ScrollView>
-      {renderCalendar()}
+
+      {/* Modals */}
+      <PeriodSelection
+        visible={periodSelectionVisible}
+        onClose={() => setPeriodSelectionVisible(false)}
+        fromDate={startOfDayMs(fromDate)}
+        toDate={startOfDayMs(toDate)}
+        onApply={(fromMs, toMs) => {
+          setFromDate(new Date(fromMs));
+          setToDate(new Date(toMs));
+          setPeriodSelectionVisible(false);
+        }}
+      />
       {renderPreviewModal()}
-    </View>
+
+      {/* View Data Contents Modal */}
+      <Modal
+        visible={dataContentsModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDataContentsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentLarge}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Data Contents</Text>
+              <TouchableOpacity onPress={() => setDataContentsModalVisible(false)} padding={8}>
+                <Icon name="close" size={24} color={colors.text_primary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal style={styles.tableScrollHorizontal}>
+              <View>
+                {/* Table Header */}
+                <View style={styles.tableHeaderRow}>
+                  <Text style={[styles.tableHeaderText, { width: 100 }]}>Type</Text>
+                  <Text style={[styles.tableHeaderText, { width: 280 }]}>Cache Key</Text>
+                  <Text style={[styles.tableHeaderText, { width: 120 }]}>Date Range</Text>
+                  <Text style={[styles.tableHeaderText, { width: 90 }]}>Size</Text>
+                  <Text style={[styles.tableHeaderText, { width: 80 }]}>Age</Text>
+                  <Text style={[styles.tableHeaderText, { width: 140 }]}>Cached Date</Text>
+                </View>
+                {/* Table Body */}
+                <ScrollView style={styles.tableBodyScroll}>
+                  {entries.length === 0 ? (
+                    <Text style={styles.noDataText}>No cache data available.</Text>
+                  ) : (
+                    entries.map((item, index) => {
+                      // Determine type based on key content
+                      const isDashboard = item.key.includes('dashboard') || item.key.includes('sync_progress');
+                      const typeLabel = isDashboard ? 'Dashboard' : 'Sales';
+                      const typeBgColor = isDashboard ? '#e6f4ea' : '#e8f0fe';
+                      const typeTextColor = isDashboard ? '#137333' : '#1a73e8';
+
+                      // Format size
+                      const sizeFormatted = typeof item.sizeBytes === 'number'
+                        ? (item.sizeBytes >= 1024 * 1024
+                          ? `${(item.sizeBytes / (1024 * 1024)).toFixed(2)} MB\n(${Math.round(item.sizeBytes / 1024)} KB)`
+                          : `0.00 MB\n(${Math.round(item.sizeBytes / 1024)} KB)`)
+                        : '0.00 MB';
+
+                      // Format age
+                      const createdDate = new Date(item.created_at);
+                      const diffTime = Math.abs(new Date().getTime() - createdDate.getTime());
+                      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                      const ageText = diffDays === 0 ? 'Today' : `${diffDays} days\nago`;
+
+                      // Format cached date
+                      const cachedDateStr = `${createdDate.toLocaleDateString('en-GB')}, \n${createdDate.toLocaleTimeString('en-GB')}`;
+
+                      return (
+                        <View key={item.id.toString() + index} style={styles.tableRow}>
+                          <View style={{ width: 100, justifyContent: 'center' }}>
+                            <View style={[styles.typeBadge, { backgroundColor: typeBgColor }]}>
+                              <Text style={[styles.typeBadgeText, { color: typeTextColor }]}>{typeLabel}</Text>
+                            </View>
+                          </View>
+                          <Text style={[styles.tableCellText, { width: 280, color: '#5f6368', fontFamily: 'monospace', fontSize: 13 }]} numberOfLines={2}>
+                            {item.key}
+                          </Text>
+                          <Text style={[styles.tableCellText, { width: 120, color: '#5f6368' }]}>
+                            {isDashboard ? '—' : `${item.from_date}\nto\n${item.to_date}`}
+                          </Text>
+                          <Text style={[styles.tableCellText, { width: 90, fontWeight: '600', color: '#202124' }]}>
+                            {sizeFormatted}
+                          </Text>
+                          <Text style={[styles.tableCellText, { width: 80, color: '#5f6368' }]}>
+                            {ageText}
+                          </Text>
+                          <Text style={[styles.tableCellText, { width: 140, color: '#5f6368' }]}>
+                            {cachedDateStr}
+                          </Text>
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+    </View >
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: '#F5F7FA',
   },
   mainScroll: {
     flex: 1,
   },
   mainScrollContent: {
-    paddingBottom: 24, // base; overridden with footer + safe area in JSX
+    paddingBottom: 24,
+    paddingTop: 8,
   },
   headerWrapper: {
     backgroundColor: colors.primary_blue,
@@ -2689,9 +2884,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     backgroundColor: colors.primary_blue,
+  },
+  headerBackButton: {
+    padding: 4,
+    marginRight: 4,
   },
   headerMenuButton: {
     padding: 4,
@@ -2702,83 +2901,287 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.white,
   },
-  sidebarOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
-  },
-  sidebarPanel: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    backgroundColor: colors.white,
-    borderRightWidth: 1,
-    borderRightColor: colors.border_light,
-    paddingTop: 48,
-  },
-  sidebarHeader: {
+  infoBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: '#F5F5F5',
     paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E3E8F0',
+  },
+  infoBarLeft: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text_primary,
+  },
+  infoBarRight: {
+    fontSize: 11,
+    color: colors.text_secondary,
+  },
+  // Section card
+  sectionCard: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginVertical: 4,
     paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E3E8F0',
+    // subtle shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardIconCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.bg_light_blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text_primary,
+  },
+  cardSubtitle: {
+    fontSize: 11,
+    color: colors.text_secondary,
+    marginTop: 4,
+    lineHeight: 14,
+  },
+  cardContentPadded: {
+    marginTop: 10,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.text_primary,
+    marginBottom: 4,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border_gray,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    backgroundColor: colors.white,
+  },
+  dropdownButtonText: {
+    fontSize: 13,
+    color: colors.text_primary,
+  },
+  dropdownMenu: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: colors.border_gray,
+    borderRadius: 8,
+    backgroundColor: colors.white,
+    overflow: 'hidden',
+  },
+  dropdownMenuItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border_light,
   },
-  sidebarTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+  dropdownMenuItemText: {
+    fontSize: 13,
     color: colors.text_primary,
+  },
+  twoButtonRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  greenButton: {
     flex: 1,
-  },
-  sidebarClose: {
-    padding: 4,
-  },
-  sidebarConnectionsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 16,
-    paddingVertical: 12,
+    backgroundColor: '#28a745',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.primary_blue,
-    backgroundColor: colors.card_bg_light,
+    paddingVertical: 9,
+    minHeight: 36,
   },
-  sidebarConnectionsText: {
+  greenButtonText: {
     fontSize: 14,
-    color: colors.primary_blue,
-    fontWeight: '500',
+    fontWeight: '600',
+    color: colors.white,
   },
-  sidebarList: {
+  blueButton: {
     flex: 1,
-    marginTop: 16,
-  },
-  sidebarListContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  sidebarRow: {
-    backgroundColor: colors.card_bg_light,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary_blue,
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
+    paddingVertical: 9,
+    minHeight: 36,
   },
-  sidebarRowActive: {
-    borderWidth: 1,
-    borderColor: colors.primary_blue,
-    backgroundColor: colors.bg_light_blue2,
+  blueButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.white,
   },
-  sidebarRowLabel: {
-    fontSize: 16,
+  disabledButton: {
+    opacity: 0.6,
+  },
+  // Ledger data
+  ledgerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+    marginTop: 4,
+  },
+  ledgerRowLeft: {
+    flex: 1,
+  },
+  ledgerRowTitle: {
+    fontSize: 13,
+    fontWeight: '500',
     color: colors.text_primary,
   },
-  sidebarRowLabelActive: {
+  ledgerRowSubtitle: {
+    fontSize: 11,
+    color: colors.text_secondary,
+    marginTop: 3,
+  },
+  refreshIconButton: {
+    padding: 6,
+  },
+  ledgerDivider: {
+    height: 1,
+    backgroundColor: colors.border_light,
+  },
+  // Expiry
+  expiryHint: {
+    fontSize: 11,
+    color: colors.text_secondary,
+    marginTop: 10,
+  },
+  // Clear buttons
+  clearAllRedButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#dc3545',
+    borderRadius: 8,
+    paddingVertical: 9,
+    backgroundColor: colors.white,
+  },
+  clearAllRedButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#dc3545',
+  },
+  clearCompanyOrangeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e67e22',
+    borderRadius: 8,
+    paddingVertical: 9,
+    backgroundColor: colors.white,
+  },
+  clearCompanyOrangeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#e67e22',
+  },
+  clearSalesBlueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.primary_blue,
+    borderRadius: 8,
+    paddingVertical: 9,
+    backgroundColor: colors.white,
+  },
+  clearSalesBlueButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
     color: colors.primary_blue,
+  },
+  // Status/error
+  statusMessage: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    paddingTop: 4,
+    fontSize: 13,
+    color: colors.primary_blue,
+  },
+  errorMessage: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    paddingTop: 4,
+    fontSize: 13,
+    color: '#dc3545',
+  },
+  interruptedBanner: {
+    marginHorizontal: 16,
+    marginBottom: 4,
+    padding: 12,
+    backgroundColor: '#fff3cd',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ffc107',
+  },
+  interruptedBannerText: {
+    fontSize: 13,
+    color: '#856404',
+    marginBottom: 8,
+  },
+  interruptedBannerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  interruptedResumeButton: {
+    flex: 1,
+    backgroundColor: colors.primary_blue,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  interruptedResumeButtonText: {
+    color: colors.white,
+    fontSize: 13,
     fontWeight: '600',
   },
+  interruptedDiscardButton: {
+    flex: 1,
+    backgroundColor: colors.white,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dc3545',
+  },
+  interruptedDiscardButtonText: {
+    color: '#dc3545',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // Legacy styles kept for modals
   title: {
     fontSize: 20,
     fontWeight: '700',
@@ -2845,69 +3248,10 @@ const styles = StyleSheet.create({
   updateButton: {
     backgroundColor: '#28a745',
   },
-  disabledButton: {
-    opacity: 0.6,
-  },
   actionButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: colors.white,
-  },
-  statusMessage: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    fontSize: 14,
-    color: colors.primary_blue,
-  },
-  errorMessage: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    fontSize: 14,
-    color: '#dc3545',
-  },
-  interruptedBanner: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 12,
-    backgroundColor: '#fff3cd',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffc107',
-  },
-  interruptedBannerText: {
-    fontSize: 13,
-    color: '#856404',
-    marginBottom: 8,
-  },
-  interruptedBannerButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  interruptedResumeButton: {
-    flex: 1,
-    backgroundColor: colors.primary_blue,
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  interruptedResumeButtonText: {
-    color: colors.white,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  interruptedDiscardButton: {
-    flex: 1,
-    backgroundColor: colors.white,
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#dc3545',
-  },
-  interruptedDiscardButtonText: {
-    color: '#dc3545',
-    fontSize: 13,
-    fontWeight: '600',
   },
   cacheSection: {
     padding: 16,
@@ -3043,166 +3387,6 @@ const styles = StyleSheet.create({
   clearAllButtonText: {
     fontSize: 12,
     color: colors.text_secondary,
-    fontWeight: '600',
-  },
-  calendarOverlay: {
-    flex: 1,
-    backgroundColor: '#00000055',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  calendarContainer: {
-    width: '90%',
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: 16,
-  },
-  calendarHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  calendarHeaderTitleButton: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  calendarHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text_primary,
-  },
-  calendarHeaderSubtitle: {
-    marginTop: 2,
-    fontSize: 11,
-    color: colors.text_secondary,
-  },
-  calendarNavButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  calendarNavText: {
-    fontSize: 18,
-    color: colors.text_primary,
-  },
-  calendarWeekDaysRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  calendarWeekDayText: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.text_secondary,
-  },
-  calendarWeekRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  calendarDayCell: {
-    flex: 1,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-  },
-  calendarDayCellSelected: {
-    backgroundColor: colors.primary_blue,
-  },
-  calendarDayText: {
-    fontSize: 14,
-    color: colors.text_primary,
-  },
-  calendarDayTextSelected: {
-    color: colors.white,
-    fontWeight: '600',
-  },
-  calendarCloseButton: {
-    marginTop: 12,
-    alignSelf: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  calendarCloseButtonText: {
-    fontSize: 14,
-    color: colors.primary_blue,
-    fontWeight: '600',
-  },
-  monthYearPickerLabel: {
-    fontSize: 13,
-    color: colors.text_secondary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  monthGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  monthChip: {
-    width: '30%',
-    paddingVertical: 6,
-    marginBottom: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border_gray,
-    alignItems: 'center',
-    backgroundColor: colors.card_bg_light,
-  },
-  monthChipSelected: {
-    backgroundColor: colors.primary_blue,
-    borderColor: colors.primary_blue,
-  },
-  monthChipText: {
-    fontSize: 13,
-    color: colors.text_primary,
-  },
-  monthChipTextSelected: {
-    color: colors.white,
-    fontWeight: '600',
-  },
-  yearPickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  yearButton: {
-    width: 36,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border_gray,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.card_bg_light,
-  },
-  yearButtonText: {
-    fontSize: 16,
-    color: colors.text_primary,
-  },
-  yearLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text_primary,
-    minWidth: 64,
-    textAlign: 'center',
-  },
-  monthYearDoneButton: {
-    alignSelf: 'center',
-    marginTop: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: colors.primary_blue,
-  },
-  monthYearDoneButtonText: {
-    fontSize: 13,
-    color: colors.white,
     fontWeight: '600',
   },
   previewOverlay: {
@@ -3360,5 +3544,76 @@ const styles = StyleSheet.create({
     color: colors.text_primary,
     textAlign: 'center',
     backgroundColor: colors.white,
+  },
+  // Data Contents Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContentLarge: {
+    width: '95%',
+    maxHeight: '85%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text_primary,
+  },
+  tableScrollHorizontal: {
+    minHeight: 200,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f3f4',
+    paddingHorizontal: 8,
+  },
+  tableHeaderText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#344054',
+    paddingRight: 16,
+  },
+  tableBodyScroll: {
+    flexGrow: 1,
+  },
+  noDataText: {
+    textAlign: 'center',
+    padding: 24,
+    color: '#5f6368',
+    fontStyle: 'italic',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f3f4',
+    paddingHorizontal: 8,
+  },
+  tableCellText: {
+    fontSize: 14,
+    paddingRight: 16,
+  },
+  typeBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  typeBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

@@ -15,8 +15,8 @@ export const AMT_DEBIT = '#000000';
 export const AMT_CREDIT = '#000000';
 
 export const REPORT_OPTIONS = [
-  'Ledger Voucher',
-  'Bill Wise Outstanding',
+  'Ledger Vouchers',
+  'Bill Wise Outstandings',
   'Sales Order Ledger Outstandings',
   'Cleared Orders',
   'Past Orders',
@@ -466,7 +466,7 @@ export const sharedStyles = StyleSheet.create({
   // Footer styles
   footer: {
     position: 'absolute',
-    bottom: 56,
+    bottom: 49,
     left: 0,
     right: 0,
     borderTopWidth: 1,

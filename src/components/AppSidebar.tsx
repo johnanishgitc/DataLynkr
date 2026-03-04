@@ -30,6 +30,7 @@ import type { UserConnection } from '../api/models/connections';
 import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
+import { REPORT_OPTIONS } from '../screens/ledger';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
 
@@ -75,6 +76,8 @@ export function AppSidebar({
   const [selectedGuid, setSelectedGuid] = useState<string>('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [dashboardExpanded, setDashboardExpanded] = useState(false);
+  const [ledgerExpanded, setLedgerExpanded] = useState(false);
 
   // Fetch companies when sidebar becomes visible
   useEffect(() => {
@@ -103,7 +106,11 @@ export function AppSidebar({
           if (list.length === 0 && (d.createdByMe || d.sharedWithMe)) {
             list = [...(d.createdByMe || []), ...(d.sharedWithMe || [])];
           }
-          setCompanies(list);
+          // Show only connected companies in the sidebar dropdown
+          const connectedOnly = list.filter(
+            (c) => (c.status ?? '').toLowerCase() === 'connected',
+          );
+          setCompanies(connectedOnly);
         })
         .catch(err => console.warn('[AppSidebar] Failed to fetch companies:', err))
         .finally(() => setLoadingCompanies(false));
@@ -115,6 +122,8 @@ export function AppSidebar({
       });
     } else {
       setDropdownOpen(false);
+      setDashboardExpanded(false);
+      setLedgerExpanded(false);
     }
   }, [visible]);
 
@@ -206,7 +215,6 @@ export function AppSidebar({
       >
         {/* Padded inner container matching Figma px-24 py-20 */}
         <View style={[styles.innerContainer, { paddingTop: insets.top + 20 }]}>
-
           {/* Logo + DataLynkr text row */}
           <View style={styles.logoRow}>
             <FullYellowLogo width={55} height={55} />
@@ -250,7 +258,7 @@ export function AppSidebar({
                           : conn.company === selectedCompany);
                       return (
                         <TouchableOpacity
-                          key={conn.tallyloc_id ?? idx}
+                          key={`company-${idx}-${conn.tallyloc_id ?? ''}-${conn.guid ?? ''}`}
                           style={[
                             styles.dropdownItem,
                             isSelected && styles.dropdownItemSelected,
@@ -284,12 +292,88 @@ export function AppSidebar({
             {/* Menu list */}
             <FlatList
               data={menuItems}
-              keyExtractor={(i) => i.id}
+              keyExtractor={(item, index) => `${item.id}-${index}`}
               style={styles.list}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
+                const isDashboard = item.id === 'sales' && item.label === 'Dashboard';
+                const isLedger = item.id === 'ledger' && item.label === 'Ledger Reports';
                 const hasChevron = item.params && (item.params as any).hasChevron;
+                if (isDashboard) {
+                  return (
+                    <View style={[styles.dashboardBlock, dashboardExpanded && styles.dashboardBlockExpanded]}>
+                      <TouchableOpacity
+                        style={styles.row}
+                        onPress={() => setDashboardExpanded(!dashboardExpanded)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.rowIconContainer}>
+                          <Icon name={item.icon} size={24} color="#d1d5dc" />
+                        </View>
+                        <Text style={styles.rowLabel}>{item.label}</Text>
+                        <Icon
+                          name={dashboardExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={20}
+                          color="#d1d5dc"
+                        />
+                      </TouchableOpacity>
+                      {dashboardExpanded && (
+                        <View style={styles.dashboardSubItems}>
+                          <TouchableOpacity
+                            style={styles.subItemBox}
+                            onPress={() => onItemPress({ ...item, label: 'Sales' })}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.subItemBoxText}>Sales</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.subItemBox}
+                            onPress={() => onItemPress({ id: 'receivables', label: 'Receivables', target: 'ComingSoon', icon: item.icon, params: { tab_name: 'Receivables' } })}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.subItemBoxText}>Receivables</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+                if (isLedger) {
+                  return (
+                    <View style={[styles.dashboardBlock, ledgerExpanded && styles.dashboardBlockExpanded]}>
+                      <TouchableOpacity
+                        style={styles.row}
+                        onPress={() => setLedgerExpanded(!ledgerExpanded)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.rowIconContainer}>
+                          <Icon name={item.icon} size={24} color="#d1d5dc" />
+                        </View>
+                        <Text style={styles.rowLabel}>{item.label}</Text>
+                        <Icon
+                          name={ledgerExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={20}
+                          color="#d1d5dc"
+                        />
+                      </TouchableOpacity>
+                      {ledgerExpanded && (
+                        <View style={styles.dashboardSubItems}>
+                          {REPORT_OPTIONS.map(report => (
+                            <TouchableOpacity
+                              key={report}
+                              style={styles.subItemBox}
+                              onPress={() => onItemPress({ ...item, params: { ...item.params, auto_open_customer: true, report_name: report } })}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.subItemBoxText}>{report}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
                 return (
                   <TouchableOpacity
                     style={styles.row}
@@ -475,10 +559,39 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: 'Roboto',
   },
+  dashboardBlock: {
+    marginBottom: 4,
+    borderRadius: 12,
+  },
+  dashboardBlockExpanded: {
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    paddingBottom: 8,
+  },
+  dashboardSubItems: {
+    flexDirection: 'column',
+    gap: 6,
+    marginLeft: 10,
+    marginRight: 10,
+    marginTop: 0,
+  },
+  subItemBox: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    marginLeft: 0,
+    marginRight: 0,
+  },
+  subItemBoxText: {
+    fontSize: 15,
+    color: '#e2e8f0',
+    fontFamily: 'Roboto',
+    marginLeft: 0, // Keep text alignment consistent with unexpanded list
+  },
   customizeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 12,
     padding: 10,
     gap: 10,

@@ -15,7 +15,6 @@ import {
   Share,
   useWindowDimensions,
   Animated,
-  Easing,
   LayoutAnimation,
   Platform,
   UIManager,
@@ -303,21 +302,17 @@ export default function VoucherDetailView() {
     return String(val).trim();
   };
 
-  // Footer collapse – match LedgerVoucher: direction-based, translateY, 300ms, useNativeDriver where possible
+  // Footer collapse – match SalesOrderLedgerOutstandings: direction-based, translateY, 300ms, no easing
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const programmaticScrollRef = useRef(false); // true while scroll is from item expand/collapse – don't drive footer
   const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed (accounting + tab bar)
-  /** Order/Invoice: translateY like LedgerVoucher – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down (useNativeDriver: true) */
+  /** Order/Invoice: translateY – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down (useNativeDriver: true) */
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
-  const SCROLL_UP_THRESHOLD = 10; // px – same as LedgerVoucher, avoids jitter
+  const SCROLL_UP_THRESHOLD = 10; // px – avoids jitter (same as SalesOrderLedgerOutstandings)
   const FOOTER_COLLAPSE_HEIGHT = 55; // px – slide down when collapsed so grand total bar stays visible a bit up
-  const COLLAPSE_DURATION = 150; // accounting: immediate on scroll, smooth (match LedgerVoucher)
-  const collapseEasing = Easing.out(Easing.cubic);
-  const ORDER_INVOICE_COLLAPSE_DURATION = 150; // immediate on scroll, smooth
-  const orderInvoiceEasing = Easing.out(Easing.cubic); // smooth deceleration at end
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -327,73 +322,55 @@ export default function VoucherDetailView() {
     }
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    // Order/Invoice: direction-based, eased timing for smoother collapse/expand
-    if (!isAccountingView) {
-      if (scrollDiff > 0 && currentScrollY > 0) {
-        if (localScrollDirection.current !== 'down') {
-          localScrollDirection.current = 'down';
-          setScrollDirection('down');
+    if (scrollDiff > 0 && currentScrollY > 10) {
+      if (localScrollDirection.current !== 'down') {
+        localScrollDirection.current = 'down';
+        setScrollDirection('down');
+        if (!isAccountingView) {
           Animated.parallel([
             Animated.timing(footerTranslateY, {
               toValue: FOOTER_COLLAPSE_HEIGHT,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: true,
             }),
             Animated.timing(collapseProgress, {
               toValue: 1,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: false,
             }),
           ]).start();
+        } else {
+          Animated.timing(collapseProgress, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
         }
-      } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
-        if (localScrollDirection.current !== 'up') {
-          localScrollDirection.current = 'up';
-          setScrollDirection('up');
+      }
+    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+      if (localScrollDirection.current !== 'up') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        if (!isAccountingView) {
           Animated.parallel([
             Animated.timing(footerTranslateY, {
               toValue: 0,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: true,
             }),
             Animated.timing(collapseProgress, {
               toValue: 0,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: false,
             }),
           ]).start();
+        } else {
+          Animated.timing(collapseProgress, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
         }
-      }
-      lastScrollY.current = currentScrollY;
-      return;
-    }
-
-    // Accounting: direction-based collapse animation
-    if (scrollDiff > 0 && currentScrollY > 0) {
-      if (localScrollDirection.current !== 'down') {
-        localScrollDirection.current = 'down';
-        setScrollDirection('down');
-        Animated.timing(collapseProgress, {
-          toValue: 1,
-          duration: COLLAPSE_DURATION,
-          easing: collapseEasing,
-          useNativeDriver: false,
-        }).start();
-      }
-    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
-      if (localScrollDirection.current !== 'up') {
-        localScrollDirection.current = 'up';
-        setScrollDirection('up');
-        Animated.timing(collapseProgress, {
-          toValue: 0,
-          duration: COLLAPSE_DURATION,
-          easing: collapseEasing,
-          useNativeDriver: false,
-        }).start();
       }
     }
 
@@ -411,37 +388,44 @@ export default function VoucherDetailView() {
     };
   }, [setScrollDirection, setFooterCollapseValue, collapseProgress, footerTranslateY]);
 
-  // When returning to this screen, show footer expanded (like LedgerVoucher)
+  // When returning to this screen, show footer expanded (same as SalesOrderLedgerOutstandings)
   useFocusEffect(
     React.useCallback(() => {
-      if (!isAccountingView && localScrollDirection.current === 'down') {
+      if (localScrollDirection.current === 'down') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
-        Animated.parallel([
-          Animated.timing(footerTranslateY, {
-            toValue: 0,
-            duration: ORDER_INVOICE_COLLAPSE_DURATION,
-            easing: orderInvoiceEasing,
-            useNativeDriver: true,
-          }),
+        if (!isAccountingView) {
+          Animated.parallel([
+            Animated.timing(footerTranslateY, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(collapseProgress, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: false,
+            }),
+          ]).start();
+        } else {
           Animated.timing(collapseProgress, {
             toValue: 0,
-            duration: ORDER_INVOICE_COLLAPSE_DURATION,
-            easing: orderInvoiceEasing,
+            duration: 300,
             useNativeDriver: false,
-          }),
-        ]).start();
+          }).start();
+        }
       }
     }, [isAccountingView, footerTranslateY, collapseProgress, setScrollDirection])
   );
 
   // Accounting: footer position via bottom; Order/Invoice: fixed bottom + translateY (like LedgerVoucher)
+  const FOOTER_OFFSET_DOWN = 6; // px – item total, ledger details, grand total sit 4px lower
   const footerContentBottom = isAccountingView
     ? collapseProgress.interpolate({
       inputRange: [0, 1],
       outputRange: [TAB_BAR_OFFSET, 0],
     })
-    : TAB_BAR_OFFSET;
+    : TAB_BAR_OFFSET - FOOTER_OFFSET_DOWN;
   const footerTransform = !isAccountingView ? [{ translateY: footerTranslateY }] : [];
 
   const closeMenu = () => setMenuVisible(false);
@@ -519,6 +503,14 @@ export default function VoucherDetailView() {
     if (returnToOrderEntryClear) {
       const tabNav = nav.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
       if (tabNav?.navigate) {
+        // Reset LedgerTab to clean initial state first so footer Ledger button won't show this voucher
+        tabNav.navigate('LedgerTab', {
+          state: {
+            routes: [{ name: 'LedgerEntries' }],
+            index: 0,
+          },
+        });
+        // Then navigate to OrdersTab last so it becomes the active/focused tab
         tabNav.navigate('OrdersTab', {
           state: {
             routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode: returnToOrderEntryDraftMode } }],

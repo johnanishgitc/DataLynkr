@@ -8,6 +8,7 @@ import { CustNamesDropdown, StatusBarTopBar, AppSidebar } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { navigationRef } from '../navigation/navigationRef';
+import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { colors } from '../constants/colors';
 
 const DEFAULT_REPORT = 'Ledger Voucher';
@@ -47,7 +48,16 @@ export default function LedgerMain() {
       closeSidebar();
       const tabNav = nav.getParent()?.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
       if (item.target === 'LedgerTab') {
-        // Already on Ledger Book
+        // Already on Ledger Book – forward any report params to LedgerEntries
+        const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
+        if (p?.report_name) {
+          const tab = nav.getParent()?.getParent() as { navigate?: (a: string, b?: object) => void } | undefined;
+          if (tab?.navigate) {
+            tab.navigate('LedgerTab', { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } });
+          } else {
+            (nav.navigate as unknown as (a: string, b?: object) => void)('LedgerEntries', { report_name: p.report_name, auto_open_customer: p.auto_open_customer });
+          }
+        }
       } else if (item.target === 'OrderEntry') {
         tabNav?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
       } else if (item.target === 'HomeTab') {
@@ -127,10 +137,7 @@ export default function LedgerMain() {
           companyName={company || undefined}
           onItemPress={onSidebarItemPress}
           onConnectionsPress={goToAdminDashboard}
-          onCompanyChange={(name) => {
-            setCompany(name);
-            loadCompany().then(fetchLedgers);
-          }}
+          onCompanyChange={() => resetNavigationOnCompanyChange()}
         />
       </View>
     );
@@ -163,10 +170,7 @@ export default function LedgerMain() {
         companyName={company || undefined}
         onItemPress={onSidebarItemPress}
         onConnectionsPress={goToAdminDashboard}
-        onCompanyChange={(name) => {
-          setCompany(name);
-          loadCompany().then(fetchLedgers);
-        }}
+        onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
     </View>
   );

@@ -124,6 +124,8 @@ export type OrdersStackParamList = {
       godown?: string;
       batch?: string;
       description?: string;
+      attachmentLinks?: string[];
+      attachmentUris?: string[];
     }>;
     isBatchWiseOn?: boolean;
     viewOnly?: boolean;
@@ -191,6 +193,13 @@ export type MainStackParamList = {
   SalesOrderOrderDetails: {
     row: object;
     ledger_name?: string;
+  };
+  /** Voucher detail on root stack so back from voucher returns to sales-order trail (e.g. SalesOrderVoucherDetails) */
+  VoucherDetailView: {
+    voucher: object;
+    ledger_name?: string;
+    returnToOrderEntryClear?: boolean;
+    returnToOrderEntryDraftMode?: boolean;
   };
 };
 

@@ -83,12 +83,9 @@ export default function SalesOrderOrderDetails() {
       const displayLedgerForNav = ledgerName || (row.LEDGER ?? '—');
 
       const navToDetail = (voucherPayload: object) => {
-        (nav.navigate as (a: string, b: object) => void)('MainTabs', {
-          screen: 'LedgerTab',
-          params: {
-            screen: 'VoucherDetailView',
-            params: { voucher: voucherPayload, ledger_name: displayLedgerForNav },
-          },
+        (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
+          voucher: voucherPayload,
+          ledger_name: displayLedgerForNav,
         });
       };
 
