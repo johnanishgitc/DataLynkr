@@ -27,6 +27,7 @@ const K = {
   gstinno: '@DataLynkr/gstinno',
   startingfrom: '@DataLynkr/startingfrom',
   booksfrom: '@DataLynkr/booksfrom',
+  lastvoucherdate: '@DataLynkr/lastvoucherdate',
   createdAt: '@DataLynkr/createdAt',
   cacheExpiryDays: '@DataLynkr/cacheExpiryDays',
 };
@@ -145,6 +146,21 @@ export async function getGuid(): Promise<string> {
 /** Books from date (YYYYMMDD) for cache date ranges. */
 export async function getBooksfrom(): Promise<string> {
   return (await storage.getItem(K.booksfrom)) ?? '';
+}
+
+/** Last voucher date (YYYYMMDD). Defaults to today if not set. */
+export async function getLastVoucherDate(): Promise<string> {
+  const stored = await storage.getItem(K.lastvoucherdate);
+  if (stored) return stored;
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+export async function setLastVoucherDate(value: string): Promise<void> {
+  await storage.setItem(K.lastvoucherdate, value);
 }
 
 // Cache config

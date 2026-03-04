@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   StatusBar,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Logo from '../components/Logo';
@@ -28,6 +29,18 @@ export default function ForgotPassword() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(show, () => setKeyboardVisible(true));
+    const subHide = Keyboard.addListener(hide, () => setKeyboardVisible(false));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
 
   const validate = (): boolean => {
     if (!email.trim()) {
@@ -157,15 +170,17 @@ export default function ForgotPassword() {
           </View>
         </ScrollView>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {'© '}
-            <Text style={styles.footerIT}>IT</Text>
-            {' '}
-            <Text style={styles.footerCatalyst}>Catalyst</Text>
-            {' Software India Pvt Ltd, 2025.'}
-          </Text>
-        </View>
+        {!keyboardVisible && (
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              {'© '}
+              <Text style={styles.footerIT}>IT</Text>
+              {' '}
+              <Text style={styles.footerCatalyst}>Catalyst</Text>
+              {' Software India Pvt Ltd, 2025.'}
+            </Text>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -262,14 +277,14 @@ const styles = StyleSheet.create({
   },
   noteBody: {
     fontWeight: '400',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   err: {
     color: '#c00',
     fontSize: 14,
   },
   btn: {
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     borderRadius: 4,
     paddingVertical: 10,
     alignItems: 'center',
@@ -298,7 +313,7 @@ const styles = StyleSheet.create({
   loginLink: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   footer: {
     borderTopWidth: 1.27,

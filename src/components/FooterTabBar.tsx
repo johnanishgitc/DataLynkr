@@ -1,7 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { View, Pressable, Text, StyleSheet, Platform, Animated } from 'react-native';
+import { View, Pressable, Text, StyleSheet, Platform, Animated, Keyboard } from 'react-native';
 
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
@@ -12,7 +12,7 @@ import { useScroll } from '../store/ScrollContext';
  * - inline-flex items-start gap-[42px]
  * - Tab widths: Home 41px, Orders 51px, Ledger 41px, Approvals 64px
  * - Icons: 24x24 (w-6 h-6)
- * - Text: 10px, Roboto, active=medium #1e488f, inactive=light #6a7282
+ * - Text: 10px, Roboto, active=medium #1f3a89, inactive=light #6a7282
  */
 export default function FooterTabBar({
   state,
@@ -25,6 +25,32 @@ export default function FooterTabBar({
   const focusedDescriptor = descriptors[focusedRoute.key];
   const tabBarStyle = focusedDescriptor?.options?.tabBarStyle as { display?: 'none' } | undefined;
   const isHidden = tabBarStyle?.display === 'none';
+  const footerHeight = 100; // Height to hide footer completely (including safe area)
+
+  // Hide footer when keyboard is open (e.g. dropdown search in Ledger) so it doesn't slide up
+  const keyboardOffsetY = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(show, () => {
+      Animated.timing(keyboardOffsetY, {
+        toValue: footerHeight,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    });
+    const subHide = Keyboard.addListener(hide, () => {
+      Animated.timing(keyboardOffsetY, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
 
   const paddingBottom = Math.max(
     insets.bottom - Platform.select({ ios: 4, default: 0 }),
@@ -34,7 +60,6 @@ export default function FooterTabBar({
   // Scroll-based collapse: use shared value from VoucherDetailView when set, else own animation
   const { scrollDirection, footerCollapseValue } = useScroll();
   const translateY = useRef(new Animated.Value(0)).current;
-  const footerHeight = 100; // Height to hide footer completely (including safe area)
 
   // Scroll-based collapse: fire animation synchronously when scrollDirection changes (avoids useEffect delay)
   const prevDirection = useRef(scrollDirection);
@@ -43,25 +68,28 @@ export default function FooterTabBar({
     if (scrollDirection === 'down') {
       Animated.timing(translateY, {
         toValue: footerHeight,
-        duration: 150,
+        duration: 300,
         useNativeDriver: true,
       }).start();
     } else if (scrollDirection === 'up' || scrollDirection === null) {
       Animated.timing(translateY, {
         toValue: 0,
-        duration: 150,
+        duration: 300,
         useNativeDriver: true,
       }).start();
     }
   }
 
-  const tabBarTranslateY =
+  const baseTranslateY =
     footerCollapseValue != null
       ? footerCollapseValue.interpolate({
         inputRange: [0, 1],
         outputRange: [0, footerHeight],
       })
       : translateY;
+
+  // When keyboard is open (e.g. dropdown in Ledger), hide footer so it doesn't come up
+  const tabBarTranslateY = Animated.add(baseTranslateY, keyboardOffsetY);
 
   // Equal flex for all tabs; padding for tap target (gaps handled by tabsRow gap)
   const getTabStyle = (_routeName: string) => ({
@@ -105,10 +133,59 @@ export default function FooterTabBar({
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
-              navigation.dispatch({
-                ...CommonActions.navigate({ name: route.name, merge: true }),
-                target: state.key,
-              });
+              // When switching to Orders from Voucher Details (opened via Order Success "View Order"),
+              // show a cleared Order Entry instead of the previous order state.
+              const currentTab = state.routes[state.index];
+              const ledgerState = currentTab?.state as {
+                routes?: { name: string; params?: { returnToOrderEntryClear?: boolean; returnToOrderEntryDraftMode?: boolean } }[];
+                index?: number;
+              } | undefined;
+              const currentLedgerRoute = ledgerState?.routes?.[ledgerState.index ?? 0];
+              const shouldClearOrder =
+                route.name === 'OrdersTab' &&
+                currentTab?.name === 'LedgerTab' &&
+                currentLedgerRoute?.name === 'VoucherDetailView' &&
+                Boolean(currentLedgerRoute?.params?.returnToOrderEntryClear);
+
+              if (shouldClearOrder) {
+                const openInDraftMode = Boolean(currentLedgerRoute?.params?.returnToOrderEntryDraftMode);
+                navigation.navigate('OrdersTab', {
+                  state: {
+                    routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode } }],
+                    index: 0,
+                  },
+                });
+              } else if (route.name === 'LedgerTab') {
+                // When navigating TO LedgerTab, check if it has an order-flow VoucherDetailView and reset
+                const ledgerRoute = state.routes.find(r => r.name === 'LedgerTab');
+                const ledgerTabState = ledgerRoute?.state as {
+                  routes?: { name: string; params?: { returnToOrderEntryClear?: boolean } }[];
+                  index?: number;
+                } | undefined;
+                const topLedgerRoute = ledgerTabState?.routes?.[ledgerTabState.index ?? 0];
+                if (
+                  topLedgerRoute?.name === 'VoucherDetailView' &&
+                  Boolean(topLedgerRoute?.params?.returnToOrderEntryClear)
+                ) {
+                  // Reset LedgerTab to clean initial state
+                  navigation.navigate('LedgerTab', {
+                    state: {
+                      routes: [{ name: 'LedgerEntries' }],
+                      index: 0,
+                    },
+                  });
+                } else {
+                  navigation.dispatch({
+                    ...CommonActions.navigate({ name: route.name, merge: true }),
+                    target: state.key,
+                  });
+                }
+              } else {
+                navigation.dispatch({
+                  ...CommonActions.navigate({ name: route.name, merge: true }),
+                  target: state.key,
+                });
+              }
             }
           };
 
@@ -228,6 +305,6 @@ const styles = StyleSheet.create({
     fontFamily: Platform.select({ ios: 'Roboto', android: 'Roboto' }),
     letterSpacing: 0,
     marginTop: 2,
-    paddingBottom: 8,
+    paddingBottom: 0,
   },
 });

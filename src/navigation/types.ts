@@ -24,6 +24,10 @@ export type LedgerStackParamList = {
   VoucherDetailView: {
     voucher: object;
     ledger_name?: string;
+    /** When true, back from this screen goes to Orders tab with cleared Order Entry (e.g. from Order Success "View Order"). */
+    returnToOrderEntryClear?: boolean;
+    /** When true with returnToOrderEntryClear, Order Entry opens in draft mode (order was placed from draft). */
+    returnToOrderEntryDraftMode?: boolean;
   };
   BillAllocations: {
     voucher: object;
@@ -75,6 +79,8 @@ export type OrdersStackParamList = {
     replaceOrderItemId?: number;
     replaceOrderItemIds?: number[];
     clearOrder?: boolean;
+    /** When true with clearOrder, clear form and open in draft mode (e.g. from Order Success after placing draft order). */
+    openInDraftMode?: boolean;
     viewOnly?: boolean;
     attachmentLinks?: string[];
     attachmentUris?: string[];
@@ -118,6 +124,8 @@ export type OrdersStackParamList = {
       godown?: string;
       batch?: string;
       description?: string;
+      attachmentLinks?: string[];
+      attachmentUris?: string[];
     }>;
     isBatchWiseOn?: boolean;
     viewOnly?: boolean;
@@ -128,6 +136,8 @@ export type OrdersStackParamList = {
     reference?: string;
     /** Voucher master id from place_order response; used by View Order to open VoucherDetailView. */
     lastVchId?: string | null;
+    /** True when order was placed from draft mode; New Order / back should return to cleared draft mode. */
+    fromDraftMode?: boolean;
   };
   ComingSoon: { tab_name: string };
 };
@@ -183,6 +193,13 @@ export type MainStackParamList = {
   SalesOrderOrderDetails: {
     row: object;
     ledger_name?: string;
+  };
+  /** Voucher detail on root stack so back from voucher returns to sales-order trail (e.g. SalesOrderVoucherDetails) */
+  VoucherDetailView: {
+    voucher: object;
+    ledger_name?: string;
+    returnToOrderEntryClear?: boolean;
+    returnToOrderEntryDraftMode?: boolean;
   };
 };
 

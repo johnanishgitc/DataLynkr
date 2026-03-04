@@ -622,7 +622,7 @@ export function StockBreakdownModal({ visible, item, onClose }: StockBreakdownMo
                 value={byCompany}
                 onValueChange={setByCompany}
                 trackColor={{ false: '#c4d4ff', true: '#c4d4ff' }}
-                thumbColor={byCompany ? '#1e488f' : '#6a7282'}
+                thumbColor={byCompany ? '#1f3a89' : '#6a7282'}
               />
               <Text style={[styles.stockBreakdownToggleLabel, byCompany && styles.stockBreakdownToggleLabelActive]}>
                 By Company
@@ -630,7 +630,7 @@ export function StockBreakdownModal({ visible, item, onClose }: StockBreakdownMo
             </View>
             {loading ? (
               <View style={styles.stockBreakdownLoading}>
-                <ActivityIndicator size="small" color="#1e488f" />
+                <ActivityIndicator size="small" color="#1f3a89" />
                 <Text style={styles.stockBreakdownLoadingText}>Loading…</Text>
               </View>
             ) : error ? (
@@ -1294,10 +1294,10 @@ const styles = StyleSheet.create({
     color: '#6a7282',
     fontWeight: '400',
   },
-  invRowMetaValQtyRate: { fontSize: 13, color: '#1e488f', fontWeight: '400', textDecorationLine: 'underline' as const },
+  invRowMetaValQtyRate: { fontSize: 13, color: '#1f3a89', fontWeight: '400', textDecorationLine: 'underline' as const },
   invRowMetaValRate: {
     fontSize: 13,
-    color: '#1e488f',
+    color: '#1f3a89',
     fontWeight: '400',
     textDecorationLine: 'underline',
   },
@@ -1392,7 +1392,7 @@ const styles = StyleSheet.create({
   },
   invSubAllocQtyLink: {
     fontSize: 11,
-    color: '#1e488f',
+    color: '#1f3a89',
     fontWeight: '400',
     textDecorationLine: 'underline',
   },
@@ -1414,7 +1414,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
@@ -1458,7 +1458,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   stockBreakdownToggleLabelActive: {
-    color: '#1e488f',
+    color: '#1f3a89',
     fontWeight: '600',
   },
   stockBreakdownLoading: {
@@ -1559,7 +1559,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderTopWidth: 1,

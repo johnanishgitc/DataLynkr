@@ -2,7 +2,7 @@
  * Voucher Detail View - Figma 3045-58170 (Datalynkr Mobile)
  * Layout: Header | Customer bar | Voucher summary | Inventory Allocations (n) | ITEM TOTAL | LEDGER DETAILS | Grand Total
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,10 +15,10 @@ import {
   Share,
   useWindowDimensions,
   Animated,
-  Easing,
   LayoutAnimation,
   Platform,
   UIManager,
+  BackHandler,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match order/invoice voucher)
@@ -67,6 +67,8 @@ export default function VoucherDetailView() {
   const { setScrollDirection, setFooterCollapseValue } = useScroll();
   const initialVoucher = (route.params?.voucher ?? {}) as Record<string, unknown>;
   const ledgerName = (route.params?.ledger_name ?? '') as string;
+  const returnToOrderEntryClear = Boolean(route.params?.returnToOrderEntryClear);
+  const returnToOrderEntryDraftMode = Boolean(route.params?.returnToOrderEntryDraftMode);
 
   const [v, setV] = useState<Record<string, unknown>>(initialVoucher);
   const [loading, setLoading] = useState(true);
@@ -300,21 +302,17 @@ export default function VoucherDetailView() {
     return String(val).trim();
   };
 
-  // Footer collapse – match LedgerVoucher: direction-based, translateY, 300ms, useNativeDriver where possible
+  // Footer collapse – match SalesOrderLedgerOutstandings: direction-based, translateY, 300ms, no easing
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const programmaticScrollRef = useRef(false); // true while scroll is from item expand/collapse – don't drive footer
   const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed (accounting + tab bar)
-  /** Order/Invoice: translateY like LedgerVoucher – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down (useNativeDriver: true) */
+  /** Order/Invoice: translateY – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down (useNativeDriver: true) */
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
-  const SCROLL_UP_THRESHOLD = 10; // px – same as LedgerVoucher, avoids jitter
+  const SCROLL_UP_THRESHOLD = 10; // px – avoids jitter (same as SalesOrderLedgerOutstandings)
   const FOOTER_COLLAPSE_HEIGHT = 55; // px – slide down when collapsed so grand total bar stays visible a bit up
-  const COLLAPSE_DURATION = 150; // accounting: immediate on scroll, smooth (match LedgerVoucher)
-  const collapseEasing = Easing.out(Easing.cubic);
-  const ORDER_INVOICE_COLLAPSE_DURATION = 150; // immediate on scroll, smooth
-  const orderInvoiceEasing = Easing.out(Easing.cubic); // smooth deceleration at end
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -324,73 +322,55 @@ export default function VoucherDetailView() {
     }
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    // Order/Invoice: direction-based, eased timing for smoother collapse/expand
-    if (!isAccountingView) {
-      if (scrollDiff > 0 && currentScrollY > 0) {
-        if (localScrollDirection.current !== 'down') {
-          localScrollDirection.current = 'down';
-          setScrollDirection('down');
+    if (scrollDiff > 0 && currentScrollY > 10) {
+      if (localScrollDirection.current !== 'down') {
+        localScrollDirection.current = 'down';
+        setScrollDirection('down');
+        if (!isAccountingView) {
           Animated.parallel([
             Animated.timing(footerTranslateY, {
               toValue: FOOTER_COLLAPSE_HEIGHT,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: true,
             }),
             Animated.timing(collapseProgress, {
               toValue: 1,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: false,
             }),
           ]).start();
+        } else {
+          Animated.timing(collapseProgress, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
         }
-      } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
-        if (localScrollDirection.current !== 'up') {
-          localScrollDirection.current = 'up';
-          setScrollDirection('up');
+      }
+    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+      if (localScrollDirection.current !== 'up') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        if (!isAccountingView) {
           Animated.parallel([
             Animated.timing(footerTranslateY, {
               toValue: 0,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: true,
             }),
             Animated.timing(collapseProgress, {
               toValue: 0,
-              duration: ORDER_INVOICE_COLLAPSE_DURATION,
-              easing: orderInvoiceEasing,
+              duration: 300,
               useNativeDriver: false,
             }),
           ]).start();
+        } else {
+          Animated.timing(collapseProgress, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
         }
-      }
-      lastScrollY.current = currentScrollY;
-      return;
-    }
-
-    // Accounting: direction-based collapse animation
-    if (scrollDiff > 0 && currentScrollY > 0) {
-      if (localScrollDirection.current !== 'down') {
-        localScrollDirection.current = 'down';
-        setScrollDirection('down');
-        Animated.timing(collapseProgress, {
-          toValue: 1,
-          duration: COLLAPSE_DURATION,
-          easing: collapseEasing,
-          useNativeDriver: false,
-        }).start();
-      }
-    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
-      if (localScrollDirection.current !== 'up') {
-        localScrollDirection.current = 'up';
-        setScrollDirection('up');
-        Animated.timing(collapseProgress, {
-          toValue: 0,
-          duration: COLLAPSE_DURATION,
-          easing: collapseEasing,
-          useNativeDriver: false,
-        }).start();
       }
     }
 
@@ -408,37 +388,44 @@ export default function VoucherDetailView() {
     };
   }, [setScrollDirection, setFooterCollapseValue, collapseProgress, footerTranslateY]);
 
-  // When returning to this screen, show footer expanded (like LedgerVoucher)
+  // When returning to this screen, show footer expanded (same as SalesOrderLedgerOutstandings)
   useFocusEffect(
     React.useCallback(() => {
-      if (!isAccountingView && localScrollDirection.current === 'down') {
+      if (localScrollDirection.current === 'down') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
-        Animated.parallel([
-          Animated.timing(footerTranslateY, {
-            toValue: 0,
-            duration: ORDER_INVOICE_COLLAPSE_DURATION,
-            easing: orderInvoiceEasing,
-            useNativeDriver: true,
-          }),
+        if (!isAccountingView) {
+          Animated.parallel([
+            Animated.timing(footerTranslateY, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(collapseProgress, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: false,
+            }),
+          ]).start();
+        } else {
           Animated.timing(collapseProgress, {
             toValue: 0,
-            duration: ORDER_INVOICE_COLLAPSE_DURATION,
-            easing: orderInvoiceEasing,
+            duration: 300,
             useNativeDriver: false,
-          }),
-        ]).start();
+          }).start();
+        }
       }
     }, [isAccountingView, footerTranslateY, collapseProgress, setScrollDirection])
   );
 
   // Accounting: footer position via bottom; Order/Invoice: fixed bottom + translateY (like LedgerVoucher)
+  const FOOTER_OFFSET_DOWN = 6; // px – item total, ledger details, grand total sit 4px lower
   const footerContentBottom = isAccountingView
     ? collapseProgress.interpolate({
       inputRange: [0, 1],
       outputRange: [TAB_BAR_OFFSET, 0],
     })
-    : TAB_BAR_OFFSET;
+    : TAB_BAR_OFFSET - FOOTER_OFFSET_DOWN;
   const footerTransform = !isAccountingView ? [{ translateY: footerTranslateY }] : [];
 
   const closeMenu = () => setMenuVisible(false);
@@ -511,12 +498,49 @@ export default function VoucherDetailView() {
     }
   };
 
+  /** When opened from Order Success "View Order", back goes to cleared Order Entry instead of Past Orders. */
+  const handleBack = useCallback(() => {
+    if (returnToOrderEntryClear) {
+      const tabNav = nav.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
+      if (tabNav?.navigate) {
+        // Reset LedgerTab to clean initial state first so footer Ledger button won't show this voucher
+        tabNav.navigate('LedgerTab', {
+          state: {
+            routes: [{ name: 'LedgerEntries' }],
+            index: 0,
+          },
+        });
+        // Then navigate to OrdersTab last so it becomes the active/focused tab
+        tabNav.navigate('OrdersTab', {
+          state: {
+            routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode: returnToOrderEntryDraftMode } }],
+            index: 0,
+          },
+        });
+        return;
+      }
+    }
+    (nav as { goBack?: () => void }).goBack?.();
+  }, [returnToOrderEntryClear, returnToOrderEntryDraftMode, nav]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!returnToOrderEntryClear) return undefined;
+      const onHardwareBack = () => {
+        handleBack();
+        return true;
+      };
+      BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => BackHandler.removeEventListener('hardwareBackPress', onHardwareBack);
+    }, [returnToOrderEntryClear, handleBack]),
+  );
+
   return (
     <View style={[styles.root, { paddingBottom: 10 }]}>
       <StatusBarTopBar
         title="Voucher Details"
         leftIcon="back"
-        onLeftPress={() => (nav as { goBack?: () => void }).goBack?.()}
+        onLeftPress={handleBack}
         rightIcons="share-kebab"
         onSharePress={handleShare}
         onRightIconsPress={() => setMenuVisible(true)}
@@ -529,7 +553,7 @@ export default function VoucherDetailView() {
         animationType="fade"
         onRequestClose={() => {
           setConnectionErrorVisible(false);
-          nav.goBack();
+          handleBack();
         }}
       >
         <View style={styles.connectionErrorOverlay}>
@@ -545,7 +569,7 @@ export default function VoucherDetailView() {
               style={styles.connectionErrorButton}
               onPress={() => {
                 setConnectionErrorVisible(false);
-                nav.goBack();
+                handleBack();
               }}
               activeOpacity={0.8}
             >
@@ -615,7 +639,7 @@ export default function VoucherDetailView() {
           </View>
           {loadingHtml ? (
             <View style={styles.htmlLoadingWrap}>
-              <ActivityIndicator size="large" color="#1e488f" />
+              <ActivityIndicator size="large" color="#1f3a89" />
               <Text style={styles.htmlLoadingText}>Loading…</Text>
             </View>
           ) : (
@@ -631,7 +655,7 @@ export default function VoucherDetailView() {
 
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#1e488f" />
+          <ActivityIndicator size="large" color="#1f3a89" />
           <Text style={styles.loadingText}>Loading voucher details…</Text>
         </View>
       ) : (
@@ -663,7 +687,7 @@ export default function VoucherDetailView() {
             >
               {/* Accounting Entries (VDAcc: icon + title, then rows) */}
               <View style={[styles.sectionHead, styles.accSectionHead]}>
-                <Icon name="earth" size={20} color="#1e488f" />
+                <Icon name="earth" size={20} color="#1f3a89" />
                 <Text style={styles.sectionTitle}>Accounting Entries</Text>
               </View>
               <View style={styles.accEntriesWrap}>
@@ -768,7 +792,7 @@ export default function VoucherDetailView() {
 
               {/* More Details (VDAcc: Created by, Name on receipt, Narration) */}
               <View style={[styles.sectionHead, styles.accSectionHeadSpaced]}>
-                <Icon name="earth" size={20} color="#1e488f" />
+                <Icon name="earth" size={20} color="#1f3a89" />
                 <Text style={styles.sectionTitle}>More Details</Text>
               </View>
               <View style={styles.accEntriesWrap}>
@@ -803,7 +827,7 @@ export default function VoucherDetailView() {
               >
                 <View style={styles.invSectionWrap}>
                   <View style={[styles.sectionHead, styles.sectionHeadInv]}>
-                    <Icon name="cube-outline" size={20} color="#1e488f" />
+                    <Icon name="cube-outline" size={20} color="#1f3a89" />
                     <Text style={styles.sectionTitle}>
                       Inventory Allocations ({invAlloc.length})
                     </Text>
@@ -923,7 +947,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   invListWrap: {
     marginHorizontal: -16,
@@ -1098,7 +1122,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     minHeight: 56,
   },
   htmlModalTitle: {

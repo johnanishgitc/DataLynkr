@@ -34,37 +34,38 @@ const SLOW_AMT_EXPR = `CASE WHEN LOWER(vouchertypereservedname) LIKE '%credit no
                             ELSE ABS(CAST(REPLACE(item_amount, ',', '') AS REAL))
                        END`;
 
-export const getDashboardData = (guid: string, filters: DashboardFilters) => {
+const TALLYLOC_MATCH = `(v.tallyloc_id = ie.tallyloc_id OR (v.tallyloc_id IS NULL AND ie.tallyloc_id IS NULL))`;
+const TALLYLOC_MATCH_LE = `(v.tallyloc_id = le.tallyloc_id OR (v.tallyloc_id IS NULL AND le.tallyloc_id IS NULL))`;
+
+export const getDashboardData = (guid: string, tallylocId: number, filters: DashboardFilters) => {
     const db = getDB();
     const hasSlowFilters = filters.customer || filters.salesperson;
 
     if (!hasSlowFilters) {
         // ===================== FAST PATH (No Complex Filters) =====================
-        console.log('[DashboardService] Using Fast Path (v4)');
+        console.log('[DashboardService] Using Fast Path (v4) guid + tallyloc_id');
 
-        const dateFilter = `v.guid = ? AND v.date BETWEEN ? AND ? AND ${V_CANCEL_FILTER}`;
-        const baseParams = [guid, filters.startDate, filters.endDate];
+        const dateFilter = `v.guid = ? AND (v.tallyloc_id = ? OR v.tallyloc_id IS NULL) AND v.date BETWEEN ? AND ? AND ${V_CANCEL_FILTER}`;
+        const baseParams = [guid, tallylocId, filters.startDate, filters.endDate];
         const monthExpr = `SUBSTR(v.date, 1, 4) || '-' || SUBSTR(v.date, 5, 2)`;
 
         // --- KPIs ---
-        // Revenue, Quantity, Profit from inventory entries (matches web: SUM(sale.amount), SUM(sale.quantity), SUM(sale.profit))
         const revenueResult = db.execute(`
             SELECT
                 SUM(${AMT_EXPR}) as totalRevenue,
                 SUM(CAST(REPLACE(ie.billedqty, ',', '') AS REAL)) as totalQuantity,
                 SUM(CAST(REPLACE(ie.profit, ',', '') AS REAL)) as totalProfit
             FROM vouchers v
-            JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid
+            JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid AND ${TALLYLOC_MATCH}
             WHERE ${dateFilter}
         `, baseParams);
 
-        // Invoice count (all vouchers) and unique customers (case-insensitive)
         const countResult = db.execute(`
             SELECT
                 COUNT(DISTINCT masterid) as totalInvoices,
                 COUNT(DISTINCT LOWER(TRIM(partyledgername))) as uniqueCustomers
             FROM vouchers
-            WHERE guid = ? AND date BETWEEN ? AND ?
+            WHERE guid = ? AND (tallyloc_id = ? OR tallyloc_id IS NULL) AND date BETWEEN ? AND ?
               AND ${CANCEL_FILTER}
         `, baseParams);
 
@@ -113,7 +114,7 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
             const res = db.execute(`
                 SELECT ${groupExpr} as label, ${metric} as value
                 FROM vouchers v
-                JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid
+                JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid AND ${TALLYLOC_MATCH}
                 WHERE ${dateFilter}
                 GROUP BY label
                 ${havingClause}
@@ -135,7 +136,7 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
                     const res = db.execute(`
                         SELECT le.groupname as label, SUM(CAST(REPLACE(le.amount, ',', '') AS REAL)) as value
                         FROM vouchers v
-                        JOIN ledger_entries le ON v.masterid = le.voucher_masterid AND v.guid = le.guid
+                        JOIN ledger_entries le ON v.masterid = le.voucher_masterid AND v.guid = le.guid AND ${TALLYLOC_MATCH_LE}
                         WHERE ${dateFilter}
                         GROUP BY le.groupname ORDER BY value DESC
                     `, baseParams);
@@ -167,7 +168,7 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
                                SUM(${AMT_EXPR}) as value,
                                SUM(CAST(REPLACE(ie.profit, ',', '') AS REAL)) as profit
                         FROM vouchers v
-                        JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid
+                        JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid AND ${TALLYLOC_MATCH}
                         WHERE ${dateFilter}
                         GROUP BY label ORDER BY label ASC
                     `, baseParams);
@@ -188,7 +189,7 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
                     const res = db.execute(`
                         SELECT ${monthExpr} as label, SUM(CAST(REPLACE(ie.profit, ',', '') AS REAL)) as value
                         FROM vouchers v
-                        JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid
+                        JOIN inventory_entries ie ON v.masterid = ie.voucher_masterid AND v.guid = ie.guid AND ${TALLYLOC_MATCH}
                         WHERE ${dateFilter}
                         GROUP BY label ORDER BY label ASC
                     `, baseParams);
@@ -198,10 +199,10 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
         };
     } else {
         // ===================== SLOW PATH (Filters Active) =====================
-        console.log('[DashboardService] Using Slow Path with Filters');
+        console.log('[DashboardService] Using Slow Path with Filters (guid + tallyloc_id)');
 
-        let filterQuery = `CREATE TEMP TABLE _fv AS SELECT * FROM vouchers WHERE guid = ? AND date BETWEEN ? AND ?`;
-        const params: (string | number)[] = [guid, filters.startDate, filters.endDate];
+        let filterQuery = `CREATE TEMP TABLE _fv AS SELECT * FROM vouchers WHERE guid = ? AND (tallyloc_id = ? OR tallyloc_id IS NULL) AND date BETWEEN ? AND ?`;
+        const params: (string | number)[] = [guid, tallylocId, filters.startDate, filters.endDate];
 
         if (filters.customer) {
             filterQuery += ` AND partyledgername = ?`;
@@ -216,11 +217,11 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
         try {
             db.execute(filterQuery, params);
 
-            // Join with inventory entries
+            const tallylocMatchFi = `(f.tallyloc_id = ie.tallyloc_id OR (f.tallyloc_id IS NULL AND ie.tallyloc_id IS NULL))`;
             db.execute(`CREATE TEMP TABLE _fi AS 
                 SELECT f.*, ie.stockitemname, ie.stockitemgroup, ie.billedqty, ie.amount as item_amount, ie.profit as item_profit
                 FROM _fv f
-                LEFT JOIN inventory_entries ie ON f.masterid = ie.voucher_masterid AND f.guid = ie.guid
+                LEFT JOIN inventory_entries ie ON f.masterid = ie.voucher_masterid AND f.guid = ie.guid AND ${tallylocMatchFi}
             `);
 
             // --- KPIs ---
@@ -292,13 +293,16 @@ export const getDashboardData = (guid: string, filters: DashboardFilters) => {
             // --- Charts ---
             const charts = {
                 salesByStockGroup: fetchSlowChart('stockitemgroup'),
-                salesByLedgerGroup: rowsToArray(db.execute(`
-                    SELECT le.groupname as label, 
-                           SUM(CAST(REPLACE(le.amount, ',', '') AS REAL)) as value
-                    FROM _fv f JOIN ledger_entries le ON f.masterid = le.voucher_masterid AND f.guid = le.guid
-                    WHERE (f.iscancelled IS NULL OR UPPER(TRIM(f.iscancelled)) = 'NO' OR f.iscancelled = 'false') 
-                    GROUP BY le.groupname ORDER BY value DESC
-                `).rows),
+                salesByLedgerGroup: (() => {
+                    const tallylocMatchFv = `(f.tallyloc_id = le.tallyloc_id OR (f.tallyloc_id IS NULL AND le.tallyloc_id IS NULL))`;
+                    return rowsToArray(db.execute(`
+                        SELECT le.groupname as label, 
+                               SUM(CAST(REPLACE(le.amount, ',', '') AS REAL)) as value
+                        FROM _fv f JOIN ledger_entries le ON f.masterid = le.voucher_masterid AND f.guid = le.guid AND ${tallylocMatchFv}
+                        WHERE (f.iscancelled IS NULL OR UPPER(TRIM(f.iscancelled)) = 'NO' OR f.iscancelled = 'false')
+                        GROUP BY le.groupname ORDER BY value DESC
+                    `).rows);
+                })(),
                 salesByRegion: fetchSlowChart('state'),
                 salesByCountry: fetchSlowChart('country'),
                 salesByMonth: fetchSlowChart(slowMonthExpr, 'amount', { sort: 'ASC' }),

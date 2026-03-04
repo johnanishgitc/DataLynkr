@@ -245,12 +245,9 @@ export default function SalesOrderVoucherDetails() {
       const displayLedgerForNav = ledgerName || (row.LEDGER ?? '—');
 
       const navToDetail = (voucherPayload: object) => {
-        (nav.navigate as (a: string, b: object) => void)('MainTabs', {
-          screen: 'LedgerTab',
-          params: {
-            screen: 'VoucherDetailView',
-            params: { voucher: voucherPayload, ledger_name: displayLedgerForNav },
-          },
+        (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
+          voucher: voucherPayload,
+          ledger_name: displayLedgerForNav,
         });
       };
 
@@ -385,7 +382,7 @@ export default function SalesOrderVoucherDetails() {
         showsVerticalScrollIndicator={true}
       >
         <View style={styles.sectionTitleRow}>
-          <Icon name="package-variant" size={20} color="#1e488f" style={styles.sectionTitleIcon} />
+          <Icon name="package-variant" size={20} color="#1f3a89" style={styles.sectionTitleIcon} />
           <Text style={styles.sectionTitle}>Sales Orders Outstanding</Text>
         </View>
 
@@ -472,7 +469,7 @@ export default function SalesOrderVoucherDetails() {
                   <Text style={styles.orderCardLabel}>Total Value</Text>
                   <Text style={styles.orderCardLabelCol}> : </Text>
                   {isLoading ? (
-                    <ActivityIndicator size="small" color="#1e488f" />
+                    <ActivityIndicator size="small" color="#1f3a89" />
                   ) : (
                     <Text style={styles.orderCardValue}>{fmtNum(valueForCard)}</Text>
                   )}
@@ -699,7 +696,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   emptyState: {
     paddingVertical: 24,
@@ -771,7 +768,7 @@ const styles = StyleSheet.create({
   footer: {
     borderTopWidth: 1,
     borderTopColor: TOP_BORDER,
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
   },
   footerCollapsed: {},
   footerBar: {

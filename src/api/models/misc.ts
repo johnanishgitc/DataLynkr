@@ -27,6 +27,10 @@ export interface StockItem {
   GROUPLIST?: string | null;
   /** From api/tally/stockitem. When "Yes", show Godown and Batch on Order Entry Item Detail. */
   ISBATCHWISEON?: string | null;
+  /** When "Yes" (and ISBATCHWISEON and HASEXPDATE are Yes), show Mfg Date field. */
+  HASMFGDATE?: string | null;
+  /** When "Yes" (and ISBATCHWISEON and HASMFGDATE are Yes), show Expiry date field. */
+  HASEXPDATE?: string | null;
   ALIAS?: string | null;
   [key: string]: unknown;
 }

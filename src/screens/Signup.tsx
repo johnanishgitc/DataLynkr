@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   btn: {
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     borderRadius: 4,
     paddingVertical: 10,
     alignItems: 'center',
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
   loginLink: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   footer: {
     borderTopWidth: 1.27,

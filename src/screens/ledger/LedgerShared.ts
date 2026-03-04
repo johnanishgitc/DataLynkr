@@ -15,8 +15,8 @@ export const AMT_DEBIT = '#000000';
 export const AMT_CREDIT = '#000000';
 
 export const REPORT_OPTIONS = [
-  'Ledger Voucher',
-  'Bill Wise Outstanding',
+  'Ledger Vouchers',
+  'Bill Wise Outstandings',
   'Sales Order Ledger Outstandings',
   'Cleared Orders',
   'Past Orders',
@@ -182,6 +182,7 @@ export const sharedStyles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 10,
     paddingVertical: 5,
+    paddingBottom: 8,
     paddingHorizontal: 2,
     gap: 6,
   },
@@ -191,7 +192,8 @@ export const sharedStyles = StyleSheet.create({
   },
   topRowDate: {
     minHeight: 10,
-    paddingVertical: 7,
+    paddingVertical: 5,
+    paddingBottom: 8,
     paddingHorizontal: 2,
     gap: 6,
     backgroundColor: '#ffffff1a',
@@ -208,7 +210,8 @@ export const sharedStyles = StyleSheet.create({
     backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: CARD_BORDER,
-    paddingVertical: 8,
+    paddingVertical: 5,
+    paddingBottom: 8,
     paddingHorizontal: 0,
     marginBottom: 4,
   },
@@ -463,12 +466,12 @@ export const sharedStyles = StyleSheet.create({
   // Footer styles
   footer: {
     position: 'absolute',
-    bottom: 56,
+    bottom: 49,
     left: 0,
     right: 0,
     borderTopWidth: 1,
     borderTopColor: TOP_BORDER,
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     zIndex: 999,
   },
   footerBar: {
@@ -536,7 +539,7 @@ export const sharedStyles = StyleSheet.create({
   modalHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e488f',
+    backgroundColor: '#1f3a89',
     paddingVertical: 6,
     paddingHorizontal: 16,
     justifyContent: 'space-between',

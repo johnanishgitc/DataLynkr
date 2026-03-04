@@ -34,7 +34,7 @@ type Route = RouteProp<LedgerStackParamList, 'MoreDetails'>;
 
 const STRIP_BG = '#e6ecfd';
 const STRIP_BORDER = '#c4d4ff';
-const TAB_SELECTED = '#1e488f';
+const TAB_SELECTED = '#1f3a89';
 const TAB_NORMAL = '#000000de';
 
 type TabKey = 'order' | 'buyer' | 'consignee';

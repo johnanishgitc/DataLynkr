@@ -233,7 +233,7 @@ export default function BillAllocations() {
 
   return (
     <View style={[styles.root, { paddingBottom: insets.bottom + 56 }]}>
-      {/* Header: #1e488f, back + title + kebab (StatusBarTopBar) */}
+      {/* Header: #1f3a89, back + title + kebab (StatusBarTopBar) */}
       <StatusBarTopBar
         title={strings.bill_allocations ?? 'Bill Allocations'}
         leftIcon="back"
@@ -267,7 +267,7 @@ export default function BillAllocations() {
         {/* Bottom circled: section header – document/box icon + "Bill Allocations" (section title) */}
         <View style={styles.sectionHead}>
           <View style={styles.sectionIconWrap}>
-            <IconDocumentBill width={20} height={20} color="#1E488F" />
+            <IconDocumentBill width={20} height={20} color="#1f3a89" />
           </View>
           <Text style={styles.sectionTitle}>{strings.bill_allocations}</Text>
         </View>
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
     fontFamily: 'System',
     fontSize: 17,
     fontWeight: '600',
-    color: '#1e488f',
+    color: '#1f3a89',
   },
   listWrap: {
     width: '100%',

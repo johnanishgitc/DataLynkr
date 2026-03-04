@@ -114,12 +114,9 @@ export default function ClearedOrderDetails() {
       const displayLedger = ledgerName || (line.row.LEDGER ?? '—');
 
       const navToDetail = (voucherPayload: object) => {
-        (nav.navigate as (a: string, b: object) => void)('MainTabs', {
-          screen: 'LedgerTab',
-          params: {
-            screen: 'VoucherDetailView',
-            params: { voucher: voucherPayload, ledger_name: displayLedger },
-          },
+        (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
+          voucher: voucherPayload,
+          ledger_name: displayLedger,
         });
       };
 
@@ -249,7 +246,7 @@ export default function ClearedOrderDetails() {
                   {line.description}
                 </Text>
                 {isLoading ? (
-                  <ActivityIndicator size="small" color="#1e488f" />
+                  <ActivityIndicator size="small" color="#1f3a89" />
                 ) : (
                   <Text style={styles.listAmount}>
                     {fmtNum(line.amount)} {line.isDebit ? 'Dr.' : 'Cr.'}

@@ -1,6 +1,6 @@
 /**
  * Bill Allocations - document icon from Figma vector-5.svg
- * Original: 12x14, stroke #1E488F
+ * Original: 12x14, stroke #1f3a89
  */
 import React from 'react';
 import Svg, { Path } from 'react-native-svg';
@@ -14,7 +14,7 @@ interface IconDocumentBillProps {
 export default function IconDocumentBill({
   width = 16,
   height = 16,
-  color = '#1E488F',
+  color = '#1f3a89',
 }: IconDocumentBillProps) {
   return (
     <Svg width={width} height={height} viewBox="0 0 12 14" fill="none" preserveAspectRatio="xMidYMid meet">

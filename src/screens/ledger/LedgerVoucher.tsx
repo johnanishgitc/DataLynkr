@@ -82,23 +82,23 @@ export default function LedgerVoucher({
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    if (scrollDiff > 0 && currentScrollY > 0) {
+    if (scrollDiff > 0 && currentScrollY > 10) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
         Animated.timing(footerTranslateY, {
           toValue: footerHeight,
-          duration: 150,
+          duration: 300,
           useNativeDriver: true,
         }).start();
       }
-    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 0) {
+    } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
       if (localScrollDirection.current !== 'up') {
         localScrollDirection.current = 'up';
         setScrollDirection('up');
         Animated.timing(footerTranslateY, {
           toValue: 0,
-          duration: 150,
+          duration: 300,
           useNativeDriver: true,
         }).start();
       }
@@ -296,13 +296,13 @@ export default function LedgerVoucher({
             style={sharedStyles.container}
             contentContainerStyle={[
               sharedStyles.containerContent,
-              { paddingTop: headerHeight + 10 },
+              { paddingTop: headerHeight + 15 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}
           >
             {rows.map((v, i) => renderCard(v, i))}
-            {rows.length === 0 && !opening && !closing && (
+            {rows.length === 0 && (
               <Text style={[sharedStyles.empty, sharedStyles.emptyInList]}>{strings.table_data_will_appear}</Text>
             )}
           </ScrollView>
