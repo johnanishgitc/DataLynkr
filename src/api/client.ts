@@ -22,6 +22,8 @@ import type {
   DeletedVouchersResponse,
   StockItemRequest,
   StockItemResponse,
+  StockGroupsRequest,
+  StockGroupsResponse,
   ExternalUserCacheEnabledResponse,
   SalesOrderOutstandingRequest,
   SalesOrderOutstandingResponse,
@@ -238,6 +240,10 @@ export const apiService = {
     getApi().post<StockItemResponse>('api/tally/stockitem', body, {
       params: ts != null ? { ts } : undefined,
     }),
+
+  /** Stock groups list (api/tally/stockgroups) for Data Management – index MASTERID, NAME, GROUPLIST. */
+  getStockGroups: (body: StockGroupsRequest) =>
+    getApi().post<StockGroupsResponse>('api/tally/stockgroups', body),
 
   getExternalUserCacheEnabled: (email: string, ts?: number) =>
     getApi().get<ExternalUserCacheEnabledResponse>('api/tally/external-user-cache-enabled', {

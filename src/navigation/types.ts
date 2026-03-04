@@ -148,8 +148,8 @@ export type ApprovalsStackParamList = {
 
 export type SummaryStackParamList = {
   StockSummary: undefined;
-  StockGroupSummary: { stockitem: string; breadcrumb: string[] };
-  StockItemMonthly: { stockitem: string; breadcrumb: string[] };
+  StockGroupSummary: { stockitem: string; breadcrumb: string[]; fromdate?: string; todate?: string };
+  StockItemMonthly: { stockitem: string; breadcrumb: string[]; fromdate?: string; todate?: string };
   StockItemVouchers: {
     stockitem: string;
     fromdate: string;

@@ -24,12 +24,12 @@ export const REPORT_OPTIONS = [
 
 export type ReportType = (typeof REPORT_OPTIONS)[number];
 
-export const DEFAULT_REPORT: ReportType = 'Ledger Voucher';
+export const DEFAULT_REPORT: ReportType = 'Ledger Vouchers';
 
 // Map display names to API report types
 export const REPORT_TYPE_MAP: Record<string, string> = {
-  'Ledger Voucher': 'Ledger Vouchers',
-  'Bill Wise Outstanding': 'Bill wise O/s',
+  'Ledger Vouchers': 'Ledger Vouchers',
+  'Bill Wise Outstandings': 'Bill wise O/s',
   'Sales Order Ledger Outstandings': 'Sales Order Ledger Outstandings',
   'Cleared Orders': 'Cleared Orders',
   'Past Orders': 'Past Orders',

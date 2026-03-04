@@ -743,12 +743,26 @@ export function InventoryRow({
   );
 }
 
+const ITEM_TO_BE_ALLOCATED_NAME = 'ITEM TO BE ALLOCATED';
+
+/** Parse pipe-separated attachment links from attachdescription */
+function getAttachmentLinksFromItem(item: InventoryAllocation): string[] {
+  const raw = item as Record<string, unknown>;
+  const desc = (item.ATTACHDESCRIPTION ?? item.attachdescription ?? raw.ATTACHDESCRIPTION ?? raw.attachdescription ?? '') as string;
+  if (!desc || String(desc).trim() === '') return [];
+  return String(desc)
+    .split('|')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /** Expandable inventory row: tap to show sub-allocations (Godown, Batch#) */
 export function ExpandableInventoryRow({
   item,
   altBg,
   invoiceOrder,
   onExpandChange,
+  onViewAttachments,
 }: {
   item: InventoryAllocation;
   altBg?: boolean;
@@ -756,6 +770,8 @@ export function ExpandableInventoryRow({
   invoiceOrder?: boolean;
   /** Called when expand state changes (e.g. so parent can scroll to show expanded content) */
   onExpandChange?: (expanded: boolean) => void;
+  /** For "ITEM TO BE ALLOCATED": open in-app attachment preview (links from attachdescription) */
+  onViewAttachments?: (items: string[]) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [qtyPopupBody, setQtyPopupBody] = useState<string | null>(null);
@@ -764,9 +780,41 @@ export function ExpandableInventoryRow({
   const [popupSource, setPopupSource] = useState<null | 'main' | number>(null);
   const subAllocs = getSubAllocations(item);
   const itemRaw = item as Record<string, unknown>;
+  const name = (item.STOCKITEMNAME ?? itemRaw.stockitemname ?? '—') as string;
+  const isItemToBeAllocated = String(name).trim().toUpperCase() === ITEM_TO_BE_ALLOCATED_NAME;
+  const attachmentLinks = getAttachmentLinksFromItem(item);
   const rateVal = itemRaw.rate ?? item.RATE;
   const rateDisplay = rateVal != null ? amt(rateVal) : '—';
   const qtyDisplay = getQtyDisplay(itemRaw);
+
+  /** "ITEM TO BE ALLOCATED": show only attachment(s); no qty, rate, discount, amount */
+  if (isItemToBeAllocated) {
+    return (
+      <View style={[
+        styles.invRow,
+        altBg && styles.invRowAltBg,
+        invoiceOrder && styles.invRowInvoiceOrder,
+      ]}>
+        <View style={styles.invRowHead}>
+          <Text style={styles.invRowName} numberOfLines={2}>{name}</Text>
+        </View>
+        {attachmentLinks.length > 0 && onViewAttachments && (
+          <View style={[styles.invRowMeta, invoiceOrder && styles.invRowMetaInvoiceOrder]}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              onPress={() => onViewAttachments(attachmentLinks)}
+              activeOpacity={0.7}
+            >
+              <Icon name="eye" size={18} color="#1f3a89" />
+              <Text style={[styles.invRowMetaValQtyRate, { color: '#1f3a89', textDecorationLine: 'underline' }]}>
+                View Attachment ({attachmentLinks.length})
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   const openQtyFromMain = () => {
     setQtyPopupBody(getQtyPopupBody(itemRaw));

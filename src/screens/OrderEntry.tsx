@@ -65,6 +65,7 @@ import type {
 } from '../api';
 import {
   cacheManager,
+  getLedgerListFromDataManagementCache,
 } from '../cache';
 import { isBatchWiseOnFromItem } from '../utils/orderEntryBatchWise';
 import { deobfuscatePrice } from '../utils/priceUtils';
@@ -472,41 +473,23 @@ export default function OrderEntry() {
     return segs.join(' | ');
   };
 
+  // Load customers from Data Management cache (no API call)
   useEffect(() => {
     let cancel = false;
     (async () => {
-      const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-      if (t === 0 || !c || !g) return;
-
-      const key = `ledgerlist-w-addrs_${t}_${c}`;
-
-      // Attempt to load from cache first for immediate display
       try {
-        const cached = await cacheManager.readCache<LedgerListResponse>(key);
-        const raw = (cached as LedgerListResponse | null)?.ledgers ?? (cached as LedgerListResponse | null)?.data ?? (Array.isArray(cached) ? cached : []);
-        const list = Array.isArray(raw) ? (raw as LedgerItem[]) : [];
-        if (!cancel && list.length > 0) {
-          setLedgerItems(list);
-          setLedgerNames(list.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
-        }
-      } catch (e) {
-        // Ignore cache read errors
-      }
-
-      // Then fetch from API to update cache and state
-      try {
-        const { data: listRes } = await apiService.getLedgerList({ tallyloc_id: t, company: c, guid: g });
-        const res = listRes as LedgerListResponse;
+        const res = await getLedgerListFromDataManagementCache();
         const list = (res?.ledgers ?? res?.data ?? []) as LedgerItem[];
         const items = Array.isArray(list) ? list : [];
         if (!cancel) {
           setLedgerItems(items);
-          setLedgerNames(items.map((i) => (i.NAME ?? '').trim()).filter(Boolean));
-          // Save to SQLite
-          await cacheManager.saveCache(key, listRes, null, { tallylocId: t, company: c, guid: g });
+          setLedgerNames(items.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
         }
       } catch {
-        // If API fails, we already attempted to load from cache
+        if (!cancel) {
+          setLedgerItems([]);
+          setLedgerNames([]);
+        }
       }
     })();
     return () => { cancel = true; };
@@ -535,6 +518,7 @@ export default function OrderEntry() {
           guid: g,
           fromdate: toYyyyMmDdStr(startOfMonth),
           todate: toYyyyMmDdStr(now),
+          ledgername: selectedCustomer,
         };
         const { data: res } = await apiService.getSalesOrderReport(body);
         if (cancel) return;
@@ -1122,9 +1106,36 @@ export default function OrderEntry() {
         const { links, uris: succeededUris } = await uploadFilesToApi(pickedUris);
         if (links.length > 0) {
           setAttachmentLinks((prev) => [...prev, ...links]);
-          // Automatically add each new attachment as "ITEM TO BE ALLOCATED" with qty 1
+          const allocUris = links.map((_, i) => succeededUris[i]).filter((u): u is string => u != null);
+          // In draft mode: one "ITEM TO BE ALLOCATED" only — merge new attachments into existing alloc item or add one item with all.
           setOrderItems((prev) => {
             const nextId = orderItemsNextId.current;
+            if (isDraftMode) {
+              const existingAllocIdx = prev.findIndex((oi) => isItemToBeAllocated(oi.name));
+              if (existingAllocIdx >= 0) {
+                const existing = prev[existingAllocIdx];
+                const merged: OrderEntryOrderItem = {
+                  ...existing,
+                  attachmentLinks: [...(existing.attachmentLinks ?? []), ...links],
+                  attachmentUris: [...(existing.attachmentUris ?? []), ...allocUris],
+                };
+                return prev.map((oi, i) => (i === existingAllocIdx ? merged : oi));
+              }
+              const singleItem: OrderEntryOrderItem = {
+                id: nextId,
+                name: DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED',
+                qty: '1',
+                rate: '0',
+                total: 0,
+                unit: '',
+                stockItem: DUMMY_ITEM_TO_BE_ALLOCATED,
+                attachmentLinks: [...links],
+                attachmentUris: allocUris,
+              };
+              orderItemsNextId.current = nextId + 1;
+              return [...prev, singleItem];
+            }
+            // Non-draft: one cart item per attachment
             const newItems: OrderEntryOrderItem[] = links.map((link, i) => ({
               id: nextId + i,
               name: DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED',
@@ -1146,7 +1157,7 @@ export default function OrderEntry() {
         setUploadingAttachments(false);
       }
     },
-    [uploadFilesToApi]
+    [uploadFilesToApi, isDraftMode]
   );
 
   const handleAddDetails = () => setAddDetailsModalVisible(true);
@@ -1425,12 +1436,12 @@ export default function OrderEntry() {
         ? [
           {
             item: 'ITEM TO BE ALLOCATED',
-            qty: '1',
             rate: '0',
             discount: 0,
             gst: 0,
             amount: 0,
             description: draftDescription ?? '',
+            attachdescription: attachmentLinks?.length ? attachmentLinks.join('|') : '',
           },
         ]
         : orderItems.map((oi) => {
@@ -1439,14 +1450,16 @@ export default function OrderEntry() {
           const qtyStr = baseUnit ? `${oi.qty} ${baseUnit}` : String(oi.qty);
           const rateStr = rateUnit ? `${oi.rate}/${rateUnit}` : String(oi.rate);
           const oiAny = oi as Record<string, unknown>;
+          const isAlloc = isItemToBeAllocated(oi.name ?? '');
           const itemPayload: PlaceOrderItemPayload = {
             item: isDraftMode ? defaultDraftItemName : (oi.name ?? ''),
-            qty: qtyStr,
+            ...(isAlloc ? {} : { qty: qtyStr }),
             rate: rateStr,
             discount: (oi as { discount?: number }).discount ?? 0,
             gst: (oi as { tax?: number }).tax ?? 0,
             amount: Math.round(oi.total * 100) / 100,
             description: oi.description ?? '',
+            attachdescription: (oi.attachmentLinks?.length ? oi.attachmentLinks.join('|') : '') ?? '',
           };
           if (oi.godown != null && String(oi.godown).trim() !== '') itemPayload.godownname = String(oi.godown).trim();
           if (oi.batch != null && String(oi.batch).trim() !== '') itemPayload.batchname = String(oi.batch).trim();
@@ -1492,7 +1505,7 @@ export default function OrderEntry() {
       consigneepincode: f.consigneePinCode || '',
       consigneemailingname: f.consigneeMailingName || '',
       pricelevel: '',
-      narration: [...attachmentLinks, ...orderItems.flatMap((oi) => oi.attachmentLinks ?? [])].join('|'),
+      narration: isDraftMode ? (draftDescription?.trim() ?? '') : '',
       reference,
       referencedate: dateStr,
       basicorderterms: f.orderTermsOfDelivery || '',
@@ -2032,13 +2045,15 @@ export default function OrderEntry() {
                     <Text style={styles.footerClearAllTextDraft}>Clear All</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.footerPlaceOrderDraft}
+                    style={[styles.footerPlaceOrderDraft, (placeOrderLoading || uploadingAttachments) && { opacity: 0.5 }]}
                     onPress={handlePlaceOrder}
                     activeOpacity={0.8}
-                    disabled={placeOrderLoading}
+                    disabled={placeOrderLoading || uploadingAttachments}
                   >
                     {placeOrderLoading ? (
                       <ActivityIndicator size="small" color="#fff" />
+                    ) : uploadingAttachments ? (
+                      <Text style={styles.footerBtnTextDraft}>Uploading...</Text>
                     ) : (
                       <Text style={styles.footerBtnTextDraft}>Place Order</Text>
                     )}

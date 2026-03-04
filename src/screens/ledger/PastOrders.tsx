@@ -100,6 +100,11 @@ export default function PastOrders({
   }, [setScrollDirection]);
 
   useEffect(() => {
+    if (!ledger_name?.trim()) {
+      setLoading(false);
+      setOrders(null);
+      return;
+    }
     let cancel = false;
     setLoading(true);
     (async () => {
@@ -116,6 +121,7 @@ export default function PastOrders({
           guid: g,
           fromdate: toYyyyMmDdStr(from_date),
           todate: toYyyyMmDdStr(to_date),
+          ledgername: ledger_name,
         };
         const { data: res } = await apiService.getSalesOrderReport(body);
         if (cancel) return;
@@ -142,7 +148,7 @@ export default function PastOrders({
       }
     })();
     return () => { cancel = true; };
-  }, [from_date, to_date]);
+  }, [from_date, to_date, ledger_name]);
 
   const onOrderCard = (order: SalesOrderReportItem) => {
     (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {

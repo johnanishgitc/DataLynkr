@@ -9,6 +9,8 @@ export interface StockQtyValue {
     altunit: string;
     rate: number;
     value?: number;
+    /** Closing amount as string (e.g. "-72000.00") from stockitemvouchers API */
+    amt?: string;
 }
 
 // ── Stock Summary (list groups / items) ─────────────────────────────

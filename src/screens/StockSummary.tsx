@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View,
     Text,
@@ -6,8 +6,11 @@ import {
     FlatList,
     StyleSheet,
     ActivityIndicator,
+    Modal,
+    TextInput,
 } from 'react-native';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar, AppSidebar } from '../components';
 import { PeriodSelection } from '../components/PeriodSelection';
@@ -20,6 +23,8 @@ import type { StockSummaryItem } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
+import { sharedStyles } from './ledger';
+import { getStockItemsAndGroupsFromDataManagementCache, type StockListEntry } from '../cache';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -116,6 +121,11 @@ export default function StockSummary() {
     const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [periodOpen, setPeriodOpen] = useState(false);
+    const [primaryDropdownOpen, setPrimaryDropdownOpen] = useState(false);
+    const [primarySearch, setPrimarySearch] = useState('');
+    const [itemsAndGroups, setItemsAndGroups] = useState<StockListEntry[]>([]);
+    const [loadingDropdown, setLoadingDropdown] = useState(false);
+    const insets = useSafeAreaInsets();
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -191,14 +201,58 @@ export default function StockSummary() {
     }, [fetchData]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        const fromdate = route.params?.fromdate;
+        const todate = route.params?.todate;
+        const paramRange = (fromdate && todate) ? { fromdate: String(fromdate), todate: String(todate) } : undefined;
+        fetchData(paramRange);
+    }, [fetchData, route.params?.fromdate, route.params?.todate]);
+
+    useEffect(() => {
+        if (!primaryDropdownOpen) return;
+        let cancelled = false;
+        setLoadingDropdown(true);
+        getStockItemsAndGroupsFromDataManagementCache()
+            .then((list) => {
+                if (!cancelled) setItemsAndGroups(list);
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingDropdown(false);
+            });
+        return () => { cancelled = true; };
+    }, [primaryDropdownOpen]);
+
+    const primaryDropdownList = useMemo(() => {
+        const primary: StockListEntry[] = [{ name: 'Primary', type: 'group' }];
+        const rest = itemsAndGroups.filter(
+            (e) => e.name.toLowerCase().includes(primarySearch.trim().toLowerCase())
+        );
+        return [...primary, ...rest];
+    }, [itemsAndGroups, primarySearch]);
+
+    const onPrimarySelect = useCallback(
+        (entry: StockListEntry) => {
+            setPrimaryDropdownOpen(false);
+            setPrimarySearch('');
+            if (entry.name === 'Primary') {
+                nav.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'StockSummary' }] }));
+                return;
+            }
+            const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
+            if (entry.type === 'item') {
+                nav.push('StockItemMonthly', { stockitem: entry.name, breadcrumb: [entry.name], ...period });
+            } else {
+                nav.push('StockGroupSummary', { stockitem: entry.name, breadcrumb: [entry.name], ...period });
+            }
+        },
+        [nav, dateRange.fromdate, dateRange.todate]
+    );
 
     const onItemPress = (item: StockSummaryItem) => {
+        const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
         if (item.isitem === 'Yes') {
-            nav.push('StockItemMonthly', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name] });
+            nav.push('StockItemMonthly', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period });
         } else {
-            nav.push('StockGroupSummary', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name] });
+            nav.push('StockGroupSummary', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period });
         }
     };
 
@@ -247,16 +301,21 @@ export default function StockSummary() {
                 compact
             />
 
-            {/* Primary field (greyed out) */}
+            {/* Primary field – tappable to open Items/Groups dropdown */}
             <View style={s.filterSection}>
-                <View style={s.primaryRow}>
+                <TouchableOpacity
+                    style={s.primaryRow}
+                    onPress={() => setPrimaryDropdownOpen(true)}
+                    activeOpacity={0.7}
+                >
                     <Icon name="magnify" size={18} color={colors.stock_text_dark} />
                     <View style={s.primaryFieldWrap}>
-                        <Text style={[s.primaryText, !stockitemParam && { color: colors.text_secondary }]}>
+                        <Text style={s.primaryText} numberOfLines={1}>
                             {stockitemParam || 'Primary'}
                         </Text>
                     </View>
-                </View>
+                    <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
+                </TouchableOpacity>
 
                 {/* Date range row */}
                 <TouchableOpacity style={s.dateRow} onPress={() => setPeriodOpen(true)} activeOpacity={0.7}>
@@ -331,6 +390,76 @@ export default function StockSummary() {
                 toDate={yyyymmddToMs(dateRange.todate)}
                 onApply={onPeriodApply}
             />
+
+            {/* Primary dropdown – Items and Groups (same design as Order Entry customer dropdown) */}
+            <Modal
+                visible={primaryDropdownOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    setPrimaryDropdownOpen(false);
+                    setPrimarySearch('');
+                }}
+            >
+                <TouchableOpacity
+                    style={sharedStyles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => {
+                        setPrimaryDropdownOpen(false);
+                        setPrimarySearch('');
+                    }}
+                >
+                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                        <View style={sharedStyles.modalHeaderRow}>
+                            <Text style={sharedStyles.modalHeaderTitle}>Select Item or Group</Text>
+                            <TouchableOpacity
+                                onPress={() => { setPrimaryDropdownOpen(false); setPrimarySearch(''); }}
+                                style={sharedStyles.modalHeaderClose}
+                            >
+                                <Icon name="close" size={24} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={sharedStyles.modalSearchRow}>
+                            <TextInput
+                                style={sharedStyles.modalSearchInput}
+                                placeholder="Search items or groups…"
+                                placeholderTextColor={colors.text_secondary}
+                                value={primarySearch}
+                                onChangeText={setPrimarySearch}
+                            />
+                            <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
+                        </View>
+                        {loadingDropdown ? (
+                            <View style={s.dropdownLoading}>
+                                <ActivityIndicator size="small" color={colors.primary_blue} />
+                                <Text style={s.dropdownLoadingText}>{strings.loading}</Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={primaryDropdownList}
+                                keyExtractor={(item) => `${item.type}-${item.name}`}
+                                style={sharedStyles.modalList}
+                                keyboardShouldPersistTaps="handled"
+                                keyboardDismissMode="on-drag"
+                                ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No items or groups found. Download from Data Management first.</Text>}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={[
+                                            sharedStyles.modalOpt,
+                                            { paddingVertical: 12, minHeight: 40 },
+                                            item.type === 'item' ? s.primaryDropdownItemRow : s.primaryDropdownGroupRow,
+                                        ]}
+                                        onPress={() => onPrimarySelect(item)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item.name}</Text>
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </View>
     );
 }
@@ -353,7 +482,6 @@ const s = StyleSheet.create({
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
-        opacity: 0.5, // greyed out
     },
     primaryFieldWrap: {
         flex: 1,
@@ -478,4 +606,10 @@ const s = StyleSheet.create({
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     loadingText: { marginTop: 8, color: colors.text_secondary },
     errorText: { color: colors.text_secondary, textAlign: 'center', padding: 16 },
+
+    // Primary dropdown (items = yellow, groups = white)
+    dropdownLoading: { padding: 24, alignItems: 'center' },
+    dropdownLoadingText: { marginTop: 8, color: colors.text_secondary },
+    primaryDropdownGroupRow: { backgroundColor: colors.white },
+    primaryDropdownItemRow: { backgroundColor: '#fef9c3' },
 });

@@ -264,7 +264,7 @@ export default function ClearedOrders({
     <View style={sharedStyles.root}>
       <View style={sharedStyles.headerWrapper}>
         <StatusBarTopBar
-          title="Ledger Book"
+          title="Ledger Reports"
           leftIcon="menu"
           onMenuPress={onNavigateHome}
           rightIcons="share-bell"

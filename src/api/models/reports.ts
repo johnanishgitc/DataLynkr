@@ -70,6 +70,7 @@ export interface SalesOrderReportRequest {
   guid: string;
   fromdate: string;
   todate: string;
+  ledgername: string;
 }
 
 /** Single order from api/reports/salesorder */

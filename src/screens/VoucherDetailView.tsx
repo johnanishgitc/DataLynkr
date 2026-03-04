@@ -19,6 +19,9 @@ import {
   Platform,
   UIManager,
   BackHandler,
+  FlatList,
+  Image,
+  Dimensions,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match order/invoice voucher)
@@ -78,6 +81,8 @@ export default function VoucherDetailView() {
   const [htmlContent, setHtmlContent] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
   const [connectionErrorVisible, setConnectionErrorVisible] = useState(false);
+  /** In-app attachment preview for "ITEM TO BE ALLOCATED" (same UX as Order Entry cart view attachment) */
+  const [attachmentPreviewItems, setAttachmentPreviewItems] = useState<string[] | null>(null);
   const fetchDone = useRef(false);
   const { width: winWidth, height: winHeight } = useWindowDimensions();
 
@@ -653,6 +658,73 @@ export default function VoucherDetailView() {
         </View>
       </Modal>
 
+      {/* In-app attachment preview for "ITEM TO BE ALLOCATED" (same as Order Entry cart View Attachment; no external open) */}
+      <Modal
+        visible={attachmentPreviewItems != null && attachmentPreviewItems.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAttachmentPreviewItems(null)}
+      >
+        <View style={styles.attachmentPreviewOverlay}>
+          <TouchableOpacity
+            style={styles.attachmentPreviewClose}
+            onPress={() => setAttachmentPreviewItems(null)}
+            activeOpacity={0.7}
+          >
+            <Icon name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+          {attachmentPreviewItems && attachmentPreviewItems.length > 0 ? (
+            <FlatList
+              data={attachmentPreviewItems}
+              keyExtractor={(_, i) => String(i)}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item: uri }) => {
+                const lower = (uri || '').toLowerCase();
+                const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image') || lower.startsWith('file://');
+                const isWebUrl = /^https?:\/\//i.test(uri || '');
+                const pageWidth = Dimensions.get('window').width;
+                const pageHeight = Dimensions.get('window').height;
+                return (
+                  <View style={[styles.attachmentPreviewPage, { width: pageWidth, height: pageHeight }]}>
+                    {isImage && uri ? (
+                      <Image
+                        source={{ uri }}
+                        style={[styles.attachmentPreviewImage, { width: pageWidth - 32, height: pageHeight * 0.7 }]}
+                        resizeMode="contain"
+                      />
+                    ) : isWebUrl && uri ? (
+                      <WebView
+                        source={{ uri }}
+                        style={[styles.attachmentPreviewWebView, { width: pageWidth - 32, height: pageHeight - 120 }]}
+                        scrollEnabled
+                        originWhitelist={['*']}
+                      />
+                    ) : (
+                      <View style={styles.attachmentPreviewDoc}>
+                        <Icon name="file-document-outline" size={64} color="rgba(255,255,255,0.6)" />
+                        <Text style={styles.attachmentPreviewDocText}>Document or link</Text>
+                        {uri ? (
+                          <Text style={styles.attachmentPreviewLinkText} numberOfLines={3} selectable>
+                            {uri}
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+                );
+              }}
+            />
+          ) : null}
+          {attachmentPreviewItems && attachmentPreviewItems.length > 1 ? (
+            <View style={styles.attachmentPreviewSwipeHint}>
+              <Text style={styles.attachmentPreviewSwipeText}>Swipe for more</Text>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+
       {loading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color="#1f3a89" />
@@ -839,6 +911,7 @@ export default function VoucherDetailView() {
                       key={i}
                       item={item}
                       invoiceOrder={true}
+                      onViewAttachments={(items) => setAttachmentPreviewItems(items)}
                       onExpandChange={
                         i === invAlloc.length - 1
                           ? (expanded) => {
@@ -1203,5 +1276,58 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: colors.white,
+  },
+  /* Attachment preview modal (ITEM TO BE ALLOCATED – same as Order Entry cart) */
+  attachmentPreviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+  },
+  attachmentPreviewClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentPreviewPage: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  attachmentPreviewImage: {
+    borderRadius: 8,
+  },
+  attachmentPreviewWebView: {
+    borderRadius: 8,
+  },
+  attachmentPreviewDoc: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  attachmentPreviewDocText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 16,
+  },
+  attachmentPreviewLinkText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    maxWidth: '100%',
+    paddingHorizontal: 16,
+  },
+  attachmentPreviewSwipeHint: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  attachmentPreviewSwipeText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
   },
 });

@@ -12,6 +12,7 @@ import {
   TextInput,
   InteractionManager,
   StatusBar,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -40,6 +41,7 @@ import {
 import { PeriodSelection } from '../components/PeriodSelection';
 import { syncVouchersToNativeDB } from '../services/SyncService';
 import { getDB } from '../database/SQLiteManager';
+import { getString, getField, normalizeDate } from '../utils/salesTransformer';
 import { AppSidebar } from '../components/AppSidebar';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
@@ -68,6 +70,18 @@ const DB_NAME = 'cache2.db';
 const TABLE_NAME = 'cache2_entries';
 const STOCK_ITEMS_TABLE = 'cache2_stock_items';
 const CUSTOMERS_TABLE = 'cache2_customers';
+const STOCK_GROUPS_TABLE = 'cache2_stock_groups';
+const STOCK_ITEMS_INDEXED_TABLE = 'cache2_stock_items_indexed';
+const LEDGERS_INDEXED_TABLE = 'cache2_ledgers_indexed';
+const STOCK_GROUPS_INDEXED_TABLE = 'cache2_stock_groups_indexed';
+// Sales/Transactions indexed tables (Vouchers, Ledger entries, Bill/Bank/Inventory/Batch/Cost center allocations)
+const SALES_VOUCHERS_TABLE = 'cache2_sales_vouchers_indexed';
+const SALES_LEDGER_ENTRIES_TABLE = 'cache2_sales_ledger_entries_indexed';
+const SALES_BILL_ALLOCATIONS_TABLE = 'cache2_sales_bill_allocations_indexed';
+const SALES_BANK_ALLOCATIONS_TABLE = 'cache2_sales_bank_allocations_indexed';
+const SALES_INVENTORY_ALLOCATIONS_TABLE = 'cache2_sales_inventory_allocations_indexed';
+const SALES_BATCH_ALLOCATIONS_TABLE = 'cache2_sales_batch_allocations_indexed';
+const SALES_COST_CENTER_ALLOCATIONS_TABLE = 'cache2_sales_cost_center_allocations_indexed';
 const PAGE_SIZE_CHARS = 50000; // characters per page for paginated viewing
 const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB - files larger than this use chunked-reading / no in-memory cache
 const MAX_SAFE_FILE_MB = 64; // Above this, skip in-memory view for View Raw / Tree only (update and download have no limit)
@@ -135,13 +149,17 @@ function createDateChunks(fromDate: Date, toDate: Date): DateChunk[] {
 }
 
 // Helper: generate cache key from user info (suffix: complete_sales | ledger_list | stock_items)
+function userIdFromEmail(email: string): string {
+  return email.replace(/@/g, '_').replace(/\./g, '_').replace(/\s/g, '_');
+}
+
 function generateCacheKey(
   email: string,
   guid: string,
   tallylocId: number,
-  suffix: 'complete_sales' | 'ledger_list' | 'stock_items' = 'complete_sales'
+  suffix: 'complete_sales' | 'ledger_list' | 'stock_items' | 'stock_groups' = 'complete_sales'
 ): string {
-  const userIdPart = email.replace(/@/g, '_').replace(/\./g, '_').replace(/\s/g, '_');
+  const userIdPart = userIdFromEmail(email);
   return `${userIdPart}_${guid}_${tallylocId}_${suffix}`;
 }
 
@@ -167,8 +185,18 @@ async function getDatabase(): Promise<any> {
         created_at TEXT NOT NULL
       )
     `);
+    await db.executeSql(`
+      CREATE TABLE IF NOT EXISTS ${STOCK_GROUPS_TABLE} (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        data TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
     try { await db.executeSql(`ALTER TABLE ${STOCK_ITEMS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
     try { await db.executeSql(`ALTER TABLE ${CUSTOMERS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
+    try { await db.executeSql(`ALTER TABLE ${STOCK_GROUPS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
+    await ensureIndexedTables(db);
+    await ensureSalesIndexedTables(db);
     return db;
   }
 
@@ -205,10 +233,272 @@ async function getDatabase(): Promise<any> {
     )
   `);
 
+  await db.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${STOCK_GROUPS_TABLE} (
+      cache_key TEXT PRIMARY KEY NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
   try { await db.executeSql(`ALTER TABLE ${STOCK_ITEMS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
   try { await db.executeSql(`ALTER TABLE ${CUSTOMERS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
+  try { await db.executeSql(`ALTER TABLE ${STOCK_GROUPS_TABLE} ADD COLUMN names_json TEXT`); } catch (_) { /* column may exist */ }
 
+  await ensureIndexedTables(db);
+  await ensureSalesIndexedTables(db);
   return db;
+}
+
+// Create normalized indexed tables for Items and Ledgers (per design: location_id, company, guid, masterid, name, Details (json))
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensureIndexedTables(database: any): Promise<void> {
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${STOCK_ITEMS_INDEXED_TABLE} (
+      cache_key TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      location_id INTEGER NOT NULL,
+      company TEXT NOT NULL,
+      guid TEXT NOT NULL,
+      masterid INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      details_json TEXT NOT NULL,
+      PRIMARY KEY (cache_key, masterid)
+    )
+  `);
+  await database.executeSql(`CREATE UNIQUE INDEX IF NOT EXISTS unique_stockitem ON ${STOCK_ITEMS_INDEXED_TABLE} (user_id, location_id, company, guid, masterid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_stockitem_user_location_company_guid ON ${STOCK_ITEMS_INDEXED_TABLE} (user_id, location_id, company, guid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_stockitem_user_location_company_guid_name ON ${STOCK_ITEMS_INDEXED_TABLE} (user_id, location_id, company, guid, name)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${LEDGERS_INDEXED_TABLE} (
+      cache_key TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      location_id INTEGER NOT NULL,
+      company TEXT NOT NULL,
+      guid TEXT NOT NULL,
+      masterid INTEGER NOT NULL,
+      alterid INTEGER,
+      name TEXT NOT NULL,
+      details_json TEXT NOT NULL,
+      PRIMARY KEY (cache_key, masterid)
+    )
+  `);
+  await database.executeSql(`CREATE UNIQUE INDEX IF NOT EXISTS unique_ledger ON ${LEDGERS_INDEXED_TABLE} (user_id, location_id, company, guid, masterid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_ledgers_user_location_company_guid ON ${LEDGERS_INDEXED_TABLE} (user_id, location_id, company, guid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_ledgers_user_location_company_guid_name ON ${LEDGERS_INDEXED_TABLE} (user_id, location_id, company, guid, name)`);
+
+  // Stock groups: index MASTERID, NAME, GROUPLIST (all three parameters)
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${STOCK_GROUPS_INDEXED_TABLE} (
+      cache_key TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      location_id INTEGER NOT NULL,
+      company TEXT NOT NULL,
+      guid TEXT NOT NULL,
+      masterid INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      grouplist TEXT NOT NULL,
+      details_json TEXT NOT NULL,
+      PRIMARY KEY (cache_key, masterid)
+    )
+  `);
+  await database.executeSql(`CREATE UNIQUE INDEX IF NOT EXISTS unique_stockgroup ON ${STOCK_GROUPS_INDEXED_TABLE} (user_id, location_id, company, guid, masterid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_stockgroups_user_location_company_guid ON ${STOCK_GROUPS_INDEXED_TABLE} (user_id, location_id, company, guid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_stockgroups_user_location_company_guid_name ON ${STOCK_GROUPS_INDEXED_TABLE} (user_id, location_id, company, guid, name)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_stockgroups_user_location_company_guid_grouplist ON ${STOCK_GROUPS_INDEXED_TABLE} (user_id, location_id, company, guid, grouplist)`);
+}
+
+// Sales/Transactions indexed tables (per user schema)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensureSalesIndexedTables(database: any): Promise<void> {
+  const ts = 'timestamp TEXT';
+  const common = 'cache_key TEXT NOT NULL, user_id TEXT NOT NULL, location_id INTEGER NOT NULL, company TEXT NOT NULL, guid TEXT NOT NULL, masterid TEXT, alterid INTEGER, date TEXT, vouchertype TEXT, vouchertypereservedname TEXT';
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_VOUCHERS_TABLE} (
+      cache_key TEXT NOT NULL, user_id TEXT NOT NULL, location_id INTEGER NOT NULL, company TEXT NOT NULL, guid TEXT NOT NULL,
+      masterid TEXT, alterid INTEGER, date TEXT, vouchertype TEXT, vouchertypereservedname TEXT,
+      partyledgername TEXT, costcentrename TEXT, amount TEXT, state TEXT, country TEXT, salesperson TEXT, json_data TEXT, ${ts},
+      PRIMARY KEY (cache_key, masterid)
+    )
+  `);
+  await database.executeSql(`CREATE UNIQUE INDEX IF NOT EXISTS ix_sales_vouchers_uk ON ${SALES_VOUCHERS_TABLE} (user_id, location_id, company, guid, masterid)`);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_vouchers_guid ON ${SALES_VOUCHERS_TABLE} (user_id, location_id, company, guid)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_LEDGER_ENTRIES_TABLE} (
+      ${common}, ledgername TEXT, ledgerid TEXT, isdeemedpositive TEXT, amount TEXT, ledger_running_no INTEGER, json_data TEXT, ${ts},
+      id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+  `);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_ledger_entries_guid ON ${SALES_LEDGER_ENTRIES_TABLE} (user_id, location_id, company, guid)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_BILL_ALLOCATIONS_TABLE} (
+      ${common}, ledgername TEXT, ledgerid TEXT, isdeemedpositive TEXT, ledger_running_no INTEGER, bill_running_no INTEGER,
+      billname TEXT, billamount TEXT, billcreditperiod TEXT, json_data TEXT, ${ts},
+      id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+  `);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_bill_alloc_guid ON ${SALES_BILL_ALLOCATIONS_TABLE} (user_id, location_id, company, guid)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_BANK_ALLOCATIONS_TABLE} (
+      ${common}, ledgername TEXT, ledgerid TEXT, isdeemedpositive TEXT, ledger_running_no INTEGER, bank_running_no INTEGER,
+      instrumentdate TEXT, transactiontype TEXT, paymentfavouring TEXT, amount TEXT, instrumentnumber TEXT, bankname TEXT, json_data TEXT, ${ts},
+      id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+  `);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_bank_alloc_guid ON ${SALES_BANK_ALLOCATIONS_TABLE} (user_id, location_id, company, guid)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_INVENTORY_ALLOCATIONS_TABLE} (
+      ${common}, partyledgername TEXT, ledgername TEXT, ledgerid TEXT, ledger_running_no INTEGER, stockitemname TEXT, stockitemid TEXT,
+      isdeemedpositive TEXT, actualqty TEXT, billedqty TEXT, amount TEXT, inventory_running_no INTEGER, json_data TEXT, ${ts},
+      id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+  `);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_inv_alloc_guid ON ${SALES_INVENTORY_ALLOCATIONS_TABLE} (user_id, location_id, company, guid)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_BATCH_ALLOCATIONS_TABLE} (
+      ${common}, partyledgername TEXT, ledgername TEXT, ledgerid TEXT, ledger_running_no INTEGER, stockitemname TEXT, stockitemid TEXT,
+      isdeemedpositive TEXT, actualqty TEXT, billedqty TEXT, amount TEXT, inventory_running_no INTEGER, batch_running_no INTEGER, json_data TEXT, ${ts},
+      id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+  `);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_batch_alloc_guid ON ${SALES_BATCH_ALLOCATIONS_TABLE} (user_id, location_id, company, guid)`);
+
+  await database.executeSql(`
+    CREATE TABLE IF NOT EXISTS ${SALES_COST_CENTER_ALLOCATIONS_TABLE} (
+      ${common}, partyledgername TEXT, ledgername TEXT, ledgerid TEXT, ledger_running_no INTEGER, stockitemname TEXT, stockitemid TEXT,
+      inventory_running_no INTEGER, costcentrename TEXT, isdeemedpositive TEXT, amount TEXT, cost_running_no INTEGER, json_data TEXT, ${ts},
+      id INTEGER PRIMARY KEY AUTOINCREMENT
+    )
+  `);
+  await database.executeSql(`CREATE INDEX IF NOT EXISTS ix_sales_cc_alloc_guid ON ${SALES_COST_CENTER_ALLOCATIONS_TABLE} (user_id, location_id, company, guid)`);
+}
+
+// Parse vouchers and save into sales indexed tables (Vouchers, Ledger entries, Bill/Bank/Inventory/Batch/Cost center allocations)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function saveSalesIndexedTables(cacheKey: string, allVouchers: any[], context: CacheIndexContext): Promise<void> {
+  const database = await getDatabase();
+  const timestamp = new Date().toISOString();
+  const { userId, locationId, company, guid } = context;
+
+  const del = (table: string) => database.executeSql(`DELETE FROM ${table} WHERE cache_key = ?`, [cacheKey]);
+  await del(SALES_VOUCHERS_TABLE);
+  await del(SALES_LEDGER_ENTRIES_TABLE);
+  await del(SALES_BILL_ALLOCATIONS_TABLE);
+  await del(SALES_BANK_ALLOCATIONS_TABLE);
+  await del(SALES_INVENTORY_ALLOCATIONS_TABLE);
+  await del(SALES_BATCH_ALLOCATIONS_TABLE);
+  await del(SALES_COST_CENTER_ALLOCATIONS_TABLE);
+
+  for (const v of allVouchers) {
+    if (!v || typeof v !== 'object') continue;
+    const masterid = String(getField(v, 'masterid', 'MASTERID') ?? '');
+    const alteridNum = parseInt(String(getField(v, 'alterid', 'ALTERID') ?? ''), 10) || null;
+    const rawDate = getString(v, 'date', 'DATE');
+    const dateYmd = normalizeDate(rawDate).replace(/-/g, '');
+    const vouchertype = getString(v, 'vouchertypename', 'vouchertypeidentify', 'vouchertype');
+    const vouchertypereservedname = getString(v, 'vouchertypereservedname', 'vouchertypereservedname');
+    const partyledgername = getString(v, 'partyledgername', 'PARTYLEDGERNAME');
+    const amount = getString(v, 'amount', 'AMOUNT');
+    const state = getString(v, 'state', 'STATE');
+    const country = getString(v, 'country', 'COUNTRY');
+    const salesperson = getString(v, 'salesperson', 'SALESPERSON');
+    const costcentrename = getString(v, 'costcentrename', 'COSTCENTRENAME');
+
+    await database.executeSql(
+      `INSERT INTO ${SALES_VOUCHERS_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, date, vouchertype, vouchertypereservedname, partyledgername, costcentrename, amount, state, country, salesperson, json_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cacheKey, userId, locationId, company, guid, masterid, alteridNum, dateYmd, vouchertype, vouchertypereservedname, partyledgername, costcentrename, amount, state, country, salesperson, JSON.stringify(v), timestamp]
+    );
+
+    const ledgerEntries = (getField(v, 'ledgerentries', 'LEDGERENTRIES', 'ledgers', 'LEDGERS') || []) as any[];
+    for (let leIdx = 0; leIdx < ledgerEntries.length; leIdx++) {
+      const le = ledgerEntries[leIdx];
+      if (!le || typeof le !== 'object') continue;
+      const ledgername = getString(le, 'ledgername', 'LEDGERNAME');
+      const ledgerid = getString(le, 'ledgernameid', 'LEDGERNAMEID');
+      const isdeemedpositive = getString(le, 'isdeemedpositive', 'ISDEEMEDPOSITIVE');
+      const leAmount = getString(le, 'amount', 'AMOUNT');
+      await database.executeSql(
+        `INSERT INTO ${SALES_LEDGER_ENTRIES_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, date, vouchertype, vouchertypereservedname, ledgername, ledgerid, isdeemedpositive, amount, ledger_running_no, json_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cacheKey, userId, locationId, company, guid, masterid, alteridNum, dateYmd, vouchertype, vouchertypereservedname, ledgername, ledgerid, isdeemedpositive, leAmount, leIdx + 1, JSON.stringify(le), timestamp]
+      );
+
+      const billAllocs = (getField(le, 'billallocations', 'BILLALLOCATIONS', 'billallocations') || []) as any[];
+      for (let baIdx = 0; baIdx < billAllocs.length; baIdx++) {
+        const ba = billAllocs[baIdx];
+        if (!ba || typeof ba !== 'object') continue;
+        const billname = getString(ba, 'billname', 'BILLNAME');
+        const billamount = getString(ba, 'amount', 'AMOUNT');
+        const billcreditperiod = getString(ba, 'billcreditperiod', 'BILLCREDITPERIOD');
+        await database.executeSql(
+          `INSERT INTO ${SALES_BILL_ALLOCATIONS_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, date, vouchertype, vouchertypereservedname, ledgername, ledgerid, isdeemedpositive, ledger_running_no, bill_running_no, billname, billamount, billcreditperiod, json_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [cacheKey, userId, locationId, company, guid, masterid, alteridNum, dateYmd, vouchertype, vouchertypereservedname, ledgername, ledgerid, isdeemedpositive, leIdx + 1, baIdx + 1, billname, billamount, billcreditperiod, JSON.stringify(ba), timestamp]
+        );
+      }
+    }
+
+    const invEntries = (getField(v, 'allinventoryentries', 'ALLINVENTORYENTRIES', 'inventoryentries') || []) as any[];
+    for (let invIdx = 0; invIdx < invEntries.length; invIdx++) {
+      const inv = invEntries[invIdx];
+      if (!inv || typeof inv !== 'object') continue;
+      const stockitemname = getString(inv, 'stockitemname', 'STOCKITEMNAME');
+      const stockitemid = getString(inv, 'stockitemnameid', 'STOCKITEMNAMEID');
+      const actualqty = getString(inv, 'actualqty', 'ACTUALQTY');
+      const billedqty = getString(inv, 'billedqty', 'BILLEDQTY');
+      const invAmount = getString(inv, 'amount', 'AMOUNT');
+      const invIsDeemed = getString(inv, 'isdeemedpositive', 'ISDEEMEDPOSITIVE');
+      await database.executeSql(
+        `INSERT INTO ${SALES_INVENTORY_ALLOCATIONS_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, date, vouchertype, vouchertypereservedname, partyledgername, ledgername, ledgerid, ledger_running_no, stockitemname, stockitemid, isdeemedpositive, actualqty, billedqty, amount, inventory_running_no, json_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cacheKey, userId, locationId, company, guid, masterid, alteridNum, dateYmd, vouchertype, vouchertypereservedname, partyledgername, '', '', 0, stockitemname, stockitemid, invIsDeemed, actualqty, billedqty, invAmount, invIdx + 1, JSON.stringify(inv), timestamp]
+      );
+
+      const batchAllocs = (getField(inv, 'batchallocation', 'BATCHALLOCATION', 'batchallocations') || []) as any[];
+      for (let batchIdx = 0; batchIdx < batchAllocs.length; batchIdx++) {
+        const bat = batchAllocs[batchIdx];
+        if (!bat || typeof bat !== 'object') continue;
+        await database.executeSql(
+          `INSERT INTO ${SALES_BATCH_ALLOCATIONS_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, date, vouchertype, vouchertypereservedname, partyledgername, ledgername, ledgerid, ledger_running_no, stockitemname, stockitemid, isdeemedpositive, actualqty, billedqty, amount, inventory_running_no, batch_running_no, json_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [cacheKey, userId, locationId, company, guid, masterid, alteridNum, dateYmd, vouchertype, vouchertypereservedname, partyledgername, '', '', 0, stockitemname, stockitemid, invIsDeemed, getString(bat, 'actualqty', 'ACTUALQTY'), getString(bat, 'billedqty', 'BILLEDQTY'), getString(bat, 'amount', 'AMOUNT'), invIdx + 1, batchIdx + 1, JSON.stringify(bat), timestamp]
+        );
+      }
+
+      const accAllocs = (getField(inv, 'accountingallocation', 'ACCOUNTINGALLOCATION') || []) as any[];
+      for (let ccIdx = 0; ccIdx < accAllocs.length; ccIdx++) {
+        const acc = accAllocs[ccIdx];
+        if (!acc || typeof acc !== 'object') continue;
+        const costcentrename_cc = getString(acc, 'costcentrename', 'COSTCENTRENAME', 'ledgername', 'LEDGERNAME');
+        const ccAmount = getString(acc, 'amount', 'AMOUNT');
+        const ccIsDeemed = getString(acc, 'isdeemedpositive', 'ISDEEMEDPOSITIVE');
+        await database.executeSql(
+          `INSERT INTO ${SALES_COST_CENTER_ALLOCATIONS_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, date, vouchertype, vouchertypereservedname, partyledgername, ledgername, ledgerid, ledger_running_no, stockitemname, stockitemid, inventory_running_no, costcentrename, isdeemedpositive, amount, cost_running_no, json_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [cacheKey, userId, locationId, company, guid, masterid, alteridNum, dateYmd, vouchertype, vouchertypereservedname, partyledgername, getString(acc, 'ledgername', 'LEDGERNAME'), getString(acc, 'ledgernameid', 'LEDGERNAMEID'), 0, stockitemname, stockitemid, invIdx + 1, costcentrename_cc, ccIsDeemed, ccAmount, ccIdx + 1, JSON.stringify(acc), timestamp]
+        );
+      }
+    }
+  }
+}
+
+// Load sales indexed tables by cache_key for Transactions view (generic row = record of column names to value)
+async function loadSalesTableByCacheKey(tableName: string, cacheKey: string): Promise<Record<string, unknown>[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(`SELECT * FROM ${tableName} WHERE cache_key = ?`, [cacheKey]);
+    const rows: Record<string, unknown>[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const item = results.rows.item(i);
+      rows.push(item as Record<string, unknown>);
+    }
+    return rows;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadSalesTableByCacheKey failed:', tableName, e);
+    return [];
+  }
 }
 
 async function loadCacheEntries(): Promise<CacheEntry[]> {
@@ -222,6 +512,92 @@ async function loadCacheEntries(): Promise<CacheEntry[]> {
     entries.push(results.rows.item(i) as CacheEntry);
   }
   return entries;
+}
+
+// Load stock items, customers, and stock groups cache rows as CacheEntry-like for View Data Contents
+const STOCK_ITEMS_ID_OFFSET = 50000;
+const CUSTOMERS_ID_OFFSET = 60000;
+const STOCK_GROUPS_ID_OFFSET = 70000;
+
+async function loadStockItemsCacheEntries(): Promise<CacheEntry[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT cache_key, data, created_at FROM ${STOCK_ITEMS_TABLE} ORDER BY created_at DESC`
+    );
+    const entries: CacheEntry[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const row = results.rows.item(i) as { cache_key: string; data: string; created_at: string };
+      const sizeBytes = typeof row.data === 'string' ? new TextEncoder().encode(row.data).length : 0;
+      entries.push({
+        id: STOCK_ITEMS_ID_OFFSET + i,
+        key: row.cache_key,
+        from_date: '—',
+        to_date: '—',
+        created_at: row.created_at,
+        json_path: '',
+        sizeBytes,
+      });
+    }
+    return entries;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadStockItemsCacheEntries failed:', e);
+    return [];
+  }
+}
+
+async function loadCustomersCacheEntries(): Promise<CacheEntry[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT cache_key, data, created_at FROM ${CUSTOMERS_TABLE} ORDER BY created_at DESC`
+    );
+    const entries: CacheEntry[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const row = results.rows.item(i) as { cache_key: string; data: string; created_at: string };
+      const sizeBytes = typeof row.data === 'string' ? new TextEncoder().encode(row.data).length : 0;
+      entries.push({
+        id: CUSTOMERS_ID_OFFSET + i,
+        key: row.cache_key,
+        from_date: '—',
+        to_date: '—',
+        created_at: row.created_at,
+        json_path: '',
+        sizeBytes,
+      });
+    }
+    return entries;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadCustomersCacheEntries failed:', e);
+    return [];
+  }
+}
+
+async function loadStockGroupsCacheEntries(): Promise<CacheEntry[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT cache_key, data, created_at FROM ${STOCK_GROUPS_TABLE} ORDER BY created_at DESC`
+    );
+    const entries: CacheEntry[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const row = results.rows.item(i) as { cache_key: string; data: string; created_at: string };
+      const sizeBytes = typeof row.data === 'string' ? new TextEncoder().encode(row.data).length : 0;
+      entries.push({
+        id: STOCK_GROUPS_ID_OFFSET + i,
+        key: row.cache_key,
+        from_date: '—',
+        to_date: '—',
+        created_at: row.created_at,
+        json_path: '',
+        sizeBytes,
+      });
+    }
+    return entries;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadStockGroupsCacheEntries failed:', e);
+    return [];
+  }
 }
 
 async function insertOrUpdateCacheEntry(
@@ -262,6 +638,14 @@ async function deleteCacheEntry(id: number): Promise<void> {
   await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE id = ?`, [id]);
 }
 
+// Context when saving stock items / customers so we can populate indexed tables
+type CacheIndexContext = {
+  userId: string;
+  locationId: number;
+  company: string;
+  guid: string;
+};
+
 // Extract display names from stock items payload for fast dropdown load
 function stockItemNamesFromPayload(data: unknown): string[] {
   if (data == null || typeof data !== 'object') return [];
@@ -285,7 +669,49 @@ function ledgerNamesFromPayload(data: unknown): string[] {
     .filter(Boolean);
 }
 
-async function saveStockItemsForCacheKey(cacheKey: string, data: unknown): Promise<void> {
+function getStockItemsList(data: unknown): Record<string, unknown>[] {
+  if (data == null || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  // Handle nested shapes: { stockItems: [] }, { data: { stockItems: [] } }, { data: [] }
+  const inner = (obj.data != null && typeof obj.data === 'object' ? obj.data : obj) as Record<string, unknown>;
+  const list = (inner.stockItems as unknown[] | undefined) ?? (obj.stockItems as unknown[] | undefined) ?? (inner.data as unknown[] | undefined) ?? (obj.data as unknown[] | undefined);
+  return Array.isArray(list) ? list.filter((i): i is Record<string, unknown> => i != null && typeof i === 'object') : [];
+}
+
+function getLedgersList(data: unknown): Record<string, unknown>[] {
+  if (data == null || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  // Handle nested shapes: { ledgers: [] }, { data: { ledgers: [] } }, { data: [] }
+  const inner = (obj.data != null && typeof obj.data === 'object' ? obj.data : obj) as Record<string, unknown>;
+  const list = (inner.ledgers as unknown[] | undefined) ?? (obj.ledgers as unknown[] | undefined) ?? (inner.data as unknown[] | undefined) ?? (obj.data as unknown[] | undefined);
+  return Array.isArray(list) ? list.filter((i): i is Record<string, unknown> => i != null && typeof i === 'object') : [];
+}
+
+function stockGroupNamesFromPayload(data: unknown): string[] {
+  if (data == null || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  const list = (obj.stockGroups as unknown[] | undefined) ?? (obj.data as unknown[] | undefined);
+  const arr = Array.isArray(list) ? list : [];
+  return arr
+    .map((i) => String((i as Record<string, unknown>)?.NAME ?? (i as Record<string, unknown>)?.name ?? '').trim())
+    .filter(Boolean);
+}
+
+function getStockGroupsList(data: unknown): Record<string, unknown>[] {
+  if (data == null || typeof data !== 'object') return [];
+  const obj = data as Record<string, unknown>;
+  const inner = (obj.data != null && typeof obj.data === 'object' ? obj.data : obj) as Record<string, unknown>;
+  const list = (inner.stockGroups as unknown[] | undefined) ?? (obj.stockGroups as unknown[] | undefined) ?? (inner.data as unknown[] | undefined) ?? (obj.data as unknown[] | undefined);
+  return Array.isArray(list) ? list.filter((i): i is Record<string, unknown> => i != null && typeof i === 'object') : [];
+}
+
+/** Build details_json: comma-separated keys of all attributes except the main columns (for display as in design). */
+function detailsKeysFromItem(item: Record<string, unknown>, excludeKeys: string[]): string {
+  const keys = Object.keys(item).filter((k) => !excludeKeys.includes(k));
+  return keys.join(', ');
+}
+
+async function saveStockItemsForCacheKey(cacheKey: string, data: unknown, context?: CacheIndexContext): Promise<void> {
   const database = await getDatabase();
   const createdAt = new Date().toISOString();
   const dataJson = JSON.stringify(data);
@@ -294,9 +720,23 @@ async function saveStockItemsForCacheKey(cacheKey: string, data: unknown): Promi
     `INSERT OR REPLACE INTO ${STOCK_ITEMS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
     [cacheKey, dataJson, createdAt, namesJson]
   );
+  if (context) {
+    await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE} WHERE cache_key = ?`, [cacheKey]);
+    const items = getStockItemsList(data);
+    const excludeKeys = ['MASTERID', 'masterid', 'NAME', 'name'];
+    for (const item of items) {
+      const masterid = Number((item.MASTERID ?? item.masterid) ?? 0);
+      const name = String((item.NAME ?? item.name) ?? '').trim();
+      const detailsJson = detailsKeysFromItem(item, excludeKeys);
+      await database.executeSql(
+        `INSERT INTO ${STOCK_ITEMS_INDEXED_TABLE} (cache_key, user_id, location_id, company, guid, masterid, name, details_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cacheKey, context.userId, context.locationId, context.company, context.guid, masterid, name, detailsJson]
+      );
+    }
+  }
 }
 
-async function saveCustomersForCacheKey(cacheKey: string, data: unknown): Promise<void> {
+async function saveCustomersForCacheKey(cacheKey: string, data: unknown, context?: CacheIndexContext): Promise<void> {
   const database = await getDatabase();
   const createdAt = new Date().toISOString();
   const dataJson = JSON.stringify(data);
@@ -305,6 +745,48 @@ async function saveCustomersForCacheKey(cacheKey: string, data: unknown): Promis
     `INSERT OR REPLACE INTO ${CUSTOMERS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
     [cacheKey, dataJson, createdAt, namesJson]
   );
+  if (context) {
+    await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE} WHERE cache_key = ?`, [cacheKey]);
+    const ledgers = getLedgersList(data);
+    const excludeKeys = ['MASTERID', 'masterid', 'ALTERID', 'alterid', 'NAME', 'name'];
+    for (const item of ledgers) {
+      const masterid = Number((item.MASTERID ?? item.masterid) ?? 0);
+      const alterid = item.ALTERID ?? item.alterid;
+      const alteridNum = alterid != null ? Number(alterid) : null;
+      const name = String((item.NAME ?? item.name) ?? '').trim();
+      const detailsJson = detailsKeysFromItem(item, excludeKeys);
+      await database.executeSql(
+        `INSERT INTO ${LEDGERS_INDEXED_TABLE} (cache_key, user_id, location_id, company, guid, masterid, alterid, name, details_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cacheKey, context.userId, context.locationId, context.company, context.guid, masterid, alteridNum, name, detailsJson]
+      );
+    }
+  }
+}
+
+async function saveStockGroupsForCacheKey(cacheKey: string, data: unknown, context?: CacheIndexContext): Promise<void> {
+  const database = await getDatabase();
+  const createdAt = new Date().toISOString();
+  const dataJson = JSON.stringify(data);
+  const namesJson = JSON.stringify(stockGroupNamesFromPayload(data));
+  await database.executeSql(
+    `INSERT OR REPLACE INTO ${STOCK_GROUPS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
+    [cacheKey, dataJson, createdAt, namesJson]
+  );
+  if (context) {
+    await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE} WHERE cache_key = ?`, [cacheKey]);
+    const groups = getStockGroupsList(data);
+    const excludeKeys = ['MASTERID', 'masterid', 'NAME', 'name', 'GROUPLIST', 'grouplist'];
+    for (const item of groups) {
+      const masterid = Number((item.MASTERID ?? item.masterid) ?? 0);
+      const name = String((item.NAME ?? item.name) ?? '').trim();
+      const grouplist = String((item.GROUPLIST ?? item.grouplist) ?? '').trim();
+      const detailsJson = detailsKeysFromItem(item, excludeKeys);
+      await database.executeSql(
+        `INSERT INTO ${STOCK_GROUPS_INDEXED_TABLE} (cache_key, user_id, location_id, company, guid, masterid, name, grouplist, details_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [cacheKey, context.userId, context.locationId, context.company, context.guid, masterid, name, grouplist, detailsJson]
+      );
+    }
+  }
 }
 
 async function loadStockItemsDataForCacheKey(cacheKey: string): Promise<unknown | null> {
@@ -340,6 +822,144 @@ async function loadCustomersDataForCacheKey(cacheKey: string): Promise<unknown |
   } catch (e) {
     console.warn('[CacheManagement2] loadCustomersDataForCacheKey failed:', e);
     return null;
+  }
+}
+
+async function loadStockGroupsDataForCacheKey(cacheKey: string): Promise<unknown | null> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT data FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ? LIMIT 1`,
+      [cacheKey]
+    );
+    if (results.rows.length === 0) return null;
+    const row = results.rows.item(0) as { data?: string };
+    const dataStr = row?.data;
+    if (typeof dataStr !== 'string') return null;
+    return JSON.parse(dataStr) as unknown;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadStockGroupsDataForCacheKey failed:', e);
+    return null;
+  }
+}
+
+type StockItemIndexRow = { location_id: number; company: string; guid: string; masterid: number; name: string; details_json: string };
+type LedgerIndexRow = { location_id: number; company: string; guid: string; masterid: number; alterid: number | null; name: string; details_json: string };
+type StockGroupIndexRow = { location_id: number; company: string; guid: string; masterid: number; name: string; grouplist: string; details_json: string };
+
+async function loadStockItemsIndexedByCacheKey(cacheKey: string): Promise<StockItemIndexRow[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT location_id, company, guid, masterid, name, details_json FROM ${STOCK_ITEMS_INDEXED_TABLE} WHERE cache_key = ? ORDER BY masterid`,
+      [cacheKey]
+    );
+    const rows: StockItemIndexRow[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const r = results.rows.item(i) as { location_id: number; company: string; guid: string; masterid: number; name: string; details_json: string };
+      rows.push({ location_id: r.location_id, company: r.company, guid: r.guid, masterid: r.masterid, name: r.name, details_json: r.details_json ?? '' });
+    }
+    return rows;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadStockItemsIndexedByCacheKey failed:', e);
+    return [];
+  }
+}
+
+async function loadLedgersIndexedByCacheKey(cacheKey: string): Promise<LedgerIndexRow[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT location_id, company, guid, masterid, alterid, name, details_json FROM ${LEDGERS_INDEXED_TABLE} WHERE cache_key = ? ORDER BY masterid`,
+      [cacheKey]
+    );
+    const rows: LedgerIndexRow[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const r = results.rows.item(i) as { location_id: number; company: string; guid: string; masterid: number; alterid: number | null; name: string; details_json: string };
+      rows.push({ location_id: r.location_id, company: r.company, guid: r.guid, masterid: r.masterid, alterid: r.alterid ?? null, name: r.name, details_json: r.details_json ?? '' });
+    }
+    return rows;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadLedgersIndexedByCacheKey failed:', e);
+    return [];
+  }
+}
+
+// Parse cache_key to get location_id and guid (key format: userId_guid_tallylocId_suffix)
+function parseCacheKeyForDisplay(cacheKey: string): { locationId: number; guid: string; company: string } {
+  const parts = cacheKey.split('_');
+  let locationId = 0;
+  let guid = '';
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].includes('-') && parts[i].length > 10) {
+      guid = parts[i];
+      const next = parseInt(parts[i + 1], 10);
+      if (!isNaN(next)) locationId = next;
+      break;
+    }
+  }
+  return { locationId, guid, company: '' };
+}
+
+// When indexed table is empty, build rows from blob cache so View always shows data
+async function loadStockItemsRowsFromBlob(cacheKey: string): Promise<StockItemIndexRow[]> {
+  const data = await loadStockItemsDataForCacheKey(cacheKey);
+  const items = getStockItemsList(data);
+  const { locationId, guid, company } = parseCacheKeyForDisplay(cacheKey);
+  const excludeKeys = ['MASTERID', 'masterid', 'NAME', 'name'];
+  return items.map((item) => {
+    const masterid = Number((item.MASTERID ?? item.masterid) ?? 0);
+    const name = String((item.NAME ?? item.name) ?? '').trim();
+    const detailsJson = detailsKeysFromItem(item, excludeKeys);
+    return { location_id: locationId, company, guid, masterid, name, details_json: detailsJson };
+  });
+}
+
+async function loadLedgersRowsFromBlob(cacheKey: string): Promise<LedgerIndexRow[]> {
+  const data = await loadCustomersDataForCacheKey(cacheKey);
+  const ledgers = getLedgersList(data);
+  const { locationId, guid, company } = parseCacheKeyForDisplay(cacheKey);
+  const excludeKeys = ['MASTERID', 'masterid', 'ALTERID', 'alterid', 'NAME', 'name'];
+  return ledgers.map((item) => {
+    const masterid = Number((item.MASTERID ?? item.masterid) ?? 0);
+    const alterid = item.ALTERID ?? item.alterid;
+    const alteridNum = alterid != null ? Number(alterid) : null;
+    const name = String((item.NAME ?? item.name) ?? '').trim();
+    const detailsJson = detailsKeysFromItem(item, excludeKeys);
+    return { location_id: locationId, company, guid, masterid, alterid: alteridNum, name, details_json: detailsJson };
+  });
+}
+
+async function loadStockGroupsRowsFromBlob(cacheKey: string): Promise<StockGroupIndexRow[]> {
+  const data = await loadStockGroupsDataForCacheKey(cacheKey);
+  const groups = getStockGroupsList(data);
+  const { locationId, guid, company } = parseCacheKeyForDisplay(cacheKey);
+  const excludeKeys = ['MASTERID', 'masterid', 'NAME', 'name', 'GROUPLIST', 'grouplist'];
+  return groups.map((item) => {
+    const masterid = Number((item.MASTERID ?? item.masterid) ?? 0);
+    const name = String((item.NAME ?? item.name) ?? '').trim();
+    const grouplist = String((item.GROUPLIST ?? item.grouplist) ?? '').trim();
+    const detailsJson = detailsKeysFromItem(item, excludeKeys);
+    return { location_id: locationId, company, guid, masterid, name, grouplist, details_json: detailsJson };
+  });
+}
+
+async function loadStockGroupsIndexedByCacheKey(cacheKey: string): Promise<StockGroupIndexRow[]> {
+  try {
+    const database = await getDatabase();
+    const [results] = await database.executeSql(
+      `SELECT location_id, company, guid, masterid, name, grouplist, details_json FROM ${STOCK_GROUPS_INDEXED_TABLE} WHERE cache_key = ? ORDER BY masterid`,
+      [cacheKey]
+    );
+    const rows: StockGroupIndexRow[] = [];
+    for (let i = 0; i < results.rows.length; i++) {
+      const r = results.rows.item(i) as { location_id: number; company: string; guid: string; masterid: number; name: string; grouplist: string; details_json: string };
+      rows.push({ location_id: r.location_id, company: r.company, guid: r.guid, masterid: r.masterid, name: r.name, grouplist: r.grouplist ?? '', details_json: r.details_json ?? '' });
+    }
+    return rows;
+  } catch (e) {
+    console.warn('[CacheManagement2] loadStockGroupsIndexedByCacheKey failed:', e);
+    return [];
   }
 }
 
@@ -387,6 +1007,7 @@ interface InterruptedDownloadState {
   tallylocId: number;
   company: string;
   guid: string;
+  email: string;
 }
 
 // Helper: Get the start date of the current financial year (April 1st)
@@ -506,9 +1127,14 @@ export default function DataManagement() {
 
   const refreshEntries = useCallback(async () => {
     try {
-      const loadedEntries = await loadCacheEntries();
+      const [loadedEntries, stockItemsEntries, customersEntries, stockGroupsEntries] = await Promise.all([
+        loadCacheEntries(),
+        loadStockItemsCacheEntries(),
+        loadCustomersCacheEntries(),
+        loadStockGroupsCacheEntries(),
+      ]);
 
-      // For each entry, compute file size (if file exists)
+      // For each main entry, compute file size (if file exists)
       const entriesWithSize: CacheEntry[] = await Promise.all(
         loadedEntries.map(async (entry) => {
           try {
@@ -522,7 +1148,11 @@ export default function DataManagement() {
         })
       );
 
-      setEntries(entriesWithSize);
+      // Merge sales/dashboard entries with stock items, customers, and stock groups for View Data Contents
+      const merged = [...entriesWithSize, ...stockItemsEntries, ...customersEntries, ...stockGroupsEntries].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setEntries(merged);
 
       // Pre-cache the most recently downloaded SMALL file in the background for instant "View Raw"
       // For large files we intentionally do NOT pre-cache to avoid OutOfMemory
@@ -588,7 +1218,8 @@ export default function DataManagement() {
     company: string,
     guid: string,
     downloadFromDate: Date,
-    downloadToDate: Date
+    downloadToDate: Date,
+    email: string
   ) => {
     const allResponses = [...initialResponses];
 
@@ -667,6 +1298,7 @@ export default function DataManagement() {
           tallylocId,
           company,
           guid,
+          email,
         };
         setInterruptedDownload(interruptedState);
         setIsDownloading(false);
@@ -823,6 +1455,13 @@ export default function DataManagement() {
       if (allVouchers.length > 0) {
         await syncVouchersToNativeDB(allVouchers, guid, tallylocId);
         console.log('[CacheManagement2] Native SQLite sync successful');
+        try {
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveSalesIndexedTables(cacheKey, allVouchers, indexContext);
+          console.log('[CacheManagement2] Sales indexed tables saved');
+        } catch (indexErr) {
+          console.warn('[CacheManagement2] Sales indexed tables save failed:', indexErr);
+        }
       }
     } catch (syncError) {
       console.warn('[CacheManagement2] Native SQLite sync failed:', syncError);
@@ -857,6 +1496,7 @@ export default function DataManagement() {
         tallylocId,
         company,
         guid,
+        email,
       } = interruptedDownload;
 
       // Resume from the next chunk after the last completed one
@@ -872,7 +1512,8 @@ export default function DataManagement() {
         company,
         guid,
         downloadFromDate,
-        downloadToDate
+        downloadToDate,
+        email
       );
     } catch (error) {
       if (isUnauthorizedError(error)) return;
@@ -1033,32 +1674,44 @@ export default function DataManagement() {
       // Generate cache key
       const cacheKey = generateCacheKey(email, guid, tallylocId);
 
-      // Download and store Stock Items and Customers (ledger list with addrs) when Download is clicked (separate cache keys)
+      // Download and store Stock Items, Customers, and Stock Groups when Download is clicked (separate cache keys)
       try {
-        setStatusMessage('Fetching stock items and customers...');
+        setStatusMessage('Fetching stock items, customers, and stock groups...');
         const ledgerListCacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
         const stockItemsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+        const stockGroupsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
         const payload = { tallyloc_id: Number(tallylocId), company, guid };
-        const [stockResult, customersResult] = await Promise.allSettled([
+        const [stockResult, customersResult, stockGroupsResult] = await Promise.allSettled([
           apiService.getStockItems(payload),
           apiService.getLedgerList(payload),
+          apiService.getStockGroups(payload),
         ]);
         if (stockResult.status === 'fulfilled') {
           const stockBody = (stockResult.value as { data?: unknown })?.data ?? stockResult.value;
-          await saveStockItemsForCacheKey(stockItemsCacheKey, stockBody);
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveStockItemsForCacheKey(stockItemsCacheKey, stockBody, indexContext);
           console.log('[CacheManagement2] Stock items saved for cache key:', stockItemsCacheKey);
         } else {
           console.warn('[CacheManagement2] Stock items fetch failed:', stockResult.reason);
         }
         if (customersResult.status === 'fulfilled') {
           const customersBody = (customersResult.value as { data?: unknown })?.data ?? customersResult.value;
-          await saveCustomersForCacheKey(ledgerListCacheKey, customersBody);
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveCustomersForCacheKey(ledgerListCacheKey, customersBody, indexContext);
           console.log('[CacheManagement2] Customers (ledgerlist-w-addrs) saved for cache key:', ledgerListCacheKey);
         } else {
           console.warn('[CacheManagement2] Customers fetch failed:', customersResult.reason);
         }
+        if (stockGroupsResult.status === 'fulfilled') {
+          const stockGroupsBody = (stockGroupsResult.value as { data?: unknown })?.data ?? stockGroupsResult.value;
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveStockGroupsForCacheKey(stockGroupsCacheKey, stockGroupsBody, indexContext);
+          console.log('[CacheManagement2] Stock groups saved for cache key:', stockGroupsCacheKey);
+        } else {
+          console.warn('[CacheManagement2] Stock groups fetch failed:', stockGroupsResult.reason);
+        }
       } catch (stockLedgerError) {
-        console.error('[CacheManagement2] Stock items / customers fetch or save failed:', stockLedgerError);
+        console.error('[CacheManagement2] Stock items / customers / stock groups fetch or save failed:', stockLedgerError);
         // Continue with sales download; do not block
       }
 
@@ -1118,7 +1771,8 @@ export default function DataManagement() {
         company,
         guid,
         fromDate,
-        toDate
+        toDate,
+        email
       );
     } catch (error) {
       if (isUnauthorizedError(error)) return;
@@ -1179,32 +1833,44 @@ export default function DataManagement() {
       // Generate cache key
       const cacheKey = generateCacheKey(email, guid, tallylocId);
 
-      // Refresh Stock Items and Customers (ledger list) on Update – call APIs and replace stored data
+      // Refresh Stock Items, Customers, and Stock Groups on Update – call APIs and replace stored data
       try {
-        setStatusMessage('Refreshing stock items and customers...');
+        setStatusMessage('Refreshing stock items, customers, and stock groups...');
         const ledgerListCacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
         const stockItemsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+        const stockGroupsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
         const payload = { tallyloc_id: Number(tallylocId), company, guid };
-        const [stockResult, customersResult] = await Promise.allSettled([
+        const [stockResult, customersResult, stockGroupsResult] = await Promise.allSettled([
           apiService.getStockItems(payload),
           apiService.getLedgerList(payload),
+          apiService.getStockGroups(payload),
         ]);
         if (stockResult.status === 'fulfilled') {
           const stockBody = (stockResult.value as { data?: unknown })?.data ?? stockResult.value;
-          await saveStockItemsForCacheKey(stockItemsCacheKey, stockBody);
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveStockItemsForCacheKey(stockItemsCacheKey, stockBody, indexContext);
           console.log('[CacheManagement2] Stock items refreshed for cache key:', stockItemsCacheKey);
         } else {
           console.warn('[CacheManagement2] Stock items refresh failed:', stockResult.reason);
         }
         if (customersResult.status === 'fulfilled') {
           const customersBody = (customersResult.value as { data?: unknown })?.data ?? customersResult.value;
-          await saveCustomersForCacheKey(ledgerListCacheKey, customersBody);
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveCustomersForCacheKey(ledgerListCacheKey, customersBody, indexContext);
           console.log('[CacheManagement2] Customers (ledgerlist-w-addrs) refreshed for cache key:', ledgerListCacheKey);
         } else {
           console.warn('[CacheManagement2] Customers refresh failed:', customersResult.reason);
         }
+        if (stockGroupsResult.status === 'fulfilled') {
+          const stockGroupsBody = (stockGroupsResult.value as { data?: unknown })?.data ?? stockGroupsResult.value;
+          const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+          await saveStockGroupsForCacheKey(stockGroupsCacheKey, stockGroupsBody, indexContext);
+          console.log('[CacheManagement2] Stock groups refreshed for cache key:', stockGroupsCacheKey);
+        } else {
+          console.warn('[CacheManagement2] Stock groups refresh failed:', stockGroupsResult.reason);
+        }
       } catch (stockLedgerError) {
-        console.error('[CacheManagement2] Stock items / customers refresh or save failed:', stockLedgerError);
+        console.error('[CacheManagement2] Stock items / customers / stock groups refresh or save failed:', stockLedgerError);
         // Continue with voucher sync; do not block
       }
 
@@ -1471,6 +2137,13 @@ export default function DataManagement() {
           setStatusMessage('Syncing to native database...');
           await syncVouchersToNativeDB(updatedVouchers, guid, tallylocId);
           console.log('[CacheManagement2] Native SQLite sync successful');
+          try {
+            const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+            await saveSalesIndexedTables(cacheKey, updatedVouchers, indexContext);
+            console.log('[CacheManagement2] Sales indexed tables updated');
+          } catch (indexErr) {
+            console.warn('[CacheManagement2] Sales indexed tables update failed:', indexErr);
+          }
         } catch (err) {
           console.warn('[CacheManagement2] Native SQLite sync failed:', err);
           setStatusMessage('Warning: Native sync failed. Dashboard may not be updated.');
@@ -1973,10 +2646,14 @@ export default function DataManagement() {
                 }
               }
 
-              // Delete all rows (main cache, stock items, customers)
+              // Delete all rows (main cache, stock items, customers, stock groups, and indexed tables)
               await database.executeSql(`DELETE FROM ${TABLE_NAME}`);
               await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
+              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE}`);
               await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
+              await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
+              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
+              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
 
               // Delete files on disk (ignore individual errors)
               await Promise.all(
@@ -1995,8 +2672,11 @@ export default function DataManagement() {
               // Clear native sales_cache.db so the dashboard shows no data
               await clearSalesCacheForGuid('');
 
-              // Refresh list
+              // Refresh list and reset ledger data counts
               await refreshEntries();
+              setCustomerCount(0);
+              setItemCount(0);
+              setStockGroupCount(0);
               setStatusMessage('All cache entries cleared.');
               setErrorMessage('');
             } catch (e) {
@@ -2249,11 +2929,36 @@ export default function DataManagement() {
   const [infoCache, setInfoCache] = useState<string>('');
   const [customerCount, setCustomerCount] = useState<number>(0);
   const [itemCount, setItemCount] = useState<number>(0);
+  const [stockGroupCount, setStockGroupCount] = useState<number>(0);
   const [isRefreshingCustomers, setIsRefreshingCustomers] = useState(false);
   const [isRefreshingItems, setIsRefreshingItems] = useState(false);
+  const [isRefreshingStockGroups, setIsRefreshingStockGroups] = useState(false);
   const [expiryType, setExpiryType] = useState<string>('Never (Keep Forever)');
   const [expiryDropdownOpen, setExpiryDropdownOpen] = useState(false);
   const [dataContentsModalVisible, setDataContentsModalVisible] = useState(false);
+  const [viewTableModalVisible, setViewTableModalVisible] = useState(false);
+  const [viewTableTitle, setViewTableTitle] = useState('');
+  const [viewTableType, setViewTableType] = useState<'items' | 'ledgers' | 'stockgroups'>('items');
+  const [viewTableRows, setViewTableRows] = useState<StockItemIndexRow[] | LedgerIndexRow[] | StockGroupIndexRow[]>([]);
+  const [viewTablePage, setViewTablePage] = useState(1);
+  const [viewTableLoading, setViewTableLoading] = useState(false);
+  const ROWS_PER_PAGE = 20;
+  const TABLE_MODAL_MIN_HEIGHT = Math.min(Dimensions.get('window').height * 0.85, 600);
+
+  // Transactions (sales) modal: tabbed view of vouchers, ledger entries, allocations
+  const [transactionsModalVisible, setTransactionsModalVisible] = useState(false);
+  const [transactionsCacheKey, setTransactionsCacheKey] = useState('');
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsTab, setTransactionsTab] = useState<'vouchers' | 'ledger_entries' | 'bill_allocations' | 'bank_allocations' | 'inventory_allocations' | 'batch_allocations' | 'cost_center_allocations'>('vouchers');
+  const [transactionsVouchers, setTransactionsVouchers] = useState<Record<string, unknown>[]>([]);
+  const [transactionsLedgerEntries, setTransactionsLedgerEntries] = useState<Record<string, unknown>[]>([]);
+  const [transactionsBillAllocs, setTransactionsBillAllocs] = useState<Record<string, unknown>[]>([]);
+  const [transactionsBankAllocs, setTransactionsBankAllocs] = useState<Record<string, unknown>[]>([]);
+  const [transactionsInventoryAllocs, setTransactionsInventoryAllocs] = useState<Record<string, unknown>[]>([]);
+  const [transactionsBatchAllocs, setTransactionsBatchAllocs] = useState<Record<string, unknown>[]>([]);
+  const [transactionsCostCenterAllocs, setTransactionsCostCenterAllocs] = useState<Record<string, unknown>[]>([]);
+  const [transactionsPage, setTransactionsPage] = useState(1);
+  const TRANSACTIONS_ROWS_PER_PAGE = 20;
 
   // Expiry period options from design
   const expiryOptions = [
@@ -2303,6 +3008,15 @@ export default function DataManagement() {
               const nj = stockRes.rows.item(0)?.names_json;
               if (nj) { try { setItemCount(JSON.parse(nj).length); } catch (_) { } }
             }
+            const stockGroupsKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
+            const [sgRes] = await db2.executeSql(
+              `SELECT names_json FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ? LIMIT 1`,
+              [stockGroupsKey]
+            );
+            if (sgRes.rows.length > 0) {
+              const nj = sgRes.rows.item(0)?.names_json;
+              if (nj) { try { setStockGroupCount(JSON.parse(nj).length); } catch (_) { } }
+            }
           } catch (_) { }
         }
       } catch (_) { }
@@ -2320,7 +3034,8 @@ export default function DataManagement() {
       const payload = { tallyloc_id: Number(tallylocId), company, guid };
       const result = await apiService.getLedgerList(payload);
       const body = (result as { data?: unknown })?.data ?? result;
-      await saveCustomersForCacheKey(ledgerListCacheKey, body);
+      const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+      await saveCustomersForCacheKey(ledgerListCacheKey, body, indexContext);
       const names = ledgerNamesFromPayload(body);
       setCustomerCount(names.length);
     } catch (e) {
@@ -2341,13 +3056,36 @@ export default function DataManagement() {
       const payload = { tallyloc_id: Number(tallylocId), company, guid };
       const result = await apiService.getStockItems(payload);
       const body = (result as { data?: unknown })?.data ?? result;
-      await saveStockItemsForCacheKey(stockItemsCacheKey, body);
+      const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+      await saveStockItemsForCacheKey(stockItemsCacheKey, body, indexContext);
       const names = stockItemNamesFromPayload(body);
       setItemCount(names.length);
     } catch (e) {
       console.warn('Refresh items failed:', e);
     } finally {
       setIsRefreshingItems(false);
+    }
+  };
+
+  const handleRefreshStockGroups = async () => {
+    setIsRefreshingStockGroups(true);
+    try {
+      const [email, tallylocId, company, guid] = await Promise.all([
+        getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+      ]);
+      if (!email || !guid || !tallylocId || !company) return;
+      const stockGroupsCacheKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
+      const payload = { tallyloc_id: Number(tallylocId), company, guid };
+      const result = await apiService.getStockGroups(payload);
+      const body = (result as { data?: unknown })?.data ?? result;
+      const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
+      await saveStockGroupsForCacheKey(stockGroupsCacheKey, body, indexContext);
+      const names = stockGroupNamesFromPayload(body);
+      setStockGroupCount(names.length);
+    } catch (e) {
+      console.warn('Refresh stock groups failed:', e);
+    } finally {
+      setIsRefreshingStockGroups(false);
     }
   };
 
@@ -2370,6 +3108,7 @@ export default function DataManagement() {
               const cacheKey = generateCacheKey(email, guid, tallylocId);
               const ledgerKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
               const stockKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+              const stockGroupsKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
               const database = await getDatabase();
               // Delete main cache entries for this company
               const [results2] = await database.executeSql(
@@ -2381,11 +3120,16 @@ export default function DataManagement() {
               }
               await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
               await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ?`, [stockKey]);
+              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE} WHERE cache_key = ?`, [stockKey]);
               await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE} WHERE cache_key = ?`, [ledgerKey]);
+              await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE} WHERE cache_key = ?`, [ledgerKey]);
+              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
+              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
               await clearSalesCacheForGuid(guid);
               await refreshEntries();
               setCustomerCount(0);
               setItemCount(0);
+              setStockGroupCount(0);
               setStatusMessage('Company data cleared.');
             } catch (e) {
               console.error('Clear company data failed:', e);
@@ -2616,6 +3360,22 @@ export default function DataManagement() {
               )}
             </TouchableOpacity>
           </View>
+
+          <View style={styles.ledgerDivider} />
+
+          <View style={styles.ledgerRow}>
+            <View style={styles.ledgerRowLeft}>
+              <Text style={styles.ledgerRowTitle}>Stock Groups</Text>
+              <Text style={styles.ledgerRowSubtitle}>{stockGroupCount} cached</Text>
+            </View>
+            <TouchableOpacity onPress={handleRefreshStockGroups} activeOpacity={0.7} style={styles.refreshIconButton}>
+              {isRefreshingStockGroups ? (
+                <ActivityIndicator size="small" color={colors.primary_blue} />
+              ) : (
+                <Icon name="refresh" size={20} color={colors.primary_blue} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Card 3: View Data Contents */}
@@ -2799,6 +3559,7 @@ export default function DataManagement() {
                   <Text style={[styles.tableHeaderText, { width: 90 }]}>Size</Text>
                   <Text style={[styles.tableHeaderText, { width: 80 }]}>Age</Text>
                   <Text style={[styles.tableHeaderText, { width: 140 }]}>Cached Date</Text>
+                  <Text style={[styles.tableHeaderText, { width: 80 }]}>Action</Text>
                 </View>
                 {/* Table Body */}
                 <ScrollView style={styles.tableBodyScroll}>
@@ -2806,11 +3567,15 @@ export default function DataManagement() {
                     <Text style={styles.noDataText}>No cache data available.</Text>
                   ) : (
                     entries.map((item, index) => {
-                      // Determine type based on key content
+                      // Determine type based on key content: Items, Customers, Stock Groups, Dashboard, Sales
+                      const isStockItems = item.key.includes('stock_items');
+                      const isCustomers = item.key.includes('ledger_list');
+                      const isStockGroups = item.key.includes('stock_groups');
+                      const isSales = item.key.includes('complete_sales');
                       const isDashboard = item.key.includes('dashboard') || item.key.includes('sync_progress');
-                      const typeLabel = isDashboard ? 'Dashboard' : 'Sales';
-                      const typeBgColor = isDashboard ? '#e6f4ea' : '#e8f0fe';
-                      const typeTextColor = isDashboard ? '#137333' : '#1a73e8';
+                      const typeLabel = isStockItems ? 'Items' : isCustomers ? 'Customers' : isStockGroups ? 'Stock group' : isDashboard ? 'Dashboard' : 'Sales';
+                      const typeBgColor = isStockItems ? '#fef7e0' : isCustomers ? '#f3e8ff' : isStockGroups ? '#e8f5e9' : isDashboard ? '#e6f4ea' : '#e8f0fe';
+                      const typeTextColor = isStockItems ? '#b45309' : isCustomers ? '#6b21a8' : isStockGroups ? '#2e7d32' : isDashboard ? '#137333' : '#1a73e8';
 
                       // Format size
                       const sizeFormatted = typeof item.sizeBytes === 'number'
@@ -2839,7 +3604,7 @@ export default function DataManagement() {
                             {item.key}
                           </Text>
                           <Text style={[styles.tableCellText, { width: 120, color: '#5f6368' }]}>
-                            {isDashboard ? '—' : `${item.from_date}\nto\n${item.to_date}`}
+                            {(isDashboard || isStockItems || isCustomers || isStockGroups || isSales) ? '—' : `${item.from_date}\nto\n${item.to_date}`}
                           </Text>
                           <Text style={[styles.tableCellText, { width: 90, fontWeight: '600', color: '#202124' }]}>
                             {sizeFormatted}
@@ -2850,6 +3615,78 @@ export default function DataManagement() {
                           <Text style={[styles.tableCellText, { width: 140, color: '#5f6368' }]}>
                             {cachedDateStr}
                           </Text>
+                          <View style={{ width: 80, justifyContent: 'center', alignItems: 'flex-start' }}>
+                            {(isStockItems || isCustomers || isStockGroups || isSales) ? (
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  if (isSales) {
+                                    setDataContentsModalVisible(false);
+                                    setTransactionsCacheKey(item.key);
+                                    setTransactionsTab('vouchers');
+                                    setTransactionsPage(1);
+                                    setTransactionsModalVisible(true);
+                                    setTransactionsLoading(true);
+                                    try {
+                                      const [v, le, ba, bk, inv, batch, cc] = await Promise.all([
+                                        loadSalesTableByCacheKey(SALES_VOUCHERS_TABLE, item.key),
+                                        loadSalesTableByCacheKey(SALES_LEDGER_ENTRIES_TABLE, item.key),
+                                        loadSalesTableByCacheKey(SALES_BILL_ALLOCATIONS_TABLE, item.key),
+                                        loadSalesTableByCacheKey(SALES_BANK_ALLOCATIONS_TABLE, item.key),
+                                        loadSalesTableByCacheKey(SALES_INVENTORY_ALLOCATIONS_TABLE, item.key),
+                                        loadSalesTableByCacheKey(SALES_BATCH_ALLOCATIONS_TABLE, item.key),
+                                        loadSalesTableByCacheKey(SALES_COST_CENTER_ALLOCATIONS_TABLE, item.key),
+                                      ]);
+                                      setTransactionsVouchers(v);
+                                      setTransactionsLedgerEntries(le);
+                                      setTransactionsBillAllocs(ba);
+                                      setTransactionsBankAllocs(bk);
+                                      setTransactionsInventoryAllocs(inv);
+                                      setTransactionsBatchAllocs(batch);
+                                      setTransactionsCostCenterAllocs(cc);
+                                    } catch (e) {
+                                      console.warn('[CacheManagement2] Transactions load failed:', e);
+                                    } finally {
+                                      setTransactionsLoading(false);
+                                    }
+                                    return;
+                                  }
+                                  setDataContentsModalVisible(false);
+                                  setViewTableTitle(isStockItems ? 'Stock item data' : isStockGroups ? 'Stock group data' : 'Ledgers data');
+                                  setViewTableType(isStockItems ? 'items' : isStockGroups ? 'stockgroups' : 'ledgers');
+                                  setViewTablePage(1);
+                                  setViewTableRows([]);
+                                  setViewTableModalVisible(true);
+                                  setViewTableLoading(true);
+                                  try {
+                                    if (isStockItems) {
+                                      let rows = await loadStockItemsIndexedByCacheKey(item.key);
+                                      if (rows.length === 0) rows = await loadStockItemsRowsFromBlob(item.key);
+                                      setViewTableRows(rows);
+                                    } else if (isStockGroups) {
+                                      let rows = await loadStockGroupsIndexedByCacheKey(item.key);
+                                      if (rows.length === 0) rows = await loadStockGroupsRowsFromBlob(item.key);
+                                      setViewTableRows(rows);
+                                    } else {
+                                      let rows = await loadLedgersIndexedByCacheKey(item.key);
+                                      if (rows.length === 0) rows = await loadLedgersRowsFromBlob(item.key);
+                                      setViewTableRows(rows);
+                                    }
+                                  } catch (e) {
+                                    console.warn('[CacheManagement2] View table load failed:', e);
+                                    setViewTableRows([]);
+                                  } finally {
+                                    setViewTableLoading(false);
+                                  }
+                                }}
+                                style={{ paddingVertical: 6, paddingHorizontal: 10, backgroundColor: colors.primary_blue, borderRadius: 6 }}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={{ color: colors.white, fontSize: 13, fontWeight: '600' }}>View</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <Text style={[styles.tableCellText, { width: 80, color: '#9aa0a6' }]}>—</Text>
+                            )}
+                          </View>
                         </View>
                       );
                     })
@@ -2857,6 +3694,213 @@ export default function DataManagement() {
                 </ScrollView>
               </View>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* View table modal (Items / Ledgers indexed data) */}
+      <Modal
+        visible={viewTableModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setViewTableModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContentLarge, { maxHeight: '90%', minHeight: TABLE_MODAL_MIN_HEIGHT }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{viewTableTitle} — Data Lynkr</Text>
+              <TouchableOpacity onPress={() => setViewTableModalVisible(false)} padding={8}>
+                <Icon name="close" size={24} color={colors.text_primary} />
+              </TouchableOpacity>
+            </View>
+            {viewTableLoading ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+                <ActivityIndicator size="large" color={colors.primary_blue} />
+                <Text style={{ marginTop: 12, fontSize: 14, color: colors.text_secondary }}>Loading table...</Text>
+              </View>
+            ) : (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24, flexGrow: 1 }}>
+              {/* Index recommendations */}
+              <View style={{ borderWidth: 1, borderColor: '#1a73e8', borderRadius: 8, padding: 12, marginHorizontal: 16, marginBottom: 12, backgroundColor: '#f8fafc' }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#1a73e8', marginBottom: 6 }}>Indexes (recommended for SQL)</Text>
+                {viewTableType === 'items' ? (
+                  <>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_stockitem: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockitem_user_location_company_guid: (user_id, location_id, company, guid)</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_stockitem_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
+                  </>
+                ) : viewTableType === 'stockgroups' ? (
+                  <>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_stockgroup: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockgroups_user_location_company_guid: (user_id, location_id, company, guid)</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockgroups_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_stockgroups_user_location_company_guid_grouplist: (user_id, location_id, company, guid, grouplist)</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_ledger: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_ledgers_user_location_company_guid: (user_id, location_id, company, guid)</Text>
+                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_ledgers_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
+                  </>
+                )}
+              </View>
+              {/* Pagination info */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 }}>
+                <Text style={{ fontSize: 13, color: '#5f6368' }}>{viewTableRows.length} row(s)</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TouchableOpacity
+                    onPress={() => setViewTablePage((p) => Math.max(1, p - 1))}
+                    disabled={viewTablePage <= 1}
+                    style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: viewTablePage <= 1 ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}
+                  >
+                    <Text style={{ color: viewTablePage <= 1 ? '#9aa0a6' : colors.white, fontSize: 13 }}>Previous</Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 13, color: '#202124' }}>
+                    Page {viewTablePage} of {Math.max(1, Math.ceil(viewTableRows.length / ROWS_PER_PAGE))}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setViewTablePage((p) => Math.min(Math.ceil(viewTableRows.length / ROWS_PER_PAGE), p + 1))}
+                    disabled={viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE)}
+                    style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE) ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}
+                  >
+                    <Text style={{ color: viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE) ? '#9aa0a6' : colors.white, fontSize: 13 }}>Next</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              {/* Table */}
+              <ScrollView horizontal style={{ marginHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 16 }}>
+                <View>
+                  <View style={styles.tableHeaderRow}>
+                    <Text style={[styles.tableHeaderText, { width: 90 }]}>location_id</Text>
+                    <Text style={[styles.tableHeaderText, { width: 100 }]}>company</Text>
+                    <Text style={[styles.tableHeaderText, { width: 200 }]}>guid</Text>
+                    {viewTableType === 'ledgers' ? <Text style={[styles.tableHeaderText, { width: 70 }]}>alterid</Text> : null}
+                    <Text style={[styles.tableHeaderText, { width: 70 }]}>masterid</Text>
+                    <Text style={[styles.tableHeaderText, { width: 180 }]}>name</Text>
+                    {viewTableType === 'stockgroups' ? <Text style={[styles.tableHeaderText, { width: 220 }]}>grouplist</Text> : null}
+                    <Text style={[styles.tableHeaderText, { width: 280 }]}>Details (json)</Text>
+                  </View>
+                  {viewTableRows.length === 0 ? (
+                    <View style={{ padding: 24, alignItems: 'center' }}>
+                      <Text style={styles.noDataText}>No indexed data. Download or refresh items/customers/stock groups first.</Text>
+                    </View>
+                  ) : (
+                    (viewTableType === 'items'
+                      ? (viewTableRows as StockItemIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
+                      : viewTableType === 'stockgroups'
+                        ? (viewTableRows as StockGroupIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
+                        : (viewTableRows as LedgerIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
+                    ).map((row, idx) => (
+                      <View key={idx} style={styles.tableRow}>
+                        <Text style={[styles.tableCellText, { width: 90, color: '#5f6368' }]}>{row.location_id}</Text>
+                        <Text style={[styles.tableCellText, { width: 100, color: '#5f6368' }]} numberOfLines={1}>{row.company}</Text>
+                        <Text style={[styles.tableCellText, { width: 200, color: '#5f6368', fontFamily: 'monospace', fontSize: 11 }]} numberOfLines={1}>{row.guid}</Text>
+                        {viewTableType === 'ledgers' ? (
+                          <Text style={[styles.tableCellText, { width: 70, color: '#5f6368' }]}>{(row as LedgerIndexRow).alterid ?? '—'}</Text>
+                        ) : null}
+                        <Text style={[styles.tableCellText, { width: 70, color: '#202124', fontWeight: '600' }]}>{row.masterid}</Text>
+                        <Text style={[styles.tableCellText, { width: 180, color: '#202124' }]} numberOfLines={2}>{row.name}</Text>
+                        {viewTableType === 'stockgroups' ? (
+                          <Text style={[styles.tableCellText, { width: 220, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{(row as StockGroupIndexRow).grouplist || '—'}</Text>
+                        ) : null}
+                        <Text style={[styles.tableCellText, { width: 280, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{row.details_json || '—'}</Text>
+                      </View>
+                    ))
+                  )}
+                </View>
+              </ScrollView>
+            </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Transactions (Sales) modal: tabbed vouchers, ledger entries, allocations */}
+      <Modal
+        visible={transactionsModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setTransactionsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContentLarge, { maxHeight: '92%', minHeight: TABLE_MODAL_MIN_HEIGHT }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Transactions — Data Lynkr</Text>
+              <TouchableOpacity onPress={() => setTransactionsModalVisible(false)} padding={8}>
+                <Icon name="close" size={24} color={colors.text_primary} />
+              </TouchableOpacity>
+            </View>
+            {transactionsLoading ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+                <ActivityIndicator size="large" color={colors.primary_blue} />
+                <Text style={{ marginTop: 12, fontSize: 14, color: colors.text_secondary }}>Loading...</Text>
+              </View>
+            ) : (
+              <>
+                <ScrollView horizontal showsHorizontalScrollIndicator style={{ maxHeight: 44, marginBottom: 8, paddingHorizontal: 8 }}>
+                  {[
+                    { key: 'vouchers' as const, label: 'Voucher', count: transactionsVouchers.length },
+                    { key: 'ledger_entries' as const, label: 'Ledger entries', count: transactionsLedgerEntries.length },
+                    { key: 'bill_allocations' as const, label: 'Bill allocations', count: transactionsBillAllocs.length },
+                    { key: 'bank_allocations' as const, label: 'Bank allocations', count: transactionsBankAllocs.length },
+                    { key: 'inventory_allocations' as const, label: 'Inventory allocations', count: transactionsInventoryAllocs.length },
+                    { key: 'batch_allocations' as const, label: 'Batch allocations', count: transactionsBatchAllocs.length },
+                    { key: 'cost_center_allocations' as const, label: 'Cost center allocations', count: transactionsCostCenterAllocs.length },
+                  ].map(({ key, label, count }) => (
+                    <TouchableOpacity
+                      key={key}
+                      onPress={() => { setTransactionsTab(key); setTransactionsPage(1); }}
+                      style={{ paddingHorizontal: 14, paddingVertical: 10, marginRight: 6, backgroundColor: transactionsTab === key ? colors.primary_blue : '#e8eaed', borderRadius: 8 }}
+                    >
+                      <Text style={{ color: transactionsTab === key ? colors.white : '#5f6368', fontWeight: '600', fontSize: 13 }}>{label} ({count})</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                {(() => {
+                  const tabRows = transactionsTab === 'vouchers' ? transactionsVouchers : transactionsTab === 'ledger_entries' ? transactionsLedgerEntries : transactionsTab === 'bill_allocations' ? transactionsBillAllocs : transactionsTab === 'bank_allocations' ? transactionsBankAllocs : transactionsTab === 'inventory_allocations' ? transactionsInventoryAllocs : transactionsTab === 'batch_allocations' ? transactionsBatchAllocs : transactionsCostCenterAllocs;
+                  const total = tabRows.length;
+                  const pageRows = tabRows.slice((transactionsPage - 1) * TRANSACTIONS_ROWS_PER_PAGE, transactionsPage * TRANSACTIONS_ROWS_PER_PAGE);
+                  const totalPages = Math.max(1, Math.ceil(total / TRANSACTIONS_ROWS_PER_PAGE));
+                  const colKeys = pageRows.length > 0 ? Object.keys(pageRows[0]).filter(k => k !== 'json_data' && k !== 'timestamp') : [];
+                  return (
+                    <>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 }}>
+                        <Text style={{ fontSize: 13, color: '#5f6368' }}>Showing {Math.min(TRANSACTIONS_ROWS_PER_PAGE, pageRows.length)} of {total} row(s) in DB</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <TouchableOpacity onPress={() => setTransactionsPage((p) => Math.max(1, p - 1))} disabled={transactionsPage <= 1} style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: transactionsPage <= 1 ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}>
+                            <Text style={{ color: transactionsPage <= 1 ? '#9aa0a6' : colors.white, fontSize: 13 }}>Previous</Text>
+                          </TouchableOpacity>
+                          <Text style={{ fontSize: 13, color: '#202124' }}>Page {transactionsPage} of {totalPages}</Text>
+                          <TouchableOpacity onPress={() => setTransactionsPage((p) => Math.min(totalPages, p + 1))} disabled={transactionsPage >= totalPages} style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: transactionsPage >= totalPages ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}>
+                            <Text style={{ color: transactionsPage >= totalPages ? '#9aa0a6' : colors.white, fontSize: 13 }}>Next</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      <ScrollView horizontal style={{ flex: 1, marginHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 24 }}>
+                        <View>
+                          <View style={styles.tableHeaderRow}>
+                            {colKeys.map((k) => (
+                              <Text key={k} style={[styles.tableHeaderText, { width: 100 }]}>{k}</Text>
+                            ))}
+                          </View>
+                          {pageRows.length === 0 ? (
+                            <View style={{ padding: 24 }}><Text style={styles.noDataText}>No rows. Download or update sales data first.</Text></View>
+                          ) : (
+                            pageRows.map((row, idx) => (
+                              <View key={idx} style={styles.tableRow}>
+                                {colKeys.map((k) => (
+                                  <Text key={k} style={[styles.tableCellText, { width: 100, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{String(row[k] ?? '')}</Text>
+                                ))}
+                              </View>
+                            ))
+                          )}
+                        </View>
+                      </ScrollView>
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </View>
         </View>
       </Modal>
