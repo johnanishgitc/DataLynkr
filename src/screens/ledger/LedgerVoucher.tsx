@@ -87,7 +87,7 @@ export default function LedgerVoucher({
         localScrollDirection.current = 'down';
         setScrollDirection('down');
         Animated.timing(footerTranslateY, {
-          toValue: footerHeight,
+          toValue: 49,
           duration: 300,
           useNativeDriver: true,
         }).start();

@@ -24,7 +24,7 @@ const SUBTITLE_COLOR = '#6a7282';
 // Lottie animation – from PlaceOrder_FigmaScreens/success short/Success_animation_short.lottie
 const SuccessLottieSource = require('../assets/animations/Success_animation_short.json');
 
-let LottieView: React.ComponentType<{ source: object; style?: object; loop?: boolean }> | null = null;
+let LottieView: React.ComponentType<{ source: object; style?: object; loop?: boolean; autoPlay?: boolean }> | null = null;
 try {
   LottieView = require('lottie-react-native').default;
 } catch {

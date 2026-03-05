@@ -91,7 +91,7 @@ export default function ClearedOrders({
         localScrollDirection.current = 'down';
         setScrollDirection('down');
         Animated.timing(footerTranslateY, {
-          toValue: footerHeight,
+          toValue: 49,
           duration: 300,
           useNativeDriver: true,
         }).start();
@@ -329,7 +329,7 @@ export default function ClearedOrders({
             style={sharedStyles.container}
             contentContainerStyle={[
               sharedStyles.containerContent,
-              { paddingTop: headerHeight +15 },
+              { paddingTop: headerHeight + 15 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}

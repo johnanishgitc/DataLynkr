@@ -5,6 +5,7 @@ import { View, Pressable, Text, StyleSheet, Platform, Animated, Keyboard } from 
 
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 
 /**
  * Footer implementation matching Figma design exactly:
@@ -56,6 +57,19 @@ export default function FooterTabBar({
     insets.bottom - Platform.select({ ios: 4, default: 0 }),
     0
   );
+
+  const { moduleAccess } = useModuleAccess();
+
+  const getModuleKey = (routeName: string) => {
+    switch (routeName) {
+      case 'SalesTab': return 'sales_dashboard';
+      case 'OrdersTab': return 'place_order';
+      case 'LedgerTab': return 'ledger_book';
+      case 'ApprovalsTab': return 'approvals';
+      case 'StockSummaryTab': return 'stock_summary';
+      default: return null;
+    }
+  };
 
   // Scroll-based collapse: use shared value from VoucherDetailView when set, else own animation
   const { scrollDirection, footerCollapseValue } = useScroll();
@@ -126,7 +140,14 @@ export default function FooterTabBar({
           const { options } = descriptors[route.key];
           const tabStyle = getTabStyle(route.name);
 
+          const modKey = getModuleKey(route.name);
+          const isEnabled = modKey ? !!moduleAccess[modKey] : true;
+
           const onPress = () => {
+            if (!isEnabled) {
+              // Module disabled by API
+              return;
+            }
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,
@@ -215,7 +236,11 @@ export default function FooterTabBar({
               key={route.key}
               onPress={onPress}
               onLongPress={onLongPress}
-              style={[styles.tab, { flex: tabStyle.flex, paddingHorizontal: tabStyle.paddingHorizontal }]}
+              style={[
+                styles.tab,
+                { flex: tabStyle.flex, paddingHorizontal: tabStyle.paddingHorizontal },
+                !isEnabled && { opacity: 0.4 }
+              ]}
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               accessibilityLabel={

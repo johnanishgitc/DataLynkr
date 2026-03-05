@@ -30,6 +30,7 @@ const K = {
   lastvoucherdate: '@DataLynkr/lastvoucherdate',
   createdAt: '@DataLynkr/createdAt',
   cacheExpiryDays: '@DataLynkr/cacheExpiryDays',
+  user_access_permissions: '@DataLynkr/user_access_permissions',
 };
 
 export const storage = {
@@ -171,4 +172,19 @@ export async function getCacheExpiryDays(): Promise<string> {
 export async function setCacheExpiryDays(days: string): Promise<void> {
   const v = days == null || days === '' || days === 'never' ? 'never' : String(days);
   await storage.setItem(K.cacheExpiryDays, v);
+}
+
+// User access permissions
+export async function saveUserAccessPermissions(permissions: Record<string, boolean>): Promise<void> {
+  await storage.setItem(K.user_access_permissions, JSON.stringify(permissions));
+}
+
+export async function getUserAccessPermissions(): Promise<Record<string, boolean>> {
+  const raw = await storage.getItem(K.user_access_permissions);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    return {};
+  }
 }

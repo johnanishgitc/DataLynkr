@@ -56,6 +56,17 @@ import IconSvg from '../assets/orderEntryOE3/icon.svg';
 import { formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
 import { deobfuscatePrice } from '../utils/priceUtils';
 import { isBatchWiseOnFromItem, isBatchWiseOnValue } from '../utils/orderEntryBatchWise';
+import {
+  itemDisplayName,
+  isItemToBeAllocated,
+  itemStock,
+  itemTax,
+  computeRateForItem,
+  computeDiscountForItem,
+  itemPer,
+  rateFromPriceLevel,
+  type PriceLevelEntry,
+} from '../utils/itemPriceUtils';
 import CalendarPicker from '../components/CalendarPicker';
 import { OrderEntryChevronDownIcon, OrderEntryQRIcon, OrderEntryPaperclipIcon } from '../assets/OrderEntryIcons';
 import { QRCodeScanner, StockBreakdownModal, DeleteConfirmationModal } from '../components';
@@ -64,9 +75,9 @@ import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import DocumentPicker from 'react-native-document-picker/lib/commonjs';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { colors } from '../constants/colors';
+import { useUserAccess, type PlaceOrderPermissions } from '../hooks/useUserAccess';
 
-/** Price level entry in item.PRICELEVELS (TallyCatalyst PlaceOrder.js) */
-type PriceLevelEntry = { PLNAME?: string; RATE?: string; DISCOUNT?: string; RATEUNIT?: string };
+
 
 const HEADER_BG = '#1f3a89';
 const SECTION_BG = '#e6ecfd';
@@ -100,129 +111,7 @@ type OrderLineItem = {
   attachmentUris?: string[];
 };
 
-function itemDisplayName(item: StockItem | undefined): string {
-  if (!item || typeof item !== 'object') return '';
-  const name = (item.NAME ?? '').trim();
-  return name || '';
-}
 
-/** Item whose name indicates "to be allocated" – show simplified form (description, qty, attachment, buttons only). */
-function isItemToBeAllocated(name: string): boolean {
-  return (name ?? '').trim().toLowerCase().includes('item to be allocated');
-}
-
-function itemStock(item: StockItem | undefined): number {
-  if (!item || typeof item !== 'object') return 0;
-  const c = item.CLOSINGSTOCK;
-  return typeof c === 'number' && !Number.isNaN(c) ? c : 0;
-}
-
-function itemTax(item: StockItem | undefined): number {
-  if (!item || typeof item !== 'object') return 0;
-  const g = item.IGST;
-  return typeof g === 'number' && !Number.isNaN(g) ? g : 0;
-}
-
-/**
- * Rate per TallyCatalyst PlaceOrder.js: when customer has PRICELEVEL and item has
- * PRICELEVELS, use matching price level RATE (deobfuscated); else use STDPRICE (deobfuscated).
- * No LASTPRICE in rate path.
- */
-function computeRateForItem(
-  item: StockItem | undefined,
-  selectedLedger: LedgerItem | null | undefined
-): string {
-  if (!item || typeof item !== 'object') return '0';
-  const ledger = selectedLedger as Record<string, unknown> | undefined;
-  const customerPriceLevel =
-    ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null
-      ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
-      : '';
-  if (customerPriceLevel) {
-    const levels = item.PRICELEVELS;
-    if (Array.isArray(levels) && levels.length > 0) {
-      const pl = levels.find(
-        (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
-      ) as PriceLevelEntry | undefined;
-      if (pl && pl.RATE != null) return deobfuscatePrice(String(pl.RATE));
-    }
-  }
-  const o = item as Record<string, unknown>;
-  const rawStd = o.STDPRICE ?? o.stdprice;
-  const rateFromStd = deobfuscatePrice(
-    rawStd !== undefined && rawStd !== null ? (typeof rawStd === 'string' || typeof rawStd === 'number' ? rawStd : String(rawStd)) : null
-  );
-  // When STDPRICE is missing or decodes to 0, try LASTPRICE so something shows when API only sends LASTPRICE
-  if (rateFromStd !== '0') return rateFromStd;
-  const rawLast = o.LASTPRICE ?? o.lastprice;
-  return deobfuscatePrice(
-    rawLast !== undefined && rawLast !== null ? (typeof rawLast === 'string' || typeof rawLast === 'number' ? rawLast : String(rawLast)) : null
-  );
-}
-
-/**
- * Default discount % when customer has matching PRICELEVEL (PlaceOrder.js).
- */
-function computeDiscountForItem(
-  item: StockItem | undefined,
-  selectedLedger: LedgerItem | null | undefined
-): string {
-  if (!item || typeof item !== 'object') return '0';
-  const ledger = selectedLedger as Record<string, unknown> | undefined;
-  const customerPriceLevel =
-    ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null
-      ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
-      : '';
-  if (!customerPriceLevel) return '0';
-  const levels = item.PRICELEVELS;
-  if (!Array.isArray(levels) || levels.length === 0) return '0';
-  const pl = levels.find(
-    (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
-  ) as PriceLevelEntry | undefined;
-  if (pl && pl.DISCOUNT != null) return deobfuscatePrice(String(pl.DISCOUNT));
-  return '0';
-}
-
-/**
- * "Per" unit for rate: when rate came from a price level with RATEUNIT use it;
- * else STDPRICEUNIT or BASEUNITS (aligned with STDPRICE-based rate).
- */
-function itemPer(
-  item: StockItem | undefined,
-  selectedLedger: LedgerItem | null | undefined,
-  rateFromPriceLevel: boolean
-): string {
-  if (!item || typeof item !== 'object') return '1';
-  if (rateFromPriceLevel && selectedLedger) {
-    const ledger = selectedLedger as Record<string, unknown>;
-    const customerPriceLevel =
-      (ledger.PRICELEVEL ?? ledger.pricelevel) != null
-        ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
-        : '';
-    if (customerPriceLevel && Array.isArray(item.PRICELEVELS)) {
-      const pl = item.PRICELEVELS.find(
-        (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
-      ) as PriceLevelEntry | undefined;
-      if (pl && (pl.RATEUNIT ?? '').toString().trim()) return String(pl.RATEUNIT).trim();
-    }
-  }
-  const u = item.STDPRICEUNIT ?? item.BASEUNITS ?? '';
-  return String(u).trim() || '1';
-}
-
-/** True when customer has PRICELEVEL and item has a matching entry in PRICELEVELS. */
-function rateFromPriceLevel(
-  item: StockItem | undefined,
-  selectedLedger: LedgerItem | null | undefined
-): boolean {
-  if (!item || !selectedLedger) return false;
-  const ledger = selectedLedger as Record<string, unknown>;
-  const plName = (ledger.PRICELEVEL ?? ledger.pricelevel) != null ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim() : '';
-  if (!plName || !Array.isArray(item.PRICELEVELS)) return false;
-  return item.PRICELEVELS.some(
-    (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === plName
-  );
-}
 
 export default function OrderEntryItemDetail() {
   const insets = useSafeAreaInsets();
@@ -234,6 +123,10 @@ export default function OrderEntryItemDetail() {
   const editOrderItem = route.params?.editOrderItem ?? null;
   const editOrderItems = route.params?.editOrderItems ?? null;
   const viewOnly = route.params?.viewOnly ?? false;
+
+  // Permissions always come from the live hook so they always reflect the
+  // current API response. Never use the nav-params snapshot – it is stale.
+  const { permissions: perms } = useUserAccess();
 
   const footerCollapseVal = useRef(new Animated.Value(1)).current;
   useFocusEffect(
@@ -250,10 +143,13 @@ export default function OrderEntryItemDetail() {
   /** Prefer explicit param from OrderEntry so godown/batch show correctly even if item loses keys in nav. */
   const isBatchWiseOn = route.params?.isBatchWiseOn ?? isBatchWiseOnFromItem(item);
   /** Show mfg/expiry date fields only when batch wise is on AND item has both HASMFGDATE and HASEXPDATE set to Yes. */
+  const s = (item?.stockItem ?? item) as any;
   const showMfgExpiryDates =
     isBatchWiseOn &&
-    isBatchWiseOnValue((item as StockItem)?.HASMFGDATE) &&
-    isBatchWiseOnValue((item as StockItem)?.HASEXPDATE);
+    isBatchWiseOnValue(s?.HASMFGDATE) &&
+    isBatchWiseOnValue(s?.HASEXPDATE);
+  /** Show description field for all items (used in line items and place-order payload). */
+  const showItemDesc = true;
 
   const defaultRate = computeRateForItem(item, selectedLedger);
   const defaultDiscount = computeDiscountForItem(item, selectedLedger);
@@ -363,7 +259,7 @@ export default function OrderEntryItemDetail() {
       setCompoundAddlQty(null);
       setBaseQtyOnly(null);
     }
-  }, [item?.MASTERID ?? item?.NAME ?? null, units, editOrderItem, editOrderItems]);
+  }, [item?.stockItem?.MASTERID ?? item?.name ?? null, units, editOrderItem, editOrderItems]);
 
   useEffect(() => {
     if (editOrderItems != null && editOrderItems.length > 0 && item) {
@@ -521,7 +417,7 @@ export default function OrderEntryItemDetail() {
     setRate(r);
     setDiscount(d);
     setPer(p);
-  }, [item?.MASTERID ?? item?.NAME ?? null, selectedLedger, editOrderItem, editOrderItems]);
+  }, [item?.stockItem?.MASTERID ?? item?.name ?? null, selectedLedger, editOrderItem, editOrderItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1120,47 +1016,49 @@ export default function OrderEntryItemDetail() {
 
             {/* Form - OE3 (capture touch so tapping to edit does not unselect item) */}
             <View style={styles.form} onStartShouldSetResponder={() => true}>
-              <View style={styles.fieldBlock}>
-                <View style={styles.labelRow}>
-                  <Text style={styles.label}>Description</Text>
-                  <Text style={styles.labelHint}>(max 500 characters)</Text>
+              {showItemDesc ? (
+                <View style={styles.fieldBlock}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>Description</Text>
+                    <Text style={styles.labelHint}>(max 500 characters)</Text>
+                  </View>
+                  <View style={isToBeAllocated ? styles.descriptionBoxWithAttach : undefined}>
+                    <TextInput
+                      style={[
+                        styles.textArea,
+                        isToBeAllocated && styles.textAreaToBeAllocated,
+                        isToBeAllocated && styles.textAreaWithAttachButton,
+                      ]}
+                      value={description}
+                      onChangeText={setDescription}
+                      placeholder=""
+                      placeholderTextColor={LABEL_GRAY}
+                      multiline
+                      maxLength={500}
+                      numberOfLines={4}
+                    />
+                    {isToBeAllocated && (
+                      <TouchableOpacity
+                        style={styles.attachBtnInDescriptionCorner}
+                        onPress={() => setClipPopupVisible(true)}
+                        activeOpacity={0.8}
+                        accessibilityLabel="Attach file"
+                      >
+                        {uploadingAttachments ? (
+                          <ActivityIndicator size="small" color={TEXT_ROW} />
+                        ) : (
+                          <OrderEntryPaperclipIcon width={20} height={20} color={TEXT_ROW} />
+                        )}
+                        {attachmentLinks.length > 0 && (
+                          <View style={styles.attachBadge}>
+                            <Text style={styles.attachBadgeText}>{attachmentLinks.length}</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-                <View style={isToBeAllocated ? styles.descriptionBoxWithAttach : undefined}>
-                  <TextInput
-                    style={[
-                      styles.textArea,
-                      isToBeAllocated && styles.textAreaToBeAllocated,
-                      isToBeAllocated && styles.textAreaWithAttachButton,
-                    ]}
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder=""
-                    placeholderTextColor={LABEL_GRAY}
-                    multiline
-                    maxLength={500}
-                    numberOfLines={4}
-                  />
-                  {isToBeAllocated && (
-                    <TouchableOpacity
-                      style={styles.attachBtnInDescriptionCorner}
-                      onPress={() => setClipPopupVisible(true)}
-                      activeOpacity={0.8}
-                      accessibilityLabel="Attach file"
-                    >
-                      {uploadingAttachments ? (
-                        <ActivityIndicator size="small" color={TEXT_ROW} />
-                      ) : (
-                        <OrderEntryPaperclipIcon width={20} height={20} color={TEXT_ROW} />
-                      )}
-                      {attachmentLinks.length > 0 && (
-                        <View style={styles.attachBadge}>
-                          <Text style={styles.attachBadgeText}>{attachmentLinks.length}</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
+              ) : null}
 
               {!isToBeAllocated ? (
                 <>
@@ -1247,18 +1145,20 @@ export default function OrderEntryItemDetail() {
                         })()
                       ) : null}
                     </View>
-                    <View style={styles.half}>
-                      <Text style={styles.label}>Rate</Text>
-                      <TextInput
-                        style={[styles.input, styles.inputRowField, (selectedLineId == null && rateLockedAfterAdd) ? styles.inputReadOnly : undefined]}
-                        value={rate}
-                        onChangeText={setRate}
-                        editable={selectedLineId != null || !rateLockedAfterAdd}
-                        keyboardType="decimal-pad"
-                        placeholder="0"
-                        placeholderTextColor={LABEL_GRAY}
-                      />
-                    </View>
+                    {perms.show_rateamt_Column ? (
+                      <View style={styles.half}>
+                        <Text style={styles.label}>Rate</Text>
+                        <TextInput
+                          style={[styles.input, styles.inputRowField, ((selectedLineId == null && rateLockedAfterAdd) || !perms.edit_rate) ? styles.inputReadOnly : undefined]}
+                          value={rate}
+                          onChangeText={setRate}
+                          editable={perms.edit_rate && (selectedLineId != null || !rateLockedAfterAdd)}
+                          keyboardType="decimal-pad"
+                          placeholder="0"
+                          placeholderTextColor={LABEL_GRAY}
+                        />
+                      </View>
+                    ) : null}
                   </View>
 
                   <View style={styles.row}>
@@ -1288,18 +1188,20 @@ export default function OrderEntryItemDetail() {
                         );
                       })()}
                     </View>
-                    <View style={styles.half}>
-                      <Text style={styles.label}>Discount%</Text>
-                      <TextInput
-                        style={[styles.input, (selectedLineId == null && rateLockedAfterAdd) ? styles.inputReadOnly : undefined]}
-                        value={discount}
-                        onChangeText={setDiscount}
-                        editable={selectedLineId != null || !rateLockedAfterAdd}
-                        keyboardType="decimal-pad"
-                        placeholder="0"
-                        placeholderTextColor={LABEL_GRAY}
-                      />
-                    </View>
+                    {perms.show_disc_Column ? (
+                      <View style={styles.half}>
+                        <Text style={styles.label}>Discount%</Text>
+                        <TextInput
+                          style={[styles.input, ((selectedLineId == null && rateLockedAfterAdd) || !perms.edit_discount) ? styles.inputReadOnly : undefined]}
+                          value={discount}
+                          onChangeText={setDiscount}
+                          editable={perms.edit_discount && (selectedLineId != null || !rateLockedAfterAdd)}
+                          keyboardType="decimal-pad"
+                          placeholder="0"
+                          placeholderTextColor={LABEL_GRAY}
+                        />
+                      </View>
+                    ) : null}
                   </View>
 
                   {showGodownBatchRow ? (
@@ -1370,14 +1272,18 @@ export default function OrderEntryItemDetail() {
                   ) : null}
 
                   <View style={styles.row}>
-                    <View style={styles.half}>
-                      <View style={styles.stockRow}>
-                        <Text style={styles.stockLabel}>Stock : </Text>
-                        <TouchableOpacity onPress={() => setStockBreakdownItem(name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
-                          <Text style={styles.stockLink}>{stockNum}</Text>
-                        </TouchableOpacity>
+                    {(perms.show_ClsStck_Column || perms.show_ClsStck_yesno) ? (
+                      <View style={styles.half}>
+                        <View style={styles.stockRow}>
+                          <Text style={styles.stockLabel}>Stock : </Text>
+                          <TouchableOpacity onPress={() => setStockBreakdownItem(name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
+                            <Text style={styles.stockLink}>
+                              {perms.show_ClsStck_yesno ? (Number(stockNum) > 0 ? 'Yes' : 'No') : stockNum}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    </View>
+                    ) : <View style={styles.half} />}
                     <View style={styles.half}>
                       <Text style={styles.taxLabel}>Tax% : {taxNum}</Text>
                     </View>
@@ -1415,19 +1321,21 @@ export default function OrderEntryItemDetail() {
                   ) : null}
 
                   <View style={styles.row}>
-                    <View style={styles.half}>
-                      <Text style={styles.label}>Due Date</Text>
-                      <TouchableOpacity
-                        style={styles.inputWithIcon}
-                        onPress={() => setDueDatePickerVisible(true)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
-                          {dueDate}
-                        </Text>
-                        <Vector1Svg width={18} height={18} style={styles.calIcon} />
-                      </TouchableOpacity>
-                    </View>
+                    {perms.show_ordduedate ? (
+                      <View style={styles.half}>
+                        <Text style={styles.label}>Due Date</Text>
+                        <TouchableOpacity
+                          style={styles.inputWithIcon}
+                          onPress={() => setDueDatePickerVisible(true)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.inputFlex, styles.dueDateText]} numberOfLines={1}>
+                            {dueDate}
+                          </Text>
+                          <Vector1Svg width={18} height={18} style={styles.calIcon} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : <View style={styles.half} />}
                     <View style={styles.half}>
                       <Text style={styles.label}>Value</Text>
                       <View style={[styles.input, styles.inputReadOnly]}>
@@ -1570,16 +1478,18 @@ export default function OrderEntryItemDetail() {
                       <View style={[styles.lineItemMeta, { alignItems: 'flex-start' }]}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#111827' }}>
-                            Qty : {line.qty} x ₹{line.rate} ({line.discount}%) ={' '}
-                            <Text style={{ color: '#10b981', fontWeight: '500' }}>₹{line.total.toFixed(2)}</Text>
+                            Qty : {line.qty}{perms.show_rateamt_Column ? ` x ₹${line.rate}` : ''}{perms.show_disc_Column ? ` (${line.discount}%)` : ''}{perms.show_rateamt_Column ? ' = ' : ''}
+                            {perms.show_rateamt_Column ? <Text style={{ color: '#10b981', fontWeight: '500' }}>₹{line.total.toFixed(2)}</Text> : null}
                           </Text>
                         </View>
-                        <View style={styles.stockRow}>
-                          <Text style={styles.lineItemStock}>Stock : </Text>
-                          <TouchableOpacity onPress={() => setStockBreakdownItem(line.name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
-                            <Text style={[styles.stockLink, styles.lineItemStockLink]}>{line.stock}</Text>
-                          </TouchableOpacity>
-                        </View>
+                        {perms.show_ClsStck_Column ? (
+                          <View style={styles.stockRow}>
+                            <Text style={styles.lineItemStock}>Stock : </Text>
+                            <TouchableOpacity onPress={() => setStockBreakdownItem(line.name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
+                              <Text style={[styles.stockLink, styles.lineItemStockLink]}>{perms.show_ClsStck_yesno ? (Number(line.stock) > 0 ? 'Yes' : 'No') : line.stock}</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
                       </View>
                       {expandedLineId === line.id && (
                         <View style={{ marginTop: 4, paddingTop: 6, paddingBottom: 6, paddingHorizontal: 10, backgroundColor: '#e6ecfd', borderRadius: 4, overflow: 'visible' }}>

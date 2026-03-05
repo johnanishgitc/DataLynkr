@@ -27,11 +27,12 @@ const ISBATCHWISEON_KEYS = [
 ] as const;
 
 /** Read ISBATCHWISEON from stock item. Checks common key variants and nested objects. */
-export function isBatchWiseOnFromItem(item: StockItem | undefined): boolean {
+export function isBatchWiseOnFromItem(item: any): boolean {
   if (!item || typeof item !== 'object') return false;
-  const o = item as Record<string, unknown>;
+  const s = item.stockItem ?? item;
+  const o = s as Record<string, unknown>;
 
-  if (isBatchWiseOnValue((item as StockItem).ISBATCHWISEON)) return true;
+  if (isBatchWiseOnValue(o.ISBATCHWISEON)) return true;
 
   const checkObj = (obj: Record<string, unknown>): boolean => {
     for (const k of ISBATCHWISEON_KEYS) {

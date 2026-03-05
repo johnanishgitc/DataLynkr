@@ -66,9 +66,11 @@ import type {
 import {
   cacheManager,
   getLedgerListFromDataManagementCache,
+  saveLedgerListToDataManagementCache,
 } from '../cache';
 import { isBatchWiseOnFromItem } from '../utils/orderEntryBatchWise';
 import { deobfuscatePrice } from '../utils/priceUtils';
+import { computeRateForItem } from '../utils/itemPriceUtils';
 import { toYyyyMmDdStr, formatDateFromYyyyMmDd, toYyyyMmDdHhMmSs, formatDateDmmmYy, parseDateDmmmYy, toDdMmYyyy } from '../utils/dateUtils';
 import { sharedStyles } from './ledger';
 import {
@@ -86,6 +88,7 @@ import IconSvg from '../assets/orderEntryOE3/icon.svg';
 import { QRCodeScanner } from '../components/QRCodeScanner';
 import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
+import { useUserAccess } from '../hooks/useUserAccess';
 
 // OrdEnt1 exact colors - no modifications
 const HEADER_BG = '#1f3a89';
@@ -157,8 +160,8 @@ const DUMMY_ITEM_TO_BE_ALLOCATED: StockItem = {
   STDPRICE: null,
 };
 
-/** Index of OrdersTab in MainTabs (HomeTab=0, OrdersTab=1, LedgerTab=2, ApprovalsTab=3, SummaryTab=4). */
-const ORDERS_TAB_INDEX = 1;
+/** Index of OrdersTab in MainTabs */
+const ORDERS_TAB_NAME = 'OrdersTab';
 
 /** Indian states and UTs for Place of supply dropdown (Buyer details). */
 const INDIAN_STATES = [
@@ -174,6 +177,7 @@ export default function OrderEntry() {
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderEntry'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
+  const { permissions, moduleAccess } = useUserAccess();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
@@ -206,6 +210,7 @@ export default function OrderEntry() {
   const [scannedExactMatches, setScannedExactMatches] = useState<StockItem[] | null>(null);
   const customerInputRef = useRef<TextInput>(null);
   const itemInputRef = useRef<TextInput>(null);
+  const customersEmptyFetchStartedRef = useRef(false);
 
   useEffect(() => {
     if (customerDropdownOpen) {
@@ -214,6 +219,32 @@ export default function OrderEntry() {
       }, 100);
     }
   }, [customerDropdownOpen]);
+
+  // When customer dropdown is open and list is empty, fetch customers from API in background and refresh list
+  useEffect(() => {
+    if (!customerDropdownOpen || ledgerNames.length > 0) return;
+    if (customersEmptyFetchStartedRef.current) return;
+    customersEmptyFetchStartedRef.current = true;
+    (async () => {
+      try {
+        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+        if (!t || !c || !g) return;
+        const { data } = await apiService.getLedgerList({ tallyloc_id: t, company: c, guid: g });
+        const res = data as LedgerListResponse;
+        if (res?.error) return;
+        await saveLedgerListToDataManagementCache(res);
+        const fresh = await getLedgerListFromDataManagementCache();
+        const list = (fresh?.ledgers ?? fresh?.data ?? []) as LedgerItem[];
+        const items = Array.isArray(list) ? list : [];
+        setLedgerItems(items);
+        setLedgerNames(items.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
+      } catch {
+        // ignore; list stays empty
+      } finally {
+        customersEmptyFetchStartedRef.current = false;
+      }
+    })();
+  }, [customerDropdownOpen, ledgerNames.length]);
 
   useEffect(() => {
     if (itemDropdownOpen) {
@@ -237,8 +268,8 @@ export default function OrderEntry() {
   const [clearAllConfirmVisible, setClearAllConfirmVisible] = useState(false);
   const [leaveConfirmVisible, setLeaveConfirmVisible] = useState(false);
   const pendingLeaveActionRef = useRef<(() => void) | null>(null);
-  const tabIndexRef = useRef(ORDERS_TAB_INDEX);
-  const prevTabIndexRef = useRef(ORDERS_TAB_INDEX);
+  const tabNameRef = useRef(ORDERS_TAB_NAME);
+  const prevTabNameRef = useRef(ORDERS_TAB_NAME);
   /** When true, the next focus event will auto-open the customer dropdown. Set on mount and every clear. */
   const needsAutoOpenCustomerRef = useRef(true);
   const [stockBreakdownItem, setStockBreakdownItem] = useState<string | null>(null);
@@ -452,23 +483,37 @@ export default function OrderEntry() {
   const formatParentQtyLine = (
     opts: { totalQty: number; totalAmt: number; singleItem?: { qty: string | number; rate?: number | string; discount?: number; total: number }; discount?: number; firstRate?: number | string; firstDiscount?: number }
   ) => {
-    const amountStr = `₹${Number(opts.totalAmt).toFixed(2)}`;
+    const amountStr = permissions.show_rateamt_Column ? `₹${Number(opts.totalAmt).toFixed(2)}` : '';
     const qty = opts.singleItem ? opts.singleItem.qty : opts.totalQty;
-    const rate = opts.singleItem
-      ? (opts.singleItem.rate != null ? String(opts.singleItem.rate) : '-')
-      : (opts.firstRate != null ? String(opts.firstRate) : '-');
-    const disc = (opts.singleItem ? opts.singleItem.discount : opts.firstDiscount) != null &&
-      !Number.isNaN(Number(opts.singleItem ? opts.singleItem.discount : opts.firstDiscount))
-      ? `(${Number(opts.singleItem ? opts.singleItem.discount : opts.firstDiscount)}%)`
+    if (!permissions.show_rateamt_Column && !permissions.show_disc_Column) {
+      return { left: `Qty: ${qty}`, right: null, amountStr };
+    }
+    const rate = permissions.show_rateamt_Column
+      ? (opts.singleItem
+        ? (opts.singleItem.rate != null ? String(opts.singleItem.rate) : '-')
+        : (opts.firstRate != null ? String(opts.firstRate) : '-'))
       : '';
-    const left = `Qty: ${qty}*${rate}${disc}=`;
+    const disc = permissions.show_disc_Column
+      ? ((opts.singleItem ? opts.singleItem.discount : opts.firstDiscount) != null &&
+        !Number.isNaN(Number(opts.singleItem ? opts.singleItem.discount : opts.firstDiscount))
+        ? `(${Number(opts.singleItem ? opts.singleItem.discount : opts.firstDiscount)}%)`
+        : '')
+      : '';
+    const parts = [`Qty: ${qty}`];
+    if (rate) parts.push(`*${rate}`);
+    if (disc) parts.push(disc);
+    if (amountStr) parts.push(`=`);
+    const left = parts.join('');
     return { left, right: null, amountStr };
   };
 
   /** Build "Stock: x | Tax%: y%" showing only available. */
   const formatStockTaxLine = (stock?: number | string | null, tax?: number | string | null) => {
     const segs: string[] = [];
-    if (stock != null && String(stock).trim() !== '') segs.push(`Stock: ${stock}`);
+    if ((permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) && stock != null && String(stock).trim() !== '') {
+      const display = permissions.show_ClsStck_yesno ? (Number(stock) > 0 ? 'Yes' : 'No') : stock;
+      segs.push(`Stock: ${display}`);
+    }
     if (tax != null && String(tax).trim() !== '') segs.push(`Tax%: ${tax}%`);
     return segs.join(' | ');
   };
@@ -591,11 +636,9 @@ export default function OrderEntry() {
     }, [isDraftMode])
   );
 
+  // Clear order only when explicitly requested (e.g. Order Success, tab switch) — run on focus.
   useFocusEffect(
     React.useCallback(() => {
-      const added = route.params?.addedItems as AddedOrderItemWithStock[] | undefined;
-      const replaceId = route.params?.replaceOrderItemId;
-      const replaceIds = route.params?.replaceOrderItemIds;
       const clearOrder = route.params?.clearOrder;
       const openInDraftMode = route.params?.openInDraftMode;
       if (clearOrder) {
@@ -615,65 +658,55 @@ export default function OrderEntry() {
         setAttachmentUris([]);
         setAttachmentLinks([]);
         setDraftAttachmentDeleteIdx(null);
-        // Open customer dropdown after state is applied, then clear params (clearing params first would re-run this effect and skip the open)
         const openDropdownTimer = setTimeout(() => {
           setCustomerDropdownOpen(true);
           navigation.setParams({ clearOrder: undefined, openInDraftMode: undefined });
         }, 250);
         return () => clearTimeout(openDropdownTimer);
       }
-      // When returning from Item Detail with "Update Cart": apply cart replacement so changes are accepted for both item-to-be-allocated and other items.
-      const hasReplace = replaceId != null || (replaceIds != null && replaceIds.length > 0);
-      const addedLength = added?.length ?? 0;
-      if (addedLength > 0 && hasReplace) {
-        const nextId = orderItemsNextId.current;
-        const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
-        if (replaceIds != null && replaceIds.length > 0) {
-          const idSet = new Set(replaceIds);
-          setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
-        } else {
-          setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
-        }
-        orderItemsNextId.current = nextId + addedLength;
-        navigation.setParams({ addedItems: undefined, replaceOrderItemId: undefined, replaceOrderItemIds: undefined });
-        // Apply attachments from Item Detail (e.g. "item to be allocated") so they're not lost
-        const incomingLinks = route.params?.attachmentLinks;
-        const incomingUris = route.params?.attachmentUris;
-        if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
-        if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
-        navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
-        needsAutoOpenCustomerRef.current = false;
-        setTimeout(() => setItemDropdownOpen(true), 250);
-        return;
-      }
-      // Add to cart (no replace) or legacy path: handle attachments then add items
-      const incomingLinks = route.params?.attachmentLinks;
-      const incomingUris = route.params?.attachmentUris;
-
-      if (incomingLinks !== undefined || incomingUris !== undefined) {
-        if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
-        if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
-        navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
-      }
-      if (addedLength > 0) {
-        const nextId = orderItemsNextId.current;
-        const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
-        if (replaceIds != null && replaceIds.length > 0) {
-          const idSet = new Set(replaceIds);
-          setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
-        } else if (replaceId != null) {
-          setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
-        } else {
-          setOrderItems((prev) => [...prev, ...withIds]);
-        }
-        orderItemsNextId.current = nextId + addedLength;
-        navigation.setParams({ addedItems: undefined, replaceOrderItemId: undefined, replaceOrderItemIds: undefined });
-        needsAutoOpenCustomerRef.current = false;
-        // Coming back from Item Detail (Add to Cart): open items dropdown so user can add more
-        setTimeout(() => setItemDropdownOpen(true), 250);
-      }
-    }, [route.params])
+    }, [route.params?.clearOrder, route.params?.openInDraftMode, navigation])
   );
+
+  // Process Add to Cart / Update Cart params when they appear (useEffect so we run after route has params, not dependent on focus timing).
+  useEffect(() => {
+    const added = route.params?.addedItems as AddedOrderItemWithStock[] | undefined;
+    const replaceId = route.params?.replaceOrderItemId;
+    const replaceIds = route.params?.replaceOrderItemIds;
+    const clearOrder = route.params?.clearOrder;
+    if (clearOrder) return;
+    const hasReplace = replaceId != null || (replaceIds != null && replaceIds.length > 0);
+    const addedLength = added?.length ?? 0;
+    if (addedLength === 0) return;
+
+    const nextId = orderItemsNextId.current;
+    const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
+    if (addedLength > 0 && hasReplace) {
+      if (replaceIds != null && replaceIds.length > 0) {
+        const idSet = new Set(replaceIds);
+        setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
+      } else {
+        setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
+      }
+    } else {
+      setOrderItems((prev) => [...prev, ...withIds]);
+    }
+    orderItemsNextId.current = nextId + addedLength;
+
+    const incomingLinks = route.params?.attachmentLinks;
+    const incomingUris = route.params?.attachmentUris;
+    if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
+    if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
+
+    needsAutoOpenCustomerRef.current = false;
+    navigation.setParams({
+      addedItems: undefined,
+      replaceOrderItemId: undefined,
+      replaceOrderItemIds: undefined,
+      attachmentLinks: undefined,
+      attachmentUris: undefined,
+    } as any);
+    setTimeout(() => setItemDropdownOpen(true), 250);
+  }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -690,15 +723,15 @@ export default function OrderEntry() {
     }, [orderItems.length, navigation])
   );
 
-  // Track tab index so we can clear when user switches to Order Entry from another tab.
+  // Track tab name so we can clear when user switches to Order Entry from another tab.
   useEffect(() => {
     const parent = navigation.getParent();
     if (!parent) return;
     const unsubscribe = parent.addListener('state', () => {
       const state = parent.getState();
-      const idx = state?.index ?? ORDERS_TAB_INDEX;
-      prevTabIndexRef.current = tabIndexRef.current;
-      tabIndexRef.current = idx;
+      const tabName = state?.routes[state.index]?.name ?? ORDERS_TAB_NAME;
+      prevTabNameRef.current = tabNameRef.current;
+      tabNameRef.current = tabName;
     });
     return unsubscribe;
   }, [navigation]);
@@ -793,7 +826,7 @@ export default function OrderEntry() {
           const list =
             (data?.stockItems as StockItem[] | undefined) ??
             (data?.stockitems as StockItem[] | undefined) ??
-            (Array.isArray(data?.data) ? (data.data as StockItem[]) : undefined) ??
+            (Array.isArray(data?.data) ? (data?.data as StockItem[]) : undefined) ??
             (data?.data as Record<string, unknown> | undefined)?.stockItems ??
             (data?.data as Record<string, unknown> | undefined)?.stockitems;
           const items = Array.isArray(list) ? (list as StockItem[]) : [];
@@ -866,6 +899,7 @@ export default function OrderEntry() {
 
   /** When QR/bar scan returned multiple exact matches, show only those; otherwise use full sorted list. */
   const itemListForDropdown = useMemo(() => {
+    let base: StockItem[];
     if (scannedExactMatches != null && scannedExactMatches.length > 0) {
       const list = [...scannedExactMatches];
       list.sort((a, b) => {
@@ -877,10 +911,20 @@ export default function OrderEntry() {
         if (!aAlloc && bAlloc) return 1;
         return 0;
       });
-      return list;
+      base = list;
+    } else {
+      base = sortedItemListForDropdown;
     }
-    return sortedItemListForDropdown;
-  }, [scannedExactMatches, sortedItemListForDropdown]);
+    // When show_itemshasqty is true, only show items with stock > 0 (keep "to be allocated" items always visible)
+    if (permissions.show_itemshasqty) {
+      return base.filter((item) => {
+        if (isItemToBeAllocated((item.NAME ?? '').trim())) return true;
+        const closing = (item.CLOSINGSTOCK ?? (item as any).closingstock ?? 0) || 0;
+        return Number(closing) > 0;
+      });
+    }
+    return base;
+  }, [scannedExactMatches, sortedItemListForDropdown, permissions.show_itemshasqty]);
 
   useEffect(() => {
     if (!canSelectItem && itemDropdownOpen) setItemDropdownOpen(false);
@@ -967,10 +1011,18 @@ export default function OrderEntry() {
       setItemDropdownOpen(false);
       setScannedExactMatches(null);
       navigation.navigate('OrderEntryItemDetail', {
-        item,
+        item: {
+          name: item.NAME ?? '',
+          qty: 1,
+          rate: computeRateForItem(item, selectedLedger),
+          total: Number(computeRateForItem(item, selectedLedger)),
+          unit: item.BASEUNITS ?? '',
+          stockItem: item
+        },
         selectedLedger: selectedLedger ?? undefined,
         isBatchWiseOn: isBatchWiseOnFromItem(item),
         viewOnly: route.params?.viewOnly,
+        permissions,
       });
     } else if (exactMatches.length > 1) {
       // Multiple matches: show all in dropdown
@@ -1233,7 +1285,7 @@ export default function OrderEntry() {
     }
 
     // 3) Based on Quantity
-    const totalQuantity = orderItems.reduce((s, oi) => s + (oi.qty ?? 0), 0);
+    const totalQuantity = orderItems.reduce((s, oi) => s + Number(oi.qty || 0), 0);
     let totalBasedOnQuantity = 0;
     for (const le of ledgers) {
       if ((le.METHODTYPE ?? '').trim() !== 'Based on Quantity') continue;
@@ -1741,25 +1793,29 @@ export default function OrderEntry() {
     setIsDraftMode(value);
   }, [clearOrderEntryState]);
 
-  /** When user switches to Order Entry from another tab, clear the form. When user switches away to another tab, clear immediately (including customer/voucher even if no items). */
+  /** When user switches to Order Entry from another tab, clear the form. When user switches away to another tab, clear immediately (including customer/voucher even if no items). Do not clear when returning from OrderEntryItemDetail with Add to Cart (addedItems) or Update Cart (replace params). */
   useFocusEffect(
     React.useCallback(() => {
-      if (prevTabIndexRef.current !== ORDERS_TAB_INDEX) {
+      const hasIncomingCartParams =
+        (route.params?.addedItems?.length ?? 0) > 0 ||
+        route.params?.replaceOrderItemId != null ||
+        (route.params?.replaceOrderItemIds?.length ?? 0) > 0;
+      if (prevTabNameRef.current !== ORDERS_TAB_NAME && !hasIncomingCartParams) {
         clearOrderEntryState();
       }
-      prevTabIndexRef.current = ORDERS_TAB_INDEX;
+      prevTabNameRef.current = ORDERS_TAB_NAME;
       return () => {
         const parent = navigation.getParent();
         const runAfterTabChange = () => {
           const state = parent?.getState();
-          const currentTabIndex = state?.index ?? ORDERS_TAB_INDEX;
-          if (currentTabIndex !== ORDERS_TAB_INDEX) {
+          const currentTabName = state?.routes[state.index]?.name ?? ORDERS_TAB_NAME;
+          if (currentTabName !== ORDERS_TAB_NAME) {
             clearOrderEntryState();
           }
         };
         setTimeout(runAfterTabChange, 0);
       };
-    }, [clearOrderEntryState, navigation])
+    }, [clearOrderEntryState, navigation, route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds])
   );
 
   /** Auto-open customer dropdown whenever the screen gains focus in a cleared state. */
@@ -1782,13 +1838,14 @@ export default function OrderEntry() {
       setOrderItemMenuId(null);
       if (oi.stockItem) {
         navigation.navigate('OrderEntryItemDetail', {
-          item: oi.stockItem,
+          item: oi,
           selectedLedger: selectedLedger ?? undefined,
-          editOrderItem: { id: oi.id, name: oi.name, qty: oi.qty, rate: oi.rate, discount: oi.discount, total: oi.total, stock: oi.stock, tax: oi.tax, dueDate: oi.dueDate, mfgDate: oi.mfgDate, expiryDate: oi.expiryDate, godown: oi.godown, batch: oi.batch, description: oi.description },
+          editOrderItem: { ...oi },
           isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
           viewOnly: route.params?.viewOnly,
           attachmentLinks: oi.attachmentLinks ?? [],
           attachmentUris: oi.attachmentUris ?? [],
+          permissions,
         });
       }
     },
@@ -1915,7 +1972,7 @@ export default function OrderEntry() {
                   <Icon name="magnify" size={20} color="#131313" />
                 </TouchableOpacity>
 
-                {selectedCustomer ? (
+                {selectedCustomer && permissions.show_creditdayslimit ? (
                   <View style={styles.draftCreditRow}>
                     {(() => {
                       const bal = creditLimitInfo?.CLOSINGBALANCE;
@@ -2088,9 +2145,10 @@ export default function OrderEntry() {
 
                 <View style={styles.section}>
                   <TouchableOpacity
-                    style={styles.cardRow}
-                    onPress={handleVoucherTypeClick}
-                    activeOpacity={0.7}
+                    style={[styles.cardRow, !permissions.allow_vchtype && { opacity: 0.5 }]}
+                    onPress={permissions.allow_vchtype ? handleVoucherTypeClick : undefined}
+                    activeOpacity={permissions.allow_vchtype ? 0.7 : 1}
+                    disabled={!permissions.allow_vchtype}
                     accessibilityLabel={strings.voucher_type}
                   >
                     <View style={styles.cardRowLeft}>
@@ -2183,7 +2241,7 @@ export default function OrderEntry() {
               </View>
 
               {/* Closing Balance / Credit Limit row - from api/tally/creditdayslimit when customer selected */}
-              {selectedCustomer ? (
+              {selectedCustomer && permissions.show_creditdayslimit ? (
                 <View style={styles.balanceCreditRow}>
                   {(() => {
                     const bal = creditLimitInfo?.CLOSINGBALANCE;
@@ -2399,21 +2457,27 @@ export default function OrderEntry() {
                                         );
                                       })()
                                     ) : null}
-                                    {!(group as { isAllocItem?: boolean }).isAllocItem && formatStockTaxLine(group.stock, group.tax) ? (
-                                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, width: '100%' }}>
-                                        {group.stock != null && String(group.stock).trim() !== '' ? (
-                                          <TouchableOpacity onPress={() => setStockBreakdownItem(group.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
-                                            <Text style={styles.orderItemStockTaxLine}>Stock: <Text style={styles.orderItemStockLink}>{group.stock}</Text></Text>
-                                          </TouchableOpacity>
-                                        ) : null}
-                                        {group.stock != null && String(group.stock).trim() !== '' && group.tax != null && String(group.tax).trim() !== '' ? (
-                                          <Text style={styles.orderItemStockTaxLine}> | </Text>
-                                        ) : null}
-                                        {group.tax != null && String(group.tax).trim() !== '' ? (
-                                          <Text style={styles.orderItemStockTaxLine}>Tax%: {group.tax}%</Text>
-                                        ) : null}
-                                      </View>
-                                    ) : null}
+                                    {!(group as { isAllocItem?: boolean }).isAllocItem && (() => {
+                                      const showStock = (permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) && group.stock != null && String(group.stock).trim() !== '';
+                                      const showTax = group.tax != null && String(group.tax).trim() !== '';
+                                      if (!showStock && !showTax) return null;
+                                      const stockDisplay = permissions.show_ClsStck_yesno ? (Number(group.stock) > 0 ? 'Yes' : 'No') : group.stock;
+                                      return (
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, width: '100%' }}>
+                                          {showStock ? (
+                                            <TouchableOpacity onPress={() => setStockBreakdownItem(group.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
+                                              <Text style={styles.orderItemStockTaxLine}>Stock: <Text style={styles.orderItemStockLink}>{stockDisplay}</Text></Text>
+                                            </TouchableOpacity>
+                                          ) : null}
+                                          {showStock && showTax ? (
+                                            <Text style={styles.orderItemStockTaxLine}> | </Text>
+                                          ) : null}
+                                          {showTax ? (
+                                            <Text style={styles.orderItemStockTaxLine}>Tax%: {group.tax}%</Text>
+                                          ) : null}
+                                        </View>
+                                      );
+                                    })()}
                                   </View>
                                 </View>
                               </TouchableOpacity>
@@ -2426,7 +2490,7 @@ export default function OrderEntry() {
                                       const first = group.items[0];
                                       if (first?.stockItem) {
                                         navigation.navigate('OrderEntryItemDetail', {
-                                          item: first.stockItem,
+                                          item: { ...first, stockItem: first.stockItem },
                                           selectedLedger: selectedLedger ?? undefined,
                                           editOrderItems: group.items.map((oi) => ({
                                             id: oi.id,
@@ -2450,6 +2514,7 @@ export default function OrderEntry() {
                                           viewOnly: route.params?.viewOnly,
                                           attachmentLinks: first.attachmentLinks ?? [],
                                           attachmentUris: first.attachmentUris ?? [],
+                                          permissions,
                                         });
                                       }
                                     }}
@@ -2467,30 +2532,34 @@ export default function OrderEntry() {
                                   >
                                     <Text style={styles.orderItemMenuItemText}>Delete</Text>
                                   </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={styles.orderItemMenuItem}
-                                    onPress={() => {
-                                      if (group.items[0]) {
-                                        setOrderItemGroupMenuName(null);
-                                        handleOrderItemEditDueDate(group.items[0]);
-                                      }
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={styles.orderItemMenuItem}
-                                    onPress={() => {
-                                      if (group.items[0]) {
-                                        setOrderItemGroupMenuName(null);
-                                        handleOrderItemEditDescription(group.items[0]);
-                                      }
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Text style={styles.orderItemMenuItemText}>Edit description</Text>
-                                  </TouchableOpacity>
+                                  {permissions.show_ordduedate ? (
+                                    <TouchableOpacity
+                                      style={styles.orderItemMenuItem}
+                                      onPress={() => {
+                                        if (group.items[0]) {
+                                          setOrderItemGroupMenuName(null);
+                                          handleOrderItemEditDueDate(group.items[0]);
+                                        }
+                                      }}
+                                      activeOpacity={0.7}
+                                    >
+                                      <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                  {permissions.show_itemdesc ? (
+                                    <TouchableOpacity
+                                      style={styles.orderItemMenuItem}
+                                      onPress={() => {
+                                        if (group.items[0]) {
+                                          setOrderItemGroupMenuName(null);
+                                          handleOrderItemEditDescription(group.items[0]);
+                                        }
+                                      }}
+                                      activeOpacity={0.7}
+                                    >
+                                      <Text style={styles.orderItemMenuItemText}>Edit description</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
                                 </View>
                               ) : null}
                               {isExpanded ? (
@@ -2571,7 +2640,7 @@ export default function OrderEntry() {
                                                 setOrderItemMenuId(null);
                                                 if (oi.stockItem) {
                                                   navigation.navigate('OrderEntryItemDetail', {
-                                                    item: oi.stockItem,
+                                                    item: { ...oi, stockItem: oi.stockItem },
                                                     selectedLedger: selectedLedger ?? undefined,
                                                     editOrderItems: group.items.map((child) => ({
                                                       id: child.id,
@@ -2591,11 +2660,12 @@ export default function OrderEntry() {
                                                       attachmentLinks: child.attachmentLinks,
                                                       attachmentUris: child.attachmentUris,
                                                     })),
-                                                    editOrderItem: { id: oi.id, name: oi.name, qty: oi.qty, rate: oi.rate, discount: oi.discount, total: oi.total, stock: oi.stock, tax: oi.tax, dueDate: oi.dueDate, mfgDate: oi.mfgDate, expiryDate: oi.expiryDate, godown: oi.godown, batch: oi.batch, description: oi.description },
+                                                    editOrderItem: { ...oi },
                                                     isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
                                                     viewOnly: route.params?.viewOnly,
                                                     attachmentLinks: oi.attachmentLinks ?? [],
                                                     attachmentUris: oi.attachmentUris ?? [],
+                                                    permissions,
                                                   });
                                                 }
                                               }}
@@ -2606,12 +2676,16 @@ export default function OrderEntry() {
                                             <TouchableOpacity style={styles.orderItemMenuItem} onPress={() => handleOrderItemDelete(oi)} activeOpacity={0.7}>
                                               <Text style={styles.orderItemMenuItemText}>Delete</Text>
                                             </TouchableOpacity>
-                                            <TouchableOpacity style={styles.orderItemMenuItem} onPress={() => handleOrderItemEditDueDate(oi)} activeOpacity={0.7}>
-                                              <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity style={styles.orderItemMenuItem} onPress={() => handleOrderItemEditDescription(oi)} activeOpacity={0.7}>
-                                              <Text style={styles.orderItemMenuItemText}>Edit description</Text>
-                                            </TouchableOpacity>
+                                            {permissions.show_ordduedate ? (
+                                              <TouchableOpacity style={styles.orderItemMenuItem} onPress={() => handleOrderItemEditDueDate(oi)} activeOpacity={0.7}>
+                                                <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
+                                              </TouchableOpacity>
+                                            ) : null}
+                                            {permissions.show_itemdesc ? (
+                                              <TouchableOpacity style={styles.orderItemMenuItem} onPress={() => handleOrderItemEditDescription(oi)} activeOpacity={0.7}>
+                                                <Text style={styles.orderItemMenuItemText}>Edit description</Text>
+                                              </TouchableOpacity>
+                                            ) : null}
                                           </View>
                                         ) : null}
                                       </View>
@@ -2711,20 +2785,20 @@ export default function OrderEntry() {
                             <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
                               {methodType === 'As Total Amount Rounding' ? ''
                                 : (() => {
-                                    const formatPct = (n: number) => {
-                                      if (!Number.isFinite(n)) return '0';
-                                      if (n === Math.round(n)) return String(Math.round(n));
-                                      return n.toFixed(2).replace(/\.?0+$/, '');
-                                    };
-                                    const configRate = methodType === 'GST'
-                                      ? (ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE'))
-                                      : ledgerNum(le, 'CLASSRATE');
-                                    if (configRate > 0) return `${formatPct(configRate)}%`;
-                                    if (calculatedLedgerAmounts.subtotal > 0 && amount > 0) {
-                                      return `${formatPct((amount / calculatedLedgerAmounts.subtotal) * 100)}%`;
-                                    }
-                                    return configRate === 0 ? '0%' : `${formatPct(configRate)}%`;
-                                  })()}
+                                  const formatPct = (n: number) => {
+                                    if (!Number.isFinite(n)) return '0';
+                                    if (n === Math.round(n)) return String(Math.round(n));
+                                    return n.toFixed(2).replace(/\.?0+$/, '');
+                                  };
+                                  const configRate = methodType === 'GST'
+                                    ? (ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE'))
+                                    : ledgerNum(le, 'CLASSRATE');
+                                  if (configRate > 0) return `${formatPct(configRate)}%`;
+                                  if (calculatedLedgerAmounts.subtotal > 0 && amount > 0) {
+                                    return `${formatPct((amount / calculatedLedgerAmounts.subtotal) * 100)}%`;
+                                  }
+                                  return configRate === 0 ? '0%' : `${formatPct(configRate)}%`;
+                                })()}
                             </Text>
                             <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>₹{amount.toFixed(2)}</Text>
                           </View>
@@ -3858,10 +3932,18 @@ export default function OrderEntry() {
                       setItemDropdownOpen(false);
                       setScannedExactMatches(null);
                       navigation.navigate('OrderEntryItemDetail', {
-                        item,
+                        item: {
+                          name: item.NAME ?? '',
+                          qty: 1,
+                          rate: computeRateForItem(item, selectedLedger),
+                          total: Number(computeRateForItem(item, selectedLedger)),
+                          unit: item.BASEUNITS ?? '',
+                          stockItem: item
+                        },
                         selectedLedger: selectedLedger ?? undefined,
                         isBatchWiseOn: isBatchWiseOnFromItem(item),
                         viewOnly: route.params?.viewOnly,
+                        permissions,
                       });
                     }}
                     activeOpacity={0.7}
@@ -3870,15 +3952,25 @@ export default function OrderEntry() {
                       <Text style={sharedStyles.modalOptTxt} numberOfLines={2}>
                         {name}
                       </Text>
-                      {!isAlloc && (
+                      {!isAlloc && (permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno || permissions.show_rateamt_Column) && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                          <Text style={{ fontSize: 12, color: colors.text_gray }}>Stock Available: </Text>
-                          <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>{String(closing)}</Text>
-                          <Text style={{ fontSize: 12, color: colors.text_gray, marginHorizontal: 4 }}>|</Text>
-                          <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
-                          <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
-                            ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
-                          </Text>
+                          {(permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) ? (
+                            <>
+                              <Text style={{ fontSize: 12, color: colors.text_gray }}>Stock Available: </Text>
+                              <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>{permissions.show_ClsStck_yesno ? (Number(closing) > 0 ? 'Yes' : 'No') : String(closing)}</Text>
+                            </>
+                          ) : null}
+                          {(permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) && permissions.show_rateamt_Column ? (
+                            <Text style={{ fontSize: 12, color: colors.text_gray, marginHorizontal: 4 }}>|</Text>
+                          ) : null}
+                          {permissions.show_rateamt_Column ? (
+                            <>
+                              <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
+                              <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
+                                ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
+                              </Text>
+                            </>
+                          ) : null}
                         </View>
                       )}
                     </View>

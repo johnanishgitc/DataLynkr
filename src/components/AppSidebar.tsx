@@ -31,6 +31,7 @@ import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { REPORT_OPTIONS } from '../screens/ledger';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
 
@@ -68,6 +69,18 @@ export function AppSidebar({
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
   const { logout } = useAuth();
+  const { moduleAccess } = useModuleAccess();
+
+  const getModuleKey = (target: string) => {
+    switch (target) {
+      case 'SalesTab': return 'sales_dashboard';
+      case 'OrdersTab': return 'place_order';
+      case 'LedgerTab': return 'ledger_book';
+      case 'ApprovalsTab': return 'approvals';
+      case 'StockSummaryTab': return 'stock_summary';
+      default: return null;
+    }
+  };
 
   // Company dropdown state
   const [companies, setCompanies] = useState<UserConnection[]>([]);
@@ -300,13 +313,17 @@ export function AppSidebar({
                 const isDashboard = item.id === 'sales' && item.label === 'Dashboard';
                 const isLedger = item.id === 'ledger' && item.label === 'Ledger Reports';
                 const hasChevron = item.params && (item.params as any).hasChevron;
+
+                const modKey = getModuleKey(item.target);
+                const isEnabled = modKey ? !!moduleAccess[modKey] : true;
+
                 if (isDashboard) {
                   return (
-                    <View style={[styles.dashboardBlock, dashboardExpanded && styles.dashboardBlockExpanded]}>
+                    <View style={[styles.dashboardBlock, dashboardExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
                         style={styles.row}
-                        onPress={() => setDashboardExpanded(!dashboardExpanded)}
-                        activeOpacity={0.7}
+                        onPress={isEnabled ? () => setDashboardExpanded(!dashboardExpanded) : undefined}
+                        activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
                           <Icon name={item.icon} size={24} color="#d1d5dc" />
@@ -341,11 +358,11 @@ export function AppSidebar({
                 }
                 if (isLedger) {
                   return (
-                    <View style={[styles.dashboardBlock, ledgerExpanded && styles.dashboardBlockExpanded]}>
+                    <View style={[styles.dashboardBlock, ledgerExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
                         style={styles.row}
-                        onPress={() => setLedgerExpanded(!ledgerExpanded)}
-                        activeOpacity={0.7}
+                        onPress={isEnabled ? () => setLedgerExpanded(!ledgerExpanded) : undefined}
+                        activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
                           <Icon name={item.icon} size={24} color="#d1d5dc" />
@@ -376,9 +393,9 @@ export function AppSidebar({
                 }
                 return (
                   <TouchableOpacity
-                    style={styles.row}
-                    onPress={() => onItemPress(item)}
-                    activeOpacity={0.7}
+                    style={[styles.row, !isEnabled && { opacity: 0.4 }]}
+                    onPress={isEnabled ? () => onItemPress(item) : undefined}
+                    activeOpacity={isEnabled ? 0.7 : 1}
                   >
                     <View style={styles.rowIconContainer}>
                       <Icon
@@ -394,15 +411,7 @@ export function AppSidebar({
                   </TouchableOpacity>
                 );
               }}
-              ListFooterComponent={() => (
-                <TouchableOpacity style={styles.customizeBtn} activeOpacity={0.7}>
-                  <View style={styles.rowIconContainer}>
-                    <Icon name="tune-variant" size={24} color="#ffffff" />
-                  </View>
-                  <Text style={styles.customizeText}>Customize shortcuts</Text>
-                  <Icon name="chevron-right" size={20} color="#ffffff" />
-                </TouchableOpacity>
-              )}
+              ListFooterComponent={() => null}
             />
 
             {/* Logout button at bottom */}
