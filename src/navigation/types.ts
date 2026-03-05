@@ -48,16 +48,12 @@ export type LedgerStackParamList = {
 
 /** Item added from Order Entry Item Detail and shown on Order Entry (OE1.2). */
 export type AddedOrderItem = {
+  id?: number;
   name: string;
-  qty: string;
-  rate: string;
+  qty: string | number;
+  rate: string | number;
   total: number;
   unit: string;
-};
-
-export type AddedOrderItemWithStock = AddedOrderItem & {
-  stockItem?: StockItem;
-  id?: number;
   discount?: number;
   stock?: number;
   tax?: number;
@@ -69,6 +65,10 @@ export type AddedOrderItemWithStock = AddedOrderItem & {
   description?: string;
   attachmentLinks?: string[];
   attachmentUris?: string[];
+};
+
+export type AddedOrderItemWithStock = AddedOrderItem & {
+  stockItem?: StockItem;
 };
 
 export type OrdersStackParamList = {
@@ -86,7 +86,7 @@ export type OrdersStackParamList = {
     attachmentUris?: string[];
   };
   OrderEntryItemDetail: {
-    item?: AddedOrderItem;
+    item?: AddedOrderItemWithStock;
     index?: number;
     selectedLedger?: LedgerItem;
     /** When editing a single batch. */
@@ -129,6 +129,8 @@ export type OrdersStackParamList = {
     }>;
     isBatchWiseOn?: boolean;
     viewOnly?: boolean;
+    /** Place-order access-control permissions passed from OrderEntry */
+    permissions?: import('../hooks/useUserAccess').PlaceOrderPermissions;
   };
   OrderSuccess: {
     orderNo?: string;

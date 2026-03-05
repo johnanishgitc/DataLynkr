@@ -11,6 +11,7 @@ import SummaryStack from './SummaryStack';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import FooterTabBar from '../components/FooterTabBar';
+import { ModuleAccessProvider } from '../store/ModuleAccessContext';
 import HomeIcon from '../components/footer-icons/HomeIcon';
 import OrdersIcon from '../components/footer-icons/OrdersIcon';
 import LedgerIcon from '../components/footer-icons/LedgerIcon';
@@ -48,56 +49,58 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
 export default function MainTabs() {
   return (
-    <Tab.Navigator
-      tabBar={(props) => <FooterTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: colors.footer_active,
-        tabBarInactiveTintColor: colors.footer_text,
-      }}
-    >
-      <Tab.Screen
-        name="HomeTab"
-        component={HomeStack}
-        options={{
-          title: strings.home,
-          tabBarIcon: ({ focused }) => <TabIcon name="home" focused={focused} />,
+    <ModuleAccessProvider>
+      <Tab.Navigator
+        tabBar={(props) => <FooterTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: colors.footer_active,
+          tabBarInactiveTintColor: colors.footer_text,
         }}
-      />
-      <Tab.Screen
-        name="OrdersTab"
-        component={OrdersStack}
-        options={({ route }) => ({
-          title: strings.orders,
-          tabBarIcon: ({ focused }) => <TabIcon name="orders" focused={focused} />,
-          tabBarStyle: ordersTabBarStyle({ route }),
-        })}
-      />
-      <Tab.Screen
-        name="LedgerTab"
-        component={LedgerStack}
-        options={{
-          title: strings.ledger,
-          tabBarIcon: ({ focused }) => <TabIcon name="ledger" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="ApprovalsTab"
-        component={ApprovalsStack}
-        options={{
-          title: strings.approvals,
-          tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="SummaryTab"
-        component={SummaryStack}
-        options={{
-          title: strings.summary,
-          tabBarIcon: ({ focused }) => <TabIcon name="summary" focused={focused} />,
-        }}
-      />
-    </Tab.Navigator>
+      >
+        <Tab.Screen
+          name="HomeTab"
+          component={HomeStack}
+          options={{
+            title: strings.home,
+            tabBarIcon: ({ focused }) => <TabIcon name="home" focused={focused} />,
+          }}
+        />
+        <Tab.Screen
+          name="OrdersTab"
+          component={OrdersStack}
+          options={({ route }) => ({
+            title: strings.orders,
+            tabBarIcon: ({ focused }) => <TabIcon name="orders" focused={focused} />,
+            tabBarStyle: ordersTabBarStyle({ route }),
+          })}
+        />
+        <Tab.Screen
+          name="LedgerTab"
+          component={LedgerStack}
+          options={{
+            title: strings.ledger,
+            tabBarIcon: ({ focused }) => <TabIcon name="ledger" focused={focused} />,
+          }}
+        />
+        <Tab.Screen
+          name="ApprovalsTab"
+          component={ApprovalsStack}
+          options={{
+            title: strings.approvals,
+            tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
+          }}
+        />
+        <Tab.Screen
+          name="SummaryTab"
+          component={SummaryStack}
+          options={{
+            title: strings.summary,
+            tabBarIcon: ({ focused }) => <TabIcon name="summary" focused={focused} />,
+          }}
+        />
+      </Tab.Navigator>
+    </ModuleAccessProvider>
   );
 }
 

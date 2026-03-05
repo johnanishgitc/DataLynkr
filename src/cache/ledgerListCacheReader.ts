@@ -48,7 +48,7 @@ function normalizeToLedgerListResponse(raw: unknown): LedgerListResponse | null 
   // Unwrap axios response: { data: LedgerListResponse }
   const inner = (obj.data as Record<string, unknown> | undefined) ?? obj;
   const list = (inner.ledgers as unknown[] | undefined) ?? (inner.data as unknown[] | undefined);
-  const arr = Array.isArray(list) ? list : [];
+  const arr = Array.isArray(list) ? (list as import('../api/models/ledger').LedgerItem[]) : [];
   return { ledgers: arr };
 }
 
@@ -122,5 +122,37 @@ export async function getLedgerListFromDataManagementCache(): Promise<LedgerList
   } catch (e) {
     console.warn('[ledgerListCacheReader] getLedgerListFromDataManagementCache failed:', e);
     return null;
+  }
+}
+
+/**
+ * Save ledger list (customers) to Data Management cache for the current user.
+ * Used when fetching customers in the background (e.g. from Order Entry when list is empty).
+ * Invalidates in-memory names cache so next read is fresh.
+ */
+export async function saveLedgerListToDataManagementCache(response: LedgerListResponse): Promise<void> {
+  try {
+    const [email, tallylocId, guid] = await Promise.all([
+      getUserEmail(),
+      getTallylocId(),
+      getGuid(),
+    ]);
+    if (!email || !guid || tallylocId == null || tallylocId === 0) return;
+    const cacheKey = getLedgerListCacheKey(email, guid, tallylocId);
+    const normalized = normalizeToLedgerListResponse(response);
+    const list = normalized?.ledgers ?? [];
+    const names = list.map((i) => String((i as { NAME?: string | null }).NAME ?? (i as { name?: string }).name ?? '').trim()).filter(Boolean);
+    const database = await getDatabase();
+    const dataJson = JSON.stringify(response);
+    const namesJson = JSON.stringify(names);
+    const createdAt = new Date().toISOString();
+    await database.executeSql(
+      `INSERT OR REPLACE INTO ${CUSTOMERS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
+      [cacheKey, dataJson, createdAt, namesJson]
+    );
+    namesMemoryCache = null;
+  } catch (e) {
+    console.warn('[ledgerListCacheReader] saveLedgerListToDataManagementCache failed:', e);
+    throw e;
   }
 }

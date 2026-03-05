@@ -31,7 +31,7 @@ export async function requestStoragePermission(): Promise<boolean> {
       const readGranted = await PermissionsAndroid.check(
         PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE
       );
-      
+
       if (readGranted) {
         console.log('[PERMISSIONS] READ_EXTERNAL_STORAGE already granted');
         return true;
@@ -123,13 +123,13 @@ export async function requestBackgroundPermissions(): Promise<void> {
   try {
     // Check if we've already prompted the user (to avoid showing alert every time)
     const hasPrompted = await AsyncStorage.getItem(PERMISSION_PROMPTED_KEY);
-    
+
     if (Platform.OS === 'android') {
       await requestAndroidBackgroundPermissions(hasPrompted === null);
     } else if (Platform.OS === 'ios') {
       await requestIOSBackgroundPermissions(hasPrompted === null);
     }
-    
+
     // Mark that we've prompted the user
     if (hasPrompted === null) {
       await AsyncStorage.setItem(PERMISSION_PROMPTED_KEY, 'true');
@@ -148,7 +148,7 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
     // that can be checked/requested through react-native-permissions. It requires
     // opening a system settings dialog, which must be handled through native code.
     // For now, we'll guide the user to enable it manually in settings.
-    
+
     if (showAlert) {
       Alert.alert(
         'Background Usage Permission',
@@ -169,9 +169,9 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
     // 1. Battery optimization settings (handled above)
     // 2. Data saver mode (can be checked but requires system-level access)
     // 3. Background app refresh (Android 12+)
-    
+
     // For Android 12+, we can also check background app refresh
-    if (Platform.Version >= 31) {
+    if (Number(Platform.Version) >= 31) {
       // Android 12+ has background app refresh permission
       // This is handled through system settings, but we can guide the user
       console.log('Android 12+ detected - background app refresh should be enabled in system settings');
@@ -190,11 +190,11 @@ async function requestIOSBackgroundPermissions(showAlert: boolean = true): Promi
     // We can't directly request it via permissions API, but we can:
     // 1. Check if it's enabled (requires native module or Settings API)
     // 2. Guide user to enable it in Settings
-    
+
     // iOS doesn't have a direct permission for background app refresh
     // It's controlled through Settings > General > Background App Refresh
     // We can open settings to guide the user
-    
+
     if (showAlert) {
       Alert.alert(
         'Background App Refresh',

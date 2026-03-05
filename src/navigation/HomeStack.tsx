@@ -11,7 +11,7 @@ export default function HomeStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="SalesDashboard">
       <Stack.Screen name="SalesDashboard" component={SalesDashboard} options={{ title: 'Sales Dashboard', headerShown: false }} />
       <Stack.Screen name="DataManagement" component={DataManagement} options={{ title: 'Data Management', headerShown: false }} />
-      <Stack.Screen name="ComingSoon" component={ComingSoon} options={{ title: 'Coming Soon', headerShown: true }} />
+      <Stack.Screen name="ComingSoon" component={ComingSoon} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

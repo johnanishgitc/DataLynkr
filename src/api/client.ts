@@ -312,6 +312,10 @@ export const apiService = {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
     }),
+
+  /** User access permissions (access-control/user-access) for module & field-level controls */
+  getUserAccess: (params: { tallylocId: number | string; co_guid: string }) =>
+    getApi().get('api/access-control/user-access', { params }),
 };
 
 export default apiService;

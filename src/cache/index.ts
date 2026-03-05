@@ -5,6 +5,7 @@ export { checkIncompleteDownload, clearDownloadProgress, isDownloadComplete } fr
 export {
   getLedgerListFromDataManagementCache,
   getLedgerListNamesFromDataManagementCache,
+  saveLedgerListToDataManagementCache,
 } from './ledgerListCacheReader';
 export {
   getStockItemsFromDataManagementCache,
