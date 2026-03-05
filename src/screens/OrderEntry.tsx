@@ -160,8 +160,8 @@ const DUMMY_ITEM_TO_BE_ALLOCATED: StockItem = {
   STDPRICE: null,
 };
 
-/** Index of OrdersTab in MainTabs (HomeTab=0, OrdersTab=1, LedgerTab=2, ApprovalsTab=3, SummaryTab=4). */
-const ORDERS_TAB_INDEX = 1;
+/** Index of OrdersTab in MainTabs */
+const ORDERS_TAB_NAME = 'OrdersTab';
 
 /** Indian states and UTs for Place of supply dropdown (Buyer details). */
 const INDIAN_STATES = [
@@ -268,8 +268,8 @@ export default function OrderEntry() {
   const [clearAllConfirmVisible, setClearAllConfirmVisible] = useState(false);
   const [leaveConfirmVisible, setLeaveConfirmVisible] = useState(false);
   const pendingLeaveActionRef = useRef<(() => void) | null>(null);
-  const tabIndexRef = useRef(ORDERS_TAB_INDEX);
-  const prevTabIndexRef = useRef(ORDERS_TAB_INDEX);
+  const tabNameRef = useRef(ORDERS_TAB_NAME);
+  const prevTabNameRef = useRef(ORDERS_TAB_NAME);
   /** When true, the next focus event will auto-open the customer dropdown. Set on mount and every clear. */
   const needsAutoOpenCustomerRef = useRef(true);
   const [stockBreakdownItem, setStockBreakdownItem] = useState<string | null>(null);
@@ -636,11 +636,9 @@ export default function OrderEntry() {
     }, [isDraftMode])
   );
 
+  // Clear order only when explicitly requested (e.g. Order Success, tab switch) — run on focus.
   useFocusEffect(
     React.useCallback(() => {
-      const added = route.params?.addedItems as AddedOrderItemWithStock[] | undefined;
-      const replaceId = route.params?.replaceOrderItemId;
-      const replaceIds = route.params?.replaceOrderItemIds;
       const clearOrder = route.params?.clearOrder;
       const openInDraftMode = route.params?.openInDraftMode;
       if (clearOrder) {
@@ -660,65 +658,55 @@ export default function OrderEntry() {
         setAttachmentUris([]);
         setAttachmentLinks([]);
         setDraftAttachmentDeleteIdx(null);
-        // Open customer dropdown after state is applied, then clear params (clearing params first would re-run this effect and skip the open)
         const openDropdownTimer = setTimeout(() => {
           setCustomerDropdownOpen(true);
           navigation.setParams({ clearOrder: undefined, openInDraftMode: undefined });
         }, 250);
         return () => clearTimeout(openDropdownTimer);
       }
-      // When returning from Item Detail with "Update Cart": apply cart replacement so changes are accepted for both item-to-be-allocated and other items.
-      const hasReplace = replaceId != null || (replaceIds != null && replaceIds.length > 0);
-      const addedLength = added?.length ?? 0;
-      if (addedLength > 0 && hasReplace) {
-        const nextId = orderItemsNextId.current;
-        const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
-        if (replaceIds != null && replaceIds.length > 0) {
-          const idSet = new Set(replaceIds);
-          setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
-        } else {
-          setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
-        }
-        orderItemsNextId.current = nextId + addedLength;
-        navigation.setParams({ addedItems: undefined, replaceOrderItemId: undefined, replaceOrderItemIds: undefined });
-        // Apply attachments from Item Detail (e.g. "item to be allocated") so they're not lost
-        const incomingLinks = route.params?.attachmentLinks;
-        const incomingUris = route.params?.attachmentUris;
-        if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
-        if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
-        navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
-        needsAutoOpenCustomerRef.current = false;
-        setTimeout(() => setItemDropdownOpen(true), 250);
-        return;
-      }
-      // Add to cart (no replace) or legacy path: handle attachments then add items
-      const incomingLinks = route.params?.attachmentLinks;
-      const incomingUris = route.params?.attachmentUris;
-
-      if (incomingLinks !== undefined || incomingUris !== undefined) {
-        if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
-        if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
-        navigation.setParams({ attachmentLinks: undefined, attachmentUris: undefined } as any);
-      }
-      if (addedLength > 0) {
-        const nextId = orderItemsNextId.current;
-        const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
-        if (replaceIds != null && replaceIds.length > 0) {
-          const idSet = new Set(replaceIds);
-          setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
-        } else if (replaceId != null) {
-          setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
-        } else {
-          setOrderItems((prev) => [...prev, ...withIds]);
-        }
-        orderItemsNextId.current = nextId + addedLength;
-        navigation.setParams({ addedItems: undefined, replaceOrderItemId: undefined, replaceOrderItemIds: undefined });
-        needsAutoOpenCustomerRef.current = false;
-        // Coming back from Item Detail (Add to Cart): open items dropdown so user can add more
-        setTimeout(() => setItemDropdownOpen(true), 250);
-      }
-    }, [route.params])
+    }, [route.params?.clearOrder, route.params?.openInDraftMode, navigation])
   );
+
+  // Process Add to Cart / Update Cart params when they appear (useEffect so we run after route has params, not dependent on focus timing).
+  useEffect(() => {
+    const added = route.params?.addedItems as AddedOrderItemWithStock[] | undefined;
+    const replaceId = route.params?.replaceOrderItemId;
+    const replaceIds = route.params?.replaceOrderItemIds;
+    const clearOrder = route.params?.clearOrder;
+    if (clearOrder) return;
+    const hasReplace = replaceId != null || (replaceIds != null && replaceIds.length > 0);
+    const addedLength = added?.length ?? 0;
+    if (addedLength === 0) return;
+
+    const nextId = orderItemsNextId.current;
+    const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
+    if (addedLength > 0 && hasReplace) {
+      if (replaceIds != null && replaceIds.length > 0) {
+        const idSet = new Set(replaceIds);
+        setOrderItems((prev) => [...prev.filter((i) => !idSet.has(i.id)), ...withIds]);
+      } else {
+        setOrderItems((prev) => [...prev.filter((i) => i.id !== replaceId), ...withIds]);
+      }
+    } else {
+      setOrderItems((prev) => [...prev, ...withIds]);
+    }
+    orderItemsNextId.current = nextId + addedLength;
+
+    const incomingLinks = route.params?.attachmentLinks;
+    const incomingUris = route.params?.attachmentUris;
+    if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
+    if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
+
+    needsAutoOpenCustomerRef.current = false;
+    navigation.setParams({
+      addedItems: undefined,
+      replaceOrderItemId: undefined,
+      replaceOrderItemIds: undefined,
+      attachmentLinks: undefined,
+      attachmentUris: undefined,
+    } as any);
+    setTimeout(() => setItemDropdownOpen(true), 250);
+  }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -735,15 +723,15 @@ export default function OrderEntry() {
     }, [orderItems.length, navigation])
   );
 
-  // Track tab index so we can clear when user switches to Order Entry from another tab.
+  // Track tab name so we can clear when user switches to Order Entry from another tab.
   useEffect(() => {
     const parent = navigation.getParent();
     if (!parent) return;
     const unsubscribe = parent.addListener('state', () => {
       const state = parent.getState();
-      const idx = state?.index ?? ORDERS_TAB_INDEX;
-      prevTabIndexRef.current = tabIndexRef.current;
-      tabIndexRef.current = idx;
+      const tabName = state?.routes[state.index]?.name ?? ORDERS_TAB_NAME;
+      prevTabNameRef.current = tabNameRef.current;
+      tabNameRef.current = tabName;
     });
     return unsubscribe;
   }, [navigation]);
@@ -1805,25 +1793,29 @@ export default function OrderEntry() {
     setIsDraftMode(value);
   }, [clearOrderEntryState]);
 
-  /** When user switches to Order Entry from another tab, clear the form. When user switches away to another tab, clear immediately (including customer/voucher even if no items). */
+  /** When user switches to Order Entry from another tab, clear the form. When user switches away to another tab, clear immediately (including customer/voucher even if no items). Do not clear when returning from OrderEntryItemDetail with Add to Cart (addedItems) or Update Cart (replace params). */
   useFocusEffect(
     React.useCallback(() => {
-      if (prevTabIndexRef.current !== ORDERS_TAB_INDEX) {
+      const hasIncomingCartParams =
+        (route.params?.addedItems?.length ?? 0) > 0 ||
+        route.params?.replaceOrderItemId != null ||
+        (route.params?.replaceOrderItemIds?.length ?? 0) > 0;
+      if (prevTabNameRef.current !== ORDERS_TAB_NAME && !hasIncomingCartParams) {
         clearOrderEntryState();
       }
-      prevTabIndexRef.current = ORDERS_TAB_INDEX;
+      prevTabNameRef.current = ORDERS_TAB_NAME;
       return () => {
         const parent = navigation.getParent();
         const runAfterTabChange = () => {
           const state = parent?.getState();
-          const currentTabIndex = state?.index ?? ORDERS_TAB_INDEX;
-          if (currentTabIndex !== ORDERS_TAB_INDEX) {
+          const currentTabName = state?.routes[state.index]?.name ?? ORDERS_TAB_NAME;
+          if (currentTabName !== ORDERS_TAB_NAME) {
             clearOrderEntryState();
           }
         };
         setTimeout(runAfterTabChange, 0);
       };
-    }, [clearOrderEntryState, navigation])
+    }, [clearOrderEntryState, navigation, route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds])
   );
 
   /** Auto-open customer dropdown whenever the screen gains focus in a cleared state. */

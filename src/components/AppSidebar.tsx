@@ -411,15 +411,7 @@ export function AppSidebar({
                   </TouchableOpacity>
                 );
               }}
-              ListFooterComponent={() => (
-                <TouchableOpacity style={styles.customizeBtn} activeOpacity={0.7}>
-                  <View style={styles.rowIconContainer}>
-                    <Icon name="tune-variant" size={24} color="#ffffff" />
-                  </View>
-                  <Text style={styles.customizeText}>Customize shortcuts</Text>
-                  <Icon name="chevron-right" size={20} color="#ffffff" />
-                </TouchableOpacity>
-              )}
+              ListFooterComponent={() => null}
             />
 
             {/* Logout button at bottom */}

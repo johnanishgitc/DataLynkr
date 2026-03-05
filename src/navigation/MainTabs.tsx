@@ -12,7 +12,7 @@ import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import FooterTabBar from '../components/FooterTabBar';
 import { ModuleAccessProvider } from '../store/ModuleAccessContext';
-import HomeIcon from '../components/footer-icons/HomeIcon';
+// import HomeIcon from '../components/footer-icons/HomeIcon';
 import OrdersIcon from '../components/footer-icons/OrdersIcon';
 import LedgerIcon from '../components/footer-icons/LedgerIcon';
 import ApprovalsIcon from '../components/footer-icons/ApprovalsIcon';
@@ -32,8 +32,8 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const iconColor = focused ? colors.footer_active : colors.footer_text;
 
   switch (name) {
-    case 'home':
-      return <HomeIcon color={iconColor} size={24} />;
+    // case 'home':
+    //   return <HomeIcon color={iconColor} size={24} />;
     case 'orders':
       return <OrdersIcon color={iconColor} size={24} />;
     case 'ledger':
@@ -51,6 +51,7 @@ export default function MainTabs() {
   return (
     <ModuleAccessProvider>
       <Tab.Navigator
+        initialRouteName="OrdersTab"
         tabBar={(props) => <FooterTabBar {...props} />}
         screenOptions={{
           headerShown: false,
@@ -58,6 +59,7 @@ export default function MainTabs() {
           tabBarInactiveTintColor: colors.footer_text,
         }}
       >
+        {/* Home tab commented out for now
         <Tab.Screen
           name="HomeTab"
           component={HomeStack}
@@ -66,6 +68,7 @@ export default function MainTabs() {
             tabBarIcon: ({ focused }) => <TabIcon name="home" focused={focused} />,
           }}
         />
+        */}
         <Tab.Screen
           name="OrdersTab"
           component={OrdersStack}
