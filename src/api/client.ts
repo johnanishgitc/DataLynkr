@@ -315,7 +315,10 @@ export const apiService = {
 
   /** User access permissions (access-control/user-access) for module & field-level controls */
   getUserAccess: (params: { tallylocId: number | string; co_guid: string }) =>
-    getApi().get('api/access-control/user-access', { params }),
+    getApi().get('api/access-control/user-access', {
+      params: { ...params, _t: Date.now() },
+      headers: { 'Cache-Control': 'no-cache, no-store', Pragma: 'no-cache' },
+    }),
 };
 
 export default apiService;

@@ -10,6 +10,7 @@ import { AppSidebar } from '../components/AppSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import type { HomeStackParamList } from '../navigation/types';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
+import { navigationRef } from '../navigation/navigationRef';
 
 type P = { tab_name?: string };
 
@@ -35,7 +36,7 @@ export default function ComingSoon({ route }: { route: { params?: P } }) {
       } else if (item.target === 'ComingSoon') {
         if (item.params) nav.navigate('ComingSoon', item.params as never);
       } else if (item.target === 'DataManagement') {
-        nav.navigate('DataManagement');
+        if (navigationRef.isReady()) (navigationRef as { navigate: (name: string) => void }).navigate('DataManagement');
       } else if (item.params) {
         nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
       } else {

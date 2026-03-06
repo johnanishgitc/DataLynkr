@@ -763,7 +763,7 @@ export default function OrderEntry() {
           tabNav?.navigate?.(item.target);
         }
       } else if (item.target === 'DataManagement') {
-        tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
+        if (navigationRef.isReady()) (navigationRef as { navigate: (name: string) => void }).navigate('DataManagement');
       } else if (item.target === 'ComingSoon' && item.params) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (navigation as any).navigate('ComingSoon', item.params);
@@ -3652,6 +3652,8 @@ export default function OrderEntry() {
         visible={!!stockBreakdownItem}
         item={stockBreakdownItem ?? ''}
         onClose={() => setStockBreakdownItem(null)}
+        showGodown={permissions.show_godownbrkup}
+        showCompany={permissions.show_multicobrkup}
       />
 
       <AppSidebar

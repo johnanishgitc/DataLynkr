@@ -73,11 +73,22 @@ export type ModuleAccess = {
 };
 
 const DEFAULT_MODULE_ACCESS: ModuleAccess = {
-    place_order: true,
-    ledger_book: true,
+    place_order: false,
+    ledger_book: false,
     approvals: true,
     stock_summary: true,
     sales_dashboard: true,
+};
+
+/**
+ * Maps API `module_name` values to internal ModuleAccess keys.
+ * If an API name isn't listed here, it is stored as-is.
+ */
+const MODULE_NAME_MAP: Record<string, string> = {
+    place_order: 'place_order',
+    ledger_voucher: 'ledger_book',
+    voucher_authorization: 'approvals',
+    sales_dashboard: 'sales_dashboard',
 };
 
 type UseUserAccessReturn = {
@@ -114,6 +125,12 @@ export function useUserAccess(): UseUserAccessReturn {
             }
 
             try {
+                // Debug: log token and params for comparison with Postman
+                const { getAuthToken } = require('../store/storage');
+                const token = await getAuthToken();
+                console.log('[useUserAccess] REQUEST params:', { tallylocId, co_guid });
+                console.log('[useUserAccess] AUTH TOKEN (last 20):', token ? '...' + String(token).slice(-20) : 'NO TOKEN');
+
                 const { data: responseData } = await apiService.getUserAccess({ tallylocId, co_guid });
                 if (cancelled) return;
 
@@ -128,16 +145,13 @@ export function useUserAccess(): UseUserAccessReturn {
                 const tallyLoc = data?.tally_location as Record<string, unknown> | undefined;
                 const isOwner = toBool(accessSummary?.is_owner ?? tallyLoc?.is_owner ?? data?.is_owner);
 
-                // For owners: missing permissions default to true (fully unlocked).
-                // For non-owners: missing permissions default to false (hidden).
-                const fallback = isOwner;
-
                 // --- Module-level access ---
                 const modAccess: ModuleAccess = { ...DEFAULT_MODULE_ACCESS };
                 for (const mod of modules) {
                     const name = String(mod.module_name ?? mod.module_key ?? '').trim();
                     if (name) {
-                        modAccess[name] = toBool(mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted);
+                        const mappedKey = MODULE_NAME_MAP[name] ?? name;
+                        modAccess[mappedKey] = toBool(mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted);
                     }
                 }
                 if (!cancelled) setModuleAccess(modAccess);
@@ -157,6 +171,12 @@ export function useUserAccess(): UseUserAccessReturn {
                             permMap[pName] = toBool(p.is_granted ?? p.granted);
                         }
                     }
+
+                    // When permissions array is empty, ALL permissions are false.
+                    // Owner fallback only applies when some permissions exist but
+                    // a specific key is missing from the list.
+                    const hasAnyPerms = perms.length > 0;
+                    const fallback = hasAnyPerms && isOwner;
 
                     const resolved: PlaceOrderPermissions = {
                         show_rateamt_Column: permMap.show_rateamt_Column ?? fallback,

@@ -488,10 +488,15 @@ export interface StockBreakdownModalProps {
   visible: boolean;
   item: string;
   onClose: () => void;
+  /** Show godown-wise stock tab (default true) */
+  showGodown?: boolean;
+  /** Show company-wise stock tab (default true) */
+  showCompany?: boolean;
 }
 
-export function StockBreakdownModal({ visible, item, onClose }: StockBreakdownModalProps) {
-  const [byCompany, setByCompany] = useState(false);
+export function StockBreakdownModal({ visible, item, onClose, showGodown = true, showCompany = true }: StockBreakdownModalProps) {
+  // If only company is allowed, default to company view
+  const [byCompany, setByCompany] = useState(!showGodown && showCompany);
   const [godownData, setGodownData] = useState<{ totalGodowns?: number; rows: { name: string; closingStock: number }[] } | null>(null);
   const [companyData, setCompanyData] = useState<{ totalCompanies?: number; rows: { name: string; closingStock: number }[] } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -614,20 +619,22 @@ export function StockBreakdownModal({ visible, item, onClose }: StockBreakdownMo
             </TouchableOpacity>
           </View>
           <View style={styles.stockBreakdownBody}>
-            <View style={styles.stockBreakdownToggleWrap}>
-              <Text style={[styles.stockBreakdownToggleLabel, !byCompany && styles.stockBreakdownToggleLabelActive]}>
-                By Godown
-              </Text>
-              <Switch
-                value={byCompany}
-                onValueChange={setByCompany}
-                trackColor={{ false: '#c4d4ff', true: '#c4d4ff' }}
-                thumbColor={byCompany ? '#1f3a89' : '#6a7282'}
-              />
-              <Text style={[styles.stockBreakdownToggleLabel, byCompany && styles.stockBreakdownToggleLabelActive]}>
-                By Company
-              </Text>
-            </View>
+            {showGodown && showCompany ? (
+              <View style={styles.stockBreakdownToggleWrap}>
+                <Text style={[styles.stockBreakdownToggleLabel, !byCompany && styles.stockBreakdownToggleLabelActive]}>
+                  By Godown
+                </Text>
+                <Switch
+                  value={byCompany}
+                  onValueChange={setByCompany}
+                  trackColor={{ false: '#c4d4ff', true: '#c4d4ff' }}
+                  thumbColor={byCompany ? '#1f3a89' : '#6a7282'}
+                />
+                <Text style={[styles.stockBreakdownToggleLabel, byCompany && styles.stockBreakdownToggleLabelActive]}>
+                  By Company
+                </Text>
+              </View>
+            ) : null}
             {loading ? (
               <View style={styles.stockBreakdownLoading}>
                 <ActivityIndicator size="small" color="#1f3a89" />

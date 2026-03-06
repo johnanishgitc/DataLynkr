@@ -119,7 +119,7 @@ export default function LedgerEntries() {
       } else if (item.target === 'HomeTab') {
         tabNav?.navigate?.('HomeTab');
       } else if (item.target === 'DataManagement') {
-        tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
+        if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
       } else if (item.target === 'ComingSoon' && item.params) {
         tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
       } else {

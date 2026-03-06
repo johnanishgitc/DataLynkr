@@ -74,10 +74,12 @@ export function AppSidebar({
   const getModuleKey = (target: string) => {
     switch (target) {
       case 'SalesTab': return 'sales_dashboard';
-      case 'OrdersTab': return 'place_order';
+      case 'OrdersTab':
+      case 'OrderEntry': return 'place_order';
       case 'LedgerTab': return 'ledger_book';
       case 'ApprovalsTab': return 'approvals';
-      case 'StockSummaryTab': return 'stock_summary';
+      case 'StockSummaryTab':
+      case 'SummaryTab': return 'stock_summary';
       default: return null;
     }
   };

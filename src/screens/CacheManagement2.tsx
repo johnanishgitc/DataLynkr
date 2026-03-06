@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
-import type { HomeStackParamList } from '../navigation/types';
+import type { MainStackParamList } from '../navigation/types';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import RNFS from 'react-native-fs';
@@ -1051,7 +1051,7 @@ export default function DataManagement() {
   const [currentFileSizeMB, setCurrentFileSizeMB] = useState<number>(0);
 
   // Sidebar (hamburger menu) - uses shared AppSidebar
-  const nav = useNavigation<NativeStackNavigationProp<HomeStackParamList, 'DataManagement'>>();
+  const nav = useNavigation<NativeStackNavigationProp<MainStackParamList, 'DataManagement'>>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // State for interrupted download resume
@@ -1102,24 +1102,25 @@ export default function DataManagement() {
   const onSidebarItemPress = useCallback(
     (item: AppSidebarMenuItem) => {
       closeSidebar();
-      const tab = nav.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
+      // DataManagement lives on MainStack; getParent() is MainStack — navigate to tabs via MainTabs
+      const root = nav.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
       if (item.target === 'LedgerTab') {
         const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
-        tab?.navigate?.('LedgerTab', p?.report_name ? { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } } : undefined);
+        root?.navigate?.('MainTabs', p?.report_name ? { screen: 'LedgerTab', params: { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } } } : { screen: 'LedgerTab' });
       } else if (item.target === 'OrderEntry') {
-        tab?.navigate?.('OrdersTab', { screen: 'OrderEntry' });
+        root?.navigate?.('MainTabs', { screen: 'OrdersTab', params: { screen: 'OrderEntry' } });
       } else if (item.target === 'ApprovalsTab') {
-        tab?.navigate?.('ApprovalsTab');
+        root?.navigate?.('MainTabs', { screen: 'ApprovalsTab' });
       } else if (item.target === 'DataManagement') {
         // Already here
       } else if (item.target === 'SalesDashboard') {
-        tab?.navigate?.('HomeTab');
+        root?.navigate?.('MainTabs');
       } else if (item.target === 'SummaryTab') {
-        tab?.navigate?.('SummaryTab');
+        root?.navigate?.('MainTabs', { screen: 'SummaryTab' });
       } else if (item.params) {
-        nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
+        root?.navigate?.('MainTabs');
       } else {
-        tab?.navigate?.(item.target);
+        root?.navigate?.('MainTabs');
       }
     },
     [closeSidebar, nav],

@@ -25,6 +25,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AppSidebar, SIDEBAR_MENU_APPROVALS } from '../components';
+import { navigationRef } from '../navigation/navigationRef';
 import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
 import FilterSvg from '../assets/approvals/filter.svg';
@@ -194,7 +195,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 return;
             }
             if (item.target === 'DataManagement') {
-                tabNav?.navigate?.('HomeTab', { screen: 'DataManagement' });
+                if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
                 return;
             }
             const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;

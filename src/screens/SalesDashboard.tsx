@@ -214,7 +214,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
             } else if (item.target === 'SalesDashboard') {
                 // Already here
             } else if (item.target === 'DataManagement') {
-                nav.navigate('DataManagement');
+                if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
             } else if (item.params) {
                 nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
             } else {
@@ -404,7 +404,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                             : error}
                     </Text>
                     {isNoCache ? (
-                        <TouchableOpacity style={styles.retryButton} onPress={() => nav.navigate('DataManagement' as never)}>
+                        <TouchableOpacity style={styles.retryButton} onPress={() => { if (navigationRef.isReady()) navigationRef.navigate('DataManagement'); }}>
                             <Text style={styles.retryButtonText}>Go to Data Management</Text>
                         </TouchableOpacity>
                     ) : (
@@ -904,7 +904,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                         </Text>
                         <TouchableOpacity
                             style={styles.syncButton}
-                            onPress={() => navigation?.navigate('DataManagement')}>
+                            onPress={() => { if (navigationRef.isReady()) navigationRef.navigate('DataManagement'); }}>
                             <Icon name="sync" size={18} color="white" />
                             <Text style={styles.syncButtonText}>Go to Cache Management</Text>
                         </TouchableOpacity>
