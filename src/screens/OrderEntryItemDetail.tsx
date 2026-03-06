@@ -148,8 +148,8 @@ export default function OrderEntryItemDetail() {
     isBatchWiseOn &&
     isBatchWiseOnValue(s?.HASMFGDATE) &&
     isBatchWiseOnValue(s?.HASEXPDATE);
-  /** Show description field for all items (used in line items and place-order payload). */
-  const showItemDesc = true;
+  /** Show description field when permission is granted, or item is "to be allocated" (always needs description). */
+  const showItemDesc = perms.show_itemdesc || isToBeAllocated;
 
   const defaultRate = computeRateForItem(item, selectedLedger);
   const defaultDiscount = computeDiscountForItem(item, selectedLedger);
@@ -573,21 +573,24 @@ export default function OrderEntryItemDetail() {
       setDescriptionRequiredVisible(true);
       return;
     }
-    const hasZeroQty = lineItems.length === 0 || isSingleLineEdit
-      ? itemQuantity === 0
-      : lineItems.some((l) => l.qty <= 0);
-    if (hasZeroQty) {
-      setQuantityWarningVisible(true);
-      return;
+    if (!isToBeAllocated) {
+      const hasZeroQty = lineItems.length === 0 || isSingleLineEdit
+        ? itemQuantity === 0
+        : lineItems.some((l) => l.qty <= 0);
+      if (hasZeroQty) {
+        setQuantityWarningVisible(true);
+        return;
+      }
     }
     const baseUnit = selectedItemUnitConfig?.BASEUNITS ?? '';
     const r = Math.max(0, parseFloat(rate) || 0);
     const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
     const formTotal = parseFloat(value) || 0;
     // When there is only one item in the list and we're in edit mode, use current form values so "Update Cart" without "Update Batch" still applies edits.
+    // For "item to be allocated", qty is not asked and not sent in place-order payload.
     const singleItemFromForm = (): AddedOrderItemWithStock => ({
       name,
-      qty: String(Math.max(0, itemQuantity)),
+      qty: isToBeAllocated ? '0' : String(Math.max(0, itemQuantity)),
       rate: String(r),
       unit: baseUnit,
       discount: d,
@@ -604,10 +607,10 @@ export default function OrderEntryItemDetail() {
       attachmentLinks: [...attachmentLinks],
       attachmentUris: [...attachmentUris],
     });
-    // Description is common to all batches: use current form value for every line
+    // Description is common to all batches: use current form value for every line. For "item to be allocated", qty is not sent in payload.
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
       name: line.name,
-      qty: String(line.qty),
+      qty: isToBeAllocated ? '0' : String(line.qty),
       rate: String(line.rate),
       unit: baseUnit,
       discount: line.discount,
@@ -647,7 +650,7 @@ export default function OrderEntryItemDetail() {
       ...(allLinks.length > 0 ? { attachmentLinks: allLinks } : {}),
       ...(allUris.length > 0 ? { attachmentUris: allUris } : {}),
     });
-  }, [navigation, lineItems, name, itemQuantity, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [navigation, lineItems, name, isToBeAllocated, itemQuantity, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const populateFormFromLine = useCallback((line: OrderLineItem, allLineItems?: OrderLineItem[]) => {
     setQuantityInput(String(line.qty));
@@ -676,7 +679,7 @@ export default function OrderEntryItemDetail() {
       setDescriptionRequiredVisible(true);
       return;
     }
-    if (itemQuantity === 0) {
+    if (!isToBeAllocated && itemQuantity === 0) {
       setQuantityWarningVisible(true);
       return;
     }
@@ -688,7 +691,7 @@ export default function OrderEntryItemDetail() {
       {
         id: nextId,
         name,
-        qty: Math.max(0, itemQuantity),
+        qty: isToBeAllocated ? 0 : Math.max(0, itemQuantity),
         rate: r,
         discount: d,
         total,
@@ -717,11 +720,11 @@ export default function OrderEntryItemDetail() {
     // Clear attachments for new batch
     setAttachmentLinks([]);
     setAttachmentUris([]);
-  }, [name, itemQuantity, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [name, isToBeAllocated, itemQuantity, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const handleUpdateItem = useCallback(() => {
     if (selectedLineId == null) return;
-    if (itemQuantity === 0) {
+    if (!isToBeAllocated && itemQuantity === 0) {
       setQuantityWarningVisible(true);
       return;
     }
@@ -738,7 +741,7 @@ export default function OrderEntryItemDetail() {
         return isSelected
           ? {
             ...l,
-            qty: Math.max(0, itemQuantity),
+            qty: isToBeAllocated ? 0 : Math.max(0, itemQuantity),
             rate: r,
             discount: d,
             total: roundedTotal,
@@ -770,7 +773,7 @@ export default function OrderEntryItemDetail() {
     // Clear attachments after update
     setAttachmentLinks([]);
     setAttachmentUris([]);
-  }, [selectedLineId, itemQuantity, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [selectedLineId, isToBeAllocated, itemQuantity, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const handleRemoveLineItem = useCallback((id: number) => {
     setLineItems((prev) => prev.filter((i) => i.id !== id));
@@ -1162,32 +1165,34 @@ export default function OrderEntryItemDetail() {
                   </View>
 
                   <View style={styles.row}>
-                    <View style={styles.half} ref={perFieldRef} collapsable={false}>
-                      <Text style={styles.label}>Per</Text>
-                      {(() => {
-                        const rateUomOptions = getRateUOMOptions(selectedItemUnitConfig, units);
-                        const perLabel = rateUomOptions.find((o) => o.value === rateUOM)?.label ?? per;
-                        return rateUomOptions.length > 1 ? (
-                          <TouchableOpacity
-                            style={[styles.input, styles.inputRow]}
-                            onPress={() => {
-                              perFieldRef.current?.measureInWindow((x, y, w, h) => {
-                                setPerDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                                setPerDropdownOpen(true);
-                              });
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.inputFlex, { paddingHorizontal: 0 }]} numberOfLines={1}>{perLabel}</Text>
-                            <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
-                          </TouchableOpacity>
-                        ) : (
-                          <View style={[styles.input, styles.inputReadOnly]}>
-                            <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{perLabel}</Text>
-                          </View>
-                        );
-                      })()}
-                    </View>
+                    {perms.show_rateamt_Column ? (
+                      <View style={styles.half} ref={perFieldRef} collapsable={false}>
+                        <Text style={styles.label}>Per</Text>
+                        {(() => {
+                          const rateUomOptions = getRateUOMOptions(selectedItemUnitConfig, units);
+                          const perLabel = rateUomOptions.find((o) => o.value === rateUOM)?.label ?? per;
+                          return rateUomOptions.length > 1 ? (
+                            <TouchableOpacity
+                              style={[styles.input, styles.inputRow]}
+                              onPress={() => {
+                                perFieldRef.current?.measureInWindow((x, y, w, h) => {
+                                  setPerDropdownAnchor({ top: y + h + 4, left: x, width: w });
+                                  setPerDropdownOpen(true);
+                                });
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.inputFlex, { paddingHorizontal: 0 }]} numberOfLines={1}>{perLabel}</Text>
+                              <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
+                            </TouchableOpacity>
+                          ) : (
+                            <View style={[styles.input, styles.inputReadOnly]}>
+                              <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{perLabel}</Text>
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    ) : <View style={styles.half} />}
                     {perms.show_disc_Column ? (
                       <View style={styles.half}>
                         <Text style={styles.label}>Discount%</Text>
@@ -1336,12 +1341,14 @@ export default function OrderEntryItemDetail() {
                         </TouchableOpacity>
                       </View>
                     ) : <View style={styles.half} />}
-                    <View style={styles.half}>
-                      <Text style={styles.label}>Value</Text>
-                      <View style={[styles.input, styles.inputReadOnly]}>
-                        <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{value}</Text>
+                    {perms.show_rateamt_Column ? (
+                      <View style={styles.half}>
+                        <Text style={styles.label}>Value</Text>
+                        <View style={[styles.input, styles.inputReadOnly]}>
+                          <Text style={[styles.inputFlex, { paddingHorizontal: 0, flex: 0, lineHeight: 33 }]} numberOfLines={1}>{value}</Text>
+                        </View>
                       </View>
-                    </View>
+                    ) : <View style={styles.half} />}
                   </View>
                 </>
               ) : null}
@@ -1476,13 +1483,15 @@ export default function OrderEntryItemDetail() {
                         </View>
                       ) : null}
                       <View style={[styles.lineItemMeta, { alignItems: 'flex-start' }]}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#111827' }}>
-                            Qty : {line.qty}{perms.show_rateamt_Column ? ` x ₹${line.rate}` : ''}{perms.show_disc_Column ? ` (${line.discount}%)` : ''}{perms.show_rateamt_Column ? ' = ' : ''}
-                            {perms.show_rateamt_Column ? <Text style={{ color: '#10b981', fontWeight: '500' }}>₹{line.total.toFixed(2)}</Text> : null}
-                          </Text>
-                        </View>
-                        {perms.show_ClsStck_Column ? (
+                        {!isToBeAllocated && (
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#111827' }}>
+                              Qty : {line.qty}{perms.show_rateamt_Column ? ` x ₹${line.rate}` : ''}{perms.show_disc_Column ? ` (${line.discount}%)` : ''}{perms.show_rateamt_Column ? ' = ' : ''}
+                              {perms.show_rateamt_Column ? <Text style={{ color: '#10b981', fontWeight: '500' }}>₹{line.total.toFixed(2)}</Text> : null}
+                            </Text>
+                          </View>
+                        )}
+                        {!isToBeAllocated && perms.show_ClsStck_Column ? (
                           <View style={styles.stockRow}>
                             <Text style={styles.lineItemStock}>Stock : </Text>
                             <TouchableOpacity onPress={() => setStockBreakdownItem(line.name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
@@ -1494,9 +1503,11 @@ export default function OrderEntryItemDetail() {
                       {expandedLineId === line.id && (
                         <View style={{ marginTop: 4, paddingTop: 6, paddingBottom: 6, paddingHorizontal: 10, backgroundColor: '#e6ecfd', borderRadius: 4, overflow: 'visible' }}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
-                              Qty : <Text style={{ textDecorationLine: 'underline', color: '#1f3a89' }}>{line.qty}</Text>
-                            </Text>
+                            {!isToBeAllocated ? (
+                              <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
+                                Qty : <Text style={{ textDecorationLine: 'underline', color: '#1f3a89' }}>{line.qty}</Text>
+                              </Text>
+                            ) : null}
                             <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>Due date : {line.dueDate ?? '-'}</Text>
                           </View>
                           {showMfgExpiryDates && (line.mfgDate || line.expiryDate) ? (
@@ -1734,6 +1745,8 @@ export default function OrderEntryItemDetail() {
         visible={!!stockBreakdownItem}
         item={stockBreakdownItem ?? ''}
         onClose={() => setStockBreakdownItem(null)}
+        showGodown={perms.show_godownbrkup}
+        showCompany={perms.show_multicobrkup}
       />
 
       <DeleteConfirmationModal

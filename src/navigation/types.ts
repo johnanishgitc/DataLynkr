@@ -8,7 +8,6 @@ export type AuthStackParamList = {
 };
 
 export type HomeStackParamList = {
-  DataManagement: undefined;
   SalesDashboard: undefined;
   ComingSoon: { tab_name: string };
 };
@@ -171,6 +170,7 @@ export type MainTabsParamList = {
 export type MainStackParamList = {
   AdminDashboard: undefined;
   MainTabs: undefined;
+  DataManagement: undefined;
   SalesOrderVoucherDetails: {
     row: object;
     ledger_name?: string;

@@ -4,15 +4,16 @@ import { useUserAccess, type ModuleAccess, type PlaceOrderPermissions } from '..
 type ModuleAccessContextValue = {
     moduleAccess: ModuleAccess;
     permissions: PlaceOrderPermissions;
+    loading: boolean;
 };
 
 const ModuleAccessContext = createContext<ModuleAccessContextValue | null>(null);
 
 /** Provides module-level access flags and place-order permissions to the whole tab tree. */
 export function ModuleAccessProvider({ children }: { children: ReactNode }) {
-    const { moduleAccess, permissions } = useUserAccess();
+    const { moduleAccess, permissions, loading } = useUserAccess();
     return (
-        <ModuleAccessContext.Provider value={{ moduleAccess, permissions }}>
+        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, loading }}>
             {children}
         </ModuleAccessContext.Provider>
     );
@@ -24,7 +25,7 @@ export function useModuleAccess(): ModuleAccessContextValue {
     if (!ctx) {
         return {
             moduleAccess: {
-                place_order: true, ledger_book: true, approvals: true,
+                place_order: false, ledger_book: false, approvals: true,
                 stock_summary: true, sales_dashboard: true,
             },
             permissions: {
@@ -33,6 +34,7 @@ export function useModuleAccess(): ModuleAccessContextValue {
                 show_multicobrkup: true, show_itemdesc: false, show_itemshasqty: false,
                 allow_vchtype: true, show_ordduedate: true, show_creditdayslimit: true,
             },
+            loading: false,
         };
     }
     return ctx;
