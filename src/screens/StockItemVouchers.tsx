@@ -8,6 +8,8 @@ import {
     ActivityIndicator,
     Animated,
 } from 'react-native';
+
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar } from '../components';
@@ -15,6 +17,7 @@ import { PeriodSelection } from '../components/PeriodSelection';
 import { apiService, isUnauthorizedError } from '../api';
 import type { StockVoucherEntry, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
+import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 
@@ -172,11 +175,41 @@ export default function StockItemVouchers() {
     const [vouchers, setVouchers] = useState<StockVoucherEntry[]>([]);
     const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
     const [periodOpen, setPeriodOpen] = useState(false);
-    const lastScrollY = useRef(0);
-    const localScrollDirection = useRef<'up' | 'down'>('up');
-    const footerTranslateY = useRef(new Animated.Value(0)).current;
+    /** Scroll-driven collapse: closing balance bar + tab bar (footer) both move with scroll */
+    const scrollY = useRef(new Animated.Value(0)).current;
     const FOOTER_HEIGHT = 44;
-    const SCROLL_UP_THRESHOLD = 10;
+    /** Translate by bar height so it hides without overshooting */
+    const FOOTER_COLLAPSE_TRANSLATE = 49;
+    /** Scroll distance over which both bars fully hide; longer = smoother, more gradual collapse */
+    const SCROLL_RANGE = 140;
+    /** Ease-out curve: moves a bit faster at first, then eases into final position for a smoother feel */
+    const footerTranslateY = useMemo(
+        () =>
+            scrollY.interpolate({
+                inputRange: [0, SCROLL_RANGE * 0.5, SCROLL_RANGE],
+                outputRange: [0, FOOTER_COLLAPSE_TRANSLATE * 0.65, FOOTER_COLLAPSE_TRANSLATE],
+                extrapolate: 'clamp',
+            }),
+        [scrollY, SCROLL_RANGE, FOOTER_COLLAPSE_TRANSLATE]
+    );
+
+    const { setFooterCollapseValue } = useScroll();
+    /** 0 = visible, 1 = collapsed; shared with FooterTabBar so tab bar collapses with scroll */
+    const footerCollapseProgress = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        setFooterCollapseValue(footerCollapseProgress);
+        const listenerId = scrollY.addListener(({ value }) => {
+            const raw = value / SCROLL_RANGE;
+            const eased = raw <= 0.5
+                ? raw * 1.3
+                : 0.65 + (raw - 0.5) * 0.7;
+            footerCollapseProgress.setValue(Math.min(1, eased));
+        });
+        return () => {
+            scrollY.removeListener(listenerId);
+            setFooterCollapseValue(null);
+        };
+    }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
 
     const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }) => {
         setLoading(true);
@@ -233,30 +266,14 @@ export default function StockItemVouchers() {
         return '- - - -';
     }, [vouchers]);
 
-    const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number } } }) => {
-        const currentScrollY = event.nativeEvent.contentOffset.y;
-        const scrollDiff = currentScrollY - lastScrollY.current;
-        if (scrollDiff > 0 && currentScrollY > 10) {
-            if (localScrollDirection.current !== 'down') {
-                localScrollDirection.current = 'down';
-                Animated.timing(footerTranslateY, {
-                    toValue: FOOTER_HEIGHT,
-                    duration: 300,
-                    useNativeDriver: true,
-                }).start();
-            }
-        } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
-            if (localScrollDirection.current !== 'up') {
-                localScrollDirection.current = 'up';
-                Animated.timing(footerTranslateY, {
-                    toValue: 0,
-                    duration: 300,
-                    useNativeDriver: true,
-                }).start();
-            }
-        }
-        lastScrollY.current = currentScrollY;
-    }, [FOOTER_HEIGHT]);
+    const onScroll = useMemo(
+        () =>
+            Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                { useNativeDriver: true }
+            ),
+        [scrollY]
+    );
 
     const renderInwardOutward = (label: string, type: 'inward' | 'outward', data: StockQtyValue) => (
         <View style={s.ioRow}>
@@ -406,22 +423,22 @@ export default function StockItemVouchers() {
                     <Text style={s.errorText}>{error}</Text>
                 </View>
             ) : (
-                <FlatList
+                <AnimatedFlatList
                     data={listData}
                     keyExtractor={(item, idx) => String(idx)}
                     renderItem={renderItem}
                     contentContainerStyle={[s.listContent, { paddingBottom: FOOTER_HEIGHT + 49 + 24 }]}
                     showsVerticalScrollIndicator={false}
-                    onScroll={handleScroll}
+                    onScroll={onScroll}
                     scrollEventThrottle={16}
                 />
             )}
 
-            {/* Closing Balance bar (collapses on scroll down) */}
+            {/* Closing balance + footer bar: both collapse together on scroll down */}
             <Animated.View
                 style={[
                     s.footerWrapper,
-                    { transform: [{ translateY: footerTranslateY }] },
+                    { height: FOOTER_HEIGHT, transform: [{ translateY: footerTranslateY }] },
                 ]}
             >
                 <View style={s.closingBalanceBar}>
@@ -449,12 +466,14 @@ const s = StyleSheet.create({
     filterSection: {
         backgroundColor: colors.bg_light_blue,
         paddingHorizontal: 16,
+        paddingTop: 2,
+        paddingBottom: 0,
     },
     primaryRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: 4,
-        paddingBottom: 6,
+        paddingTop: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
@@ -470,7 +489,8 @@ const s = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: 4,
+        paddingVertical: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
     },
     dateText: {
@@ -620,8 +640,13 @@ const s = StyleSheet.create({
         zIndex: 999,
         borderTopWidth: 1,
         borderTopColor: colors.stock_border,
+        overflow: 'hidden',
     },
     closingBalanceBar: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',

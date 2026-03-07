@@ -14,8 +14,12 @@ export interface StatusBarTopBarProps {
   onRightIconsPress?: () => void;
   /** Called when share button is pressed (used when rightIcons='share-kebab'). */
   onSharePress?: () => void;
-  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'kebab' = single kebab in white circle, 'share-kebab' = share (VDInv vector-14) + kebab (Voucher Details), 'ledger' = LedgerIcon (same as footer, Order Entry), 'draft-switch' = Switch for Order Entry draft mode, 'none' = no right buttons */
-  rightIcons?: 'default' | 'share-bell' | 'kebab' | 'share-kebab' | 'ledger' | 'draft-switch' | 'none';
+  /** Called when bank icon is pressed (used when rightIcons='ledger-report'). */
+  onBankPress?: () => void;
+  /** Called when bell icon is pressed (used when rightIcons='ledger-report'). If omitted, uses onRightIconsPress. */
+  onBellPress?: () => void;
+  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'ledger-report' = bank+share+bell (Ledger Reports), 'kebab' = single kebab in white circle, 'share-kebab' = share (VDInv vector-14) + kebab (Voucher Details), 'ledger' = LedgerIcon (same as footer, Order Entry), 'draft-switch' = Switch for Order Entry draft mode, 'none' = no right buttons */
+  rightIcons?: 'default' | 'share-bell' | 'ledger-report' | 'kebab' | 'share-kebab' | 'ledger' | 'draft-switch' | 'none';
   /** 'menu' = hamburger (default), 'back' = back arrow for sub-screens (LedgerBook2), 'none' = no left button */
   leftIcon?: 'menu' | 'back' | 'none';
   /** LedgerBook2 Figma: bar paddingVertical 3px (py-[3px]). */
@@ -34,6 +38,8 @@ export function StatusBarTopBar({
   onLeftPress,
   onRightIconsPress,
   onSharePress,
+  onBankPress,
+  onBellPress,
   rightIcons = 'default',
   leftIcon = 'menu',
   compact = false,
@@ -42,6 +48,7 @@ export function StatusBarTopBar({
 }: StatusBarTopBarProps): React.ReactElement {
   const insets = useSafeAreaInsets();
   const isShareBell = rightIcons === 'share-bell';
+  const isLedgerReport = rightIcons === 'ledger-report';
   const isKebab = rightIcons === 'kebab';
   const isShareKebab = rightIcons === 'share-kebab';
   const isLedger = rightIcons === 'ledger';
@@ -141,6 +148,36 @@ export function StatusBarTopBar({
         </>
       );
     }
+    if (isLedgerReport) {
+      return (
+        <View style={[styles.right, styles.rightTightGap]}>
+          <TouchableOpacity
+            onPress={onBankPress}
+            style={styles.shareBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Bank & UPI Details"
+          >
+            <Icon name="bank" size={22} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onRightIconsPress}
+            style={styles.shareBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Share"
+          >
+            <Icon name="share-variant" size={22} color={colors.white} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onBellPress ?? (() => {})}
+            style={styles.shareBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Notifications"
+          >
+            <Icon name="bell" size={22} color={colors.white} />
+          </TouchableOpacity>
+        </View>
+      );
+    }
     return (
       <TouchableOpacity
         onPress={onRightIconsPress}
@@ -234,10 +271,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  rightTightGap: {
+    gap: 0,
+  },
   shareBtn: {
     padding: 9,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  rightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   rightIcon: {
     marginRight: 12,

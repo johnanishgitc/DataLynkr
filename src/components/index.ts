@@ -13,6 +13,8 @@ export { default as PeriodSelection } from './PeriodSelection';
 export { default as ExportMenu } from './ExportMenu';
 export { default as VoucherTypeDropdown } from './VoucherTypeDropdown';
 export { DeleteConfirmationModal } from './DeleteConfirmationModal';
+export { BankUpiDetailsModal } from './BankUpiDetailsModal';
+export type { BankUpiDetailsModalProps } from './BankUpiDetailsModal';
 export {
   toNum,
   fmtNum,

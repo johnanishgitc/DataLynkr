@@ -32,6 +32,7 @@ interface PastOrdersProps {
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
   onNavigateHome: () => void;
+  onBankPress?: () => void;
 }
 
 export default function PastOrders({
@@ -45,6 +46,7 @@ export default function PastOrders({
   onPeriodSelectionOpen,
   onExportOpen,
   onNavigateHome,
+  onBankPress,
 }: PastOrdersProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -200,7 +202,8 @@ export default function PastOrders({
           title="Past Orders"
           leftIcon="menu"
           onMenuPress={onNavigateHome}
-          rightIcons="share-bell"
+          rightIcons="ledger-report"
+          onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
           compact
         />

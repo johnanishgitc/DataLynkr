@@ -21,6 +21,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import OrdersIcon from './footer-icons/OrdersIcon';
+import LedgerIcon from './footer-icons/LedgerIcon';
+import ApprovalsIcon from './footer-icons/ApprovalsIcon';
+import SummaryIcon from './footer-icons/SummaryIcon';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { useAuth } from '../store';
@@ -81,6 +85,22 @@ export function AppSidebar({
       case 'StockSummaryTab':
       case 'SummaryTab': return 'stock_summary';
       default: return null;
+    }
+  };
+
+  /** Render same icons as footer bar for Orders, Ledger, Approvals, Stock; fallback to MaterialCommunityIcons. */
+  const renderMenuItemIcon = (item: AppSidebarMenuItem, color: string, size: number) => {
+    switch (item.id) {
+      case 'orders':
+        return <OrdersIcon color={color} size={size} />;
+      case 'ledger':
+        return <LedgerIcon color={color} size={size} />;
+      case 'approvals':
+        return <ApprovalsIcon color={color} size={size} />;
+      case 'summary':
+        return <SummaryIcon color={color} size={size} />;
+      default:
+        return <Icon name={item.icon} size={size} color={color} />;
     }
   };
 
@@ -328,7 +348,7 @@ export function AppSidebar({
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
-                          <Icon name={item.icon} size={24} color="#d1d5dc" />
+                          {renderMenuItemIcon(item, '#d1d5dc', 24)}
                         </View>
                         <Text style={styles.rowLabel}>{item.label}</Text>
                         <Icon
@@ -367,7 +387,7 @@ export function AppSidebar({
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
-                          <Icon name={item.icon} size={24} color="#d1d5dc" />
+                          {renderMenuItemIcon(item, '#d1d5dc', 24)}
                         </View>
                         <Text style={styles.rowLabel}>{item.label}</Text>
                         <Icon
@@ -400,11 +420,7 @@ export function AppSidebar({
                     activeOpacity={isEnabled ? 0.7 : 1}
                   >
                     <View style={styles.rowIconContainer}>
-                      <Icon
-                        name={item.icon}
-                        size={24}
-                        color="#d1d5dc"
-                      />
+                      {renderMenuItemIcon(item, '#d1d5dc', 24)}
                     </View>
                     <Text style={styles.rowLabel}>{item.label}</Text>
                     {hasChevron && (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     View,
     Text,
@@ -8,6 +8,7 @@ import {
     ActivityIndicator,
     Modal,
     TextInput,
+    Animated,
 } from 'react-native';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,10 +22,13 @@ import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavig
 import { apiService, isUnauthorizedError } from '../api';
 import type { StockSummaryItem } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
+import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { sharedStyles } from './ledger';
 import { getStockItemsAndGroupsFromDataManagementCache, type StockListEntry } from '../cache';
+
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -125,11 +129,42 @@ export default function StockSummary() {
     const [primarySearch, setPrimarySearch] = useState('');
     const [itemsAndGroups, setItemsAndGroups] = useState<StockListEntry[]>([]);
     const [loadingDropdown, setLoadingDropdown] = useState(false);
-    const [godown, setGodown] = useState<string>('');
+    const [godown, setGodown] = useState<string>(() => (route.params as { godown?: string } | undefined)?.godown ?? '');
     const [godownOptions, setGodownOptions] = useState<string[]>([]);
     const [godownDropdownOpen, setGodownDropdownOpen] = useState(false);
     const [loadingGodown, setLoadingGodown] = useState(false);
     const insets = useSafeAreaInsets();
+
+    // When navigated to Stock Group Summary (or Stock Item Monthly), use godown from params so it matches Stock Summary
+    useEffect(() => {
+        const paramGodown = (route.params as { godown?: string } | undefined)?.godown;
+        if (paramGodown !== undefined) setGodown(paramGodown);
+    }, [route.params]);
+
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const SCROLL_RANGE = 140;
+    const onScroll = useMemo(
+        () =>
+            Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                { useNativeDriver: true }
+            ),
+        [scrollY]
+    );
+    const { setFooterCollapseValue } = useScroll();
+    const footerCollapseProgress = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        setFooterCollapseValue(footerCollapseProgress);
+        const listenerId = scrollY.addListener(({ value }) => {
+            const raw = value / SCROLL_RANGE;
+            const eased = raw <= 0.5 ? raw * 1.3 : 0.65 + (raw - 0.5) * 0.7;
+            footerCollapseProgress.setValue(Math.min(1, eased));
+        });
+        return () => {
+            scrollY.removeListener(listenerId);
+            setFooterCollapseValue(null);
+        };
+    }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -272,21 +307,23 @@ export default function StockSummary() {
                 return;
             }
             const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
+            const params = { stockitem: entry.name, breadcrumb: [entry.name], ...period, ...(godown ? { godown } : {}) };
             if (entry.type === 'item') {
-                nav.push('StockItemMonthly', { stockitem: entry.name, breadcrumb: [entry.name], ...period });
+                nav.push('StockItemMonthly', params);
             } else {
-                nav.push('StockGroupSummary', { stockitem: entry.name, breadcrumb: [entry.name], ...period });
+                nav.push('StockGroupSummary', params);
             }
         },
-        [nav, dateRange.fromdate, dateRange.todate]
+        [nav, dateRange.fromdate, dateRange.todate, godown]
     );
 
     const onItemPress = (item: StockSummaryItem) => {
         const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
+        const params = { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period, ...(godown ? { godown } : {}) };
         if (item.isitem === 'Yes') {
-            nav.push('StockItemMonthly', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period });
+            nav.push('StockItemMonthly', params);
         } else {
-            nav.push('StockGroupSummary', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period });
+            nav.push('StockGroupSummary', params);
         }
     };
 
@@ -405,12 +442,14 @@ export default function StockSummary() {
                     <Text style={s.errorText}>{strings.no_data}</Text>
                 </View>
             ) : (
-                <FlatList
+                <AnimatedFlatList
                     data={items}
                     keyExtractor={(item) => item.masterid}
                     renderItem={renderRow}
                     contentContainerStyle={s.listContent}
                     showsVerticalScrollIndicator={false}
+                    onScroll={onScroll}
+                    scrollEventThrottle={16}
                 />
             )}
 
@@ -568,16 +607,18 @@ export default function StockSummary() {
 const s = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.white },
 
-    // Filter section (light blue area)
+    // Filter section (light blue area) – match Order Entry section/cardRow heights
     filterSection: {
         backgroundColor: colors.bg_light_blue,
         paddingHorizontal: 16,
+        paddingTop: 2,
+        paddingBottom: 0,
     },
     primaryRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: 4,
-        paddingBottom: 6,
+        paddingTop: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
@@ -595,7 +636,8 @@ const s = StyleSheet.create({
     godownRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 6,
+        paddingVertical: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
@@ -614,9 +656,9 @@ const s = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: 4,
+        paddingVertical: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
-        paddingBottom: 4,
     },
     dateText: {
         fontFamily: 'Roboto',

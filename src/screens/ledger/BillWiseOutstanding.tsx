@@ -43,6 +43,7 @@ interface BillWiseOutstandingProps {
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
   onNavigateHome: () => void;
+  onBankPress?: () => void;
 }
 
 export default function BillWiseOutstanding({
@@ -56,6 +57,7 @@ export default function BillWiseOutstanding({
   onPeriodSelectionOpen,
   onExportOpen,
   onNavigateHome,
+  onBankPress,
 }: BillWiseOutstandingProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -268,7 +270,8 @@ export default function BillWiseOutstanding({
           title="Ledger Reports"
           leftIcon="menu"
           onMenuPress={onNavigateHome}
-          rightIcons="share-bell"
+          rightIcons="ledger-report"
+          onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
           compact
         />

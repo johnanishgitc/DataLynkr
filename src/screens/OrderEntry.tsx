@@ -88,7 +88,7 @@ import IconSvg from '../assets/orderEntryOE3/icon.svg';
 import { QRCodeScanner } from '../components/QRCodeScanner';
 import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
-import { useUserAccess } from '../hooks/useUserAccess';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 
 // OrdEnt1 exact colors - no modifications
 const HEADER_BG = '#1f3a89';
@@ -177,7 +177,7 @@ export default function OrderEntry() {
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderEntry'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
-  const { permissions, moduleAccess } = useUserAccess();
+  const { permissions, moduleAccess } = useModuleAccess();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
@@ -2465,9 +2465,13 @@ export default function OrderEntry() {
                                       return (
                                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, width: '100%' }}>
                                           {showStock ? (
-                                            <TouchableOpacity onPress={() => setStockBreakdownItem(group.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
-                                              <Text style={styles.orderItemStockTaxLine}>Stock: <Text style={styles.orderItemStockLink}>{stockDisplay}</Text></Text>
-                                            </TouchableOpacity>
+                                            (permissions.show_godownbrkup || permissions.show_multicobrkup) ? (
+                                              <TouchableOpacity onPress={() => setStockBreakdownItem(group.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
+                                                <Text style={styles.orderItemStockTaxLine}>Stock: <Text style={styles.orderItemStockLink}>{stockDisplay}</Text></Text>
+                                              </TouchableOpacity>
+                                            ) : (
+                                              <Text style={styles.orderItemStockTaxLine}>Stock: {stockDisplay}</Text>
+                                            )
                                           ) : null}
                                           {showStock && showTax ? (
                                             <Text style={styles.orderItemStockTaxLine}> | </Text>
@@ -3925,10 +3929,9 @@ export default function OrderEntry() {
               renderItem={({ item }) => {
                 const name = (item.NAME ?? '').trim() || '-';
                 const isAlloc = isItemToBeAllocated(name);
-                const closing = (item.CLOSINGSTOCK ?? (item as any).closingstock ?? 0) || 0;
                 return (
                   <TouchableOpacity
-                    style={[sharedStyles.modalOpt, isAlloc && { backgroundColor: '#fef9c3' }]}
+                    style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 25 }, isAlloc && { backgroundColor: '#fef9c3' }]}
                     onPress={() => {
                       setItemSearch('');
                       setItemDropdownOpen(false);
@@ -3954,25 +3957,12 @@ export default function OrderEntry() {
                       <Text style={sharedStyles.modalOptTxt} numberOfLines={2}>
                         {name}
                       </Text>
-                      {!isAlloc && (permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno || permissions.show_rateamt_Column) && (
+                      {!isAlloc && permissions.show_rateamt_Column && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                          {(permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) ? (
-                            <>
-                              <Text style={{ fontSize: 12, color: colors.text_gray }}>Stock Available: </Text>
-                              <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>{permissions.show_ClsStck_yesno ? (Number(closing) > 0 ? 'Yes' : 'No') : String(closing)}</Text>
-                            </>
-                          ) : null}
-                          {(permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) && permissions.show_rateamt_Column ? (
-                            <Text style={{ fontSize: 12, color: colors.text_gray, marginHorizontal: 4 }}>|</Text>
-                          ) : null}
-                          {permissions.show_rateamt_Column ? (
-                            <>
-                              <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
-                              <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
-                                ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
-                              </Text>
-                            </>
-                          ) : null}
+                          <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
+                          <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
+                            ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
+                          </Text>
                         </View>
                       )}
                     </View>

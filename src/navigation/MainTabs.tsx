@@ -172,7 +172,7 @@ function MainTabsInner() {
         name="SummaryTab"
         component={SummaryStack}
         options={{
-          title: strings.summary,
+          title: strings.stock,
           tabBarIcon: ({ focused }) => <TabIcon name="summary" focused={focused} />,
         }}
       />

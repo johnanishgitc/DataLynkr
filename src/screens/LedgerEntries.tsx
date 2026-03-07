@@ -13,11 +13,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { LedgerStackParamList } from '../navigation/types';
-import { getCompany, getGuid } from '../store/storage';
+import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { apiService } from '../api';
-import type { LedgerReportData } from '../api';
-import { ExportMenu, PeriodSelection, AppSidebar } from '../components';
+import type { LedgerReportData, BankUpiResponse } from '../api';
+import { ExportMenu, PeriodSelection, AppSidebar, BankUpiDetailsModal } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { navigationRef } from '../navigation/navigationRef';
@@ -71,6 +71,10 @@ export default function LedgerEntries() {
   const [exportData, setExportData] = useState<LedgerReportData | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [company, setCompany] = useState('');
+  const [bankUpiVisible, setBankUpiVisible] = useState(false);
+  const [bankUpiData, setBankUpiData] = useState<BankUpiResponse | null>(null);
+  const [bankUpiLoading, setBankUpiLoading] = useState(false);
+  const [bankUpiError, setBankUpiError] = useState<string | null>(null);
   const customerInputRef = useRef<TextInput>(null);
   const reportInputRef = useRef<TextInput>(null);
   const hasShownReportDropdownRef = useRef(false);
@@ -93,6 +97,33 @@ export default function LedgerEntries() {
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  const openBankUpi = useCallback(async () => {
+    setBankUpiVisible(true);
+    setBankUpiError(null);
+    setBankUpiData(null);
+    const [tallylocId, companyVal, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+    if (tallylocId === 0 || !companyVal || !guid) {
+      setBankUpiError('Company not configured.');
+      setBankUpiLoading(false);
+      return;
+    }
+    setBankUpiLoading(true);
+    try {
+      const { data } = await apiService.getBankUpi({
+        tallyloc_id: tallylocId,
+        company: companyVal,
+        guid,
+      });
+      setBankUpiData(data);
+    } catch (e) {
+      const message = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : 'Failed to load Bank & UPI details.';
+      setBankUpiError(message);
+    } finally {
+      setBankUpiLoading(false);
+    }
+  }, []);
+  const closeBankUpi = useCallback(() => setBankUpiVisible(false), []);
 
   const goToAdminDashboard = useCallback(() => {
     closeSidebar();
@@ -264,6 +295,7 @@ export default function LedgerEntries() {
     onPeriodSelectionOpen,
     onExportOpen,
     onNavigateHome,
+    onBankPress: openBankUpi,
   };
 
   // Render the appropriate component based on report_name
@@ -437,6 +469,14 @@ export default function LedgerEntries() {
         onPdf={onPdf}
         onExcel={onExcel}
         onPrint={onPrint}
+      />
+
+      <BankUpiDetailsModal
+        visible={bankUpiVisible}
+        onClose={closeBankUpi}
+        data={bankUpiData}
+        loading={bankUpiLoading}
+        error={bankUpiError}
       />
 
       <AppSidebar
