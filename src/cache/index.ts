@@ -4,8 +4,11 @@ export * from './CacheSyncManager';
 export { checkIncompleteDownload, clearDownloadProgress, isDownloadComplete } from './CacheSyncManager';
 export {
   getLedgerListFromDataManagementCache,
+  getLedgerListFromDataManagementCacheIfPresent,
   getLedgerListNamesFromDataManagementCache,
+  getLedgerListNamesFromDataManagementCacheIfPresent,
   saveLedgerListToDataManagementCache,
+  invalidateLedgerListCache,
 } from './ledgerListCacheReader';
 export {
   getStockItemsFromDataManagementCache,
@@ -24,6 +27,7 @@ export {
   ensureStockItemsInDataManagement,
   ensureStockGroupsInDataManagement,
   ensureAllDataManagementData,
+  refreshAllDataManagementData,
 } from './dataManagementAutoSync';
 export {
   getSessionStockItems,

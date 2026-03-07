@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { getLedgerListNamesFromDataManagementCache } from '../cache';
@@ -138,6 +138,13 @@ export default function LedgerMain() {
   useEffect(() => {
     fetchLedgers();
   }, [fetchLedgers]);
+
+  // Refetch customer/ledger names when screen gains focus (e.g. returning from Data Management) so list stays in sync
+  useFocusEffect(
+    useCallback(() => {
+      fetchLedgers();
+    }, [fetchLedgers])
+  );
 
   const onSelectLedger = (ledgerName: string) => {
     const params = {

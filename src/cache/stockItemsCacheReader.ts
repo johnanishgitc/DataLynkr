@@ -54,6 +54,13 @@ function normalizeToStockItemsResponse(raw: unknown): { data: unknown[] } | null
 }
 
 /**
+ * Read stock items from cache only (no API/ensure). Used by ensure* to avoid recursion.
+ */
+export async function getStockItemsFromDataManagementCacheIfPresent(): Promise<{ data: unknown[] } | null> {
+  return getStockItemsFromDataManagementCacheInternal();
+}
+
+/**
  * Load stock items from Data Management cache for the current user.
  * Returns null if not logged in, no company, or no cached data.
  * If cache is empty, automatically fetches from API and saves to Data Management, then re-reads.

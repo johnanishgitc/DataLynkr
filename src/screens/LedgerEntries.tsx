@@ -6,6 +6,7 @@ import {
   Modal,
   FlatList,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -14,7 +15,7 @@ import type { RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { LedgerStackParamList } from '../navigation/types';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
-import { getLedgerListNamesFromDataManagementCache } from '../cache';
+import { getLedgerListNamesFromDataManagementCacheIfPresent } from '../cache';
 import { apiService } from '../api';
 import type { LedgerReportData, BankUpiResponse } from '../api';
 import { ExportMenu, PeriodSelection, AppSidebar, BankUpiDetailsModal } from '../components';
@@ -61,6 +62,7 @@ export default function LedgerEntries() {
 
   const [exportVisible, setExportVisible] = useState(false);
   const [ledgerNames, setLedgerNames] = useState<string[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [reportDropdownOpen, setReportDropdownOpen] = useState(false);
   const [periodSelectionOpen, setPeriodSelectionOpen] = useState(false);
@@ -172,15 +174,18 @@ export default function LedgerEntries() {
     return REPORT_OPTIONS.filter((n) => n.toLowerCase().includes(q));
   }, [reportSearch]);
 
-  // Load ledger names from Data Management customers cache (no API call)
+  // Load ledger names from Data Management customers cache (may trigger background fetch if empty)
   useEffect(() => {
     let cancel = false;
+    setCustomersLoading(true);
     (async () => {
       try {
-        const names = await getLedgerListNamesFromDataManagementCache();
+        const names = await getLedgerListNamesFromDataManagementCacheIfPresent();
         if (!cancel) setLedgerNames(names);
       } catch {
         if (!cancel) setLedgerNames([]);
+      } finally {
+        if (!cancel) setCustomersLoading(false);
       }
     })();
     return () => { cancel = true; };
@@ -360,7 +365,16 @@ export default function LedgerEntries() {
               style={sharedStyles.modalList}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No customers found</Text>}
+              ListEmptyComponent={
+                customersLoading ? (
+                  <View style={{ padding: 24, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={colors.primary_blue} />
+                    <Text style={[sharedStyles.modalEmpty, { marginTop: 8 }]}>{strings.loading}</Text>
+                  </View>
+                ) : (
+                  <Text style={sharedStyles.modalEmpty}>No customers found</Text>
+                )
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={sharedStyles.modalOpt}

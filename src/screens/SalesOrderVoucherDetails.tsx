@@ -13,7 +13,7 @@ import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar, PeriodSelection } from '../components';
 import { formatDate, toDdMmYy } from '../utils/dateUtils';
-import { getStockItemNamesFromDataManagementCache, getLedgerListNamesFromDataManagementCache } from '../cache';
+import { getStockItemNamesFromDataManagementCache, getLedgerListNamesFromDataManagementCacheIfPresent } from '../cache';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import apiService from '../api/client';
 import type { SalesOrderOutstandingResponse } from '../api/models/ledger';
@@ -132,7 +132,7 @@ export default function SalesOrderVoucherDetails() {
   useEffect(() => {
     let cancel = false;
     (async () => {
-      const names = await getLedgerListNamesFromDataManagementCache();
+      const names = await getLedgerListNamesFromDataManagementCacheIfPresent();
       if (!cancel) setCustomerNames(names);
     })();
     return () => { cancel = true; };
