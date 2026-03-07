@@ -55,74 +55,91 @@ function normalizeToLedgerListResponse(raw: unknown): LedgerListResponse | null 
 /**
  * Load only customer/ledger names for dropdown (fast path: reads names_json, no full data parse).
  * Uses in-memory cache after first load for instant subsequent opens.
+ * If cache is empty, automatically fetches from API and saves to Data Management, then re-reads.
  */
 export async function getLedgerListNamesFromDataManagementCache(): Promise<string[]> {
   try {
-    const [email, tallylocId, guid] = await Promise.all([
-      getUserEmail(),
-      getTallylocId(),
-      getGuid(),
-    ]);
-    if (!email || !guid || tallylocId == null || tallylocId === 0) return [];
-    const cacheKey = getLedgerListCacheKey(email, guid, tallylocId);
-    if (namesMemoryCache?.key === cacheKey) return namesMemoryCache.names;
-    const database = await getDatabase();
-    const [results] = await database.executeSql(
-      `SELECT names_json, data FROM ${CUSTOMERS_TABLE} WHERE cache_key = ? LIMIT 1`,
-      [cacheKey]
-    );
-    if (results.rows.length === 0) return [];
-    const row = results.rows.item(0) as { names_json?: string | null; data?: string };
-    const namesStr = row?.names_json;
-    if (typeof namesStr === 'string' && namesStr.length > 0) {
-      const names = JSON.parse(namesStr) as string[];
-      const arr = Array.isArray(names) ? names : [];
-      namesMemoryCache = { key: cacheKey, names: arr };
-      return arr;
-    }
-    const dataStr = row?.data;
-    if (typeof dataStr !== 'string') return [];
-    const parsed: unknown = JSON.parse(dataStr);
-    const normalized = normalizeToLedgerListResponse(parsed);
-    const list = normalized?.ledgers ?? [];
-    const names = list.map((i) => String((i as { NAME?: string | null }).NAME ?? (i as { name?: string }).name ?? '').trim()).filter(Boolean);
-    namesMemoryCache = { key: cacheKey, names };
-    return names;
+    const names = await getLedgerListNamesFromDataManagementCacheInternal();
+    if (names.length > 0) return names;
+    const { ensureCustomersInDataManagement } = await import('./dataManagementAutoSync');
+    await ensureCustomersInDataManagement();
+    return await getLedgerListNamesFromDataManagementCacheInternal();
   } catch (e) {
     console.warn('[ledgerListCacheReader] getLedgerListNamesFromDataManagementCache failed:', e);
     return [];
   }
 }
 
+async function getLedgerListNamesFromDataManagementCacheInternal(): Promise<string[]> {
+  const [email, tallylocId, guid] = await Promise.all([
+    getUserEmail(),
+    getTallylocId(),
+    getGuid(),
+  ]);
+  if (!email || !guid || tallylocId == null || tallylocId === 0) return [];
+  const cacheKey = getLedgerListCacheKey(email, guid, tallylocId);
+  if (namesMemoryCache?.key === cacheKey) return namesMemoryCache.names;
+  const database = await getDatabase();
+  const [results] = await database.executeSql(
+    `SELECT names_json, data FROM ${CUSTOMERS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [cacheKey]
+  );
+  if (results.rows.length === 0) return [];
+  const row = results.rows.item(0) as { names_json?: string | null; data?: string };
+  const namesStr = row?.names_json;
+  if (typeof namesStr === 'string' && namesStr.length > 0) {
+    const names = JSON.parse(namesStr) as string[];
+    const arr = Array.isArray(names) ? names : [];
+    namesMemoryCache = { key: cacheKey, names: arr };
+    return arr;
+  }
+  const dataStr = row?.data;
+  if (typeof dataStr !== 'string') return [];
+  const parsed: unknown = JSON.parse(dataStr);
+  const normalized = normalizeToLedgerListResponse(parsed);
+  const list = normalized?.ledgers ?? [];
+  const names = list.map((i) => String((i as { NAME?: string | null }).NAME ?? (i as { name?: string }).name ?? '').trim()).filter(Boolean);
+  namesMemoryCache = { key: cacheKey, names };
+  return names;
+}
+
 /**
  * Load the ledger list (customers) from Data Management cache for the current user.
  * Returns null if not logged in, no company, or no cached data.
- * No API calls are made.
+ * If cache is empty, automatically fetches from API and saves to Data Management, then re-reads.
  */
 export async function getLedgerListFromDataManagementCache(): Promise<LedgerListResponse | null> {
   try {
-    const [email, tallylocId, guid] = await Promise.all([
-      getUserEmail(),
-      getTallylocId(),
-      getGuid(),
-    ]);
-    if (!email || !guid || tallylocId == null || tallylocId === 0) return null;
-    const cacheKey = getLedgerListCacheKey(email, guid, tallylocId);
-    const database = await getDatabase();
-    const [results] = await database.executeSql(
-      `SELECT data FROM ${CUSTOMERS_TABLE} WHERE cache_key = ? LIMIT 1`,
-      [cacheKey]
-    );
-    if (results.rows.length === 0) return null;
-    const row = results.rows.item(0) as { data?: string };
-    const dataStr = row?.data;
-    if (typeof dataStr !== 'string') return null;
-    const parsed: unknown = JSON.parse(dataStr);
-    return normalizeToLedgerListResponse(parsed);
+    const result = await getLedgerListFromDataManagementCacheInternal();
+    if (result !== null && (result.ledgers?.length ?? 0) > 0) return result;
+    const { ensureCustomersInDataManagement } = await import('./dataManagementAutoSync');
+    await ensureCustomersInDataManagement();
+    return await getLedgerListFromDataManagementCacheInternal();
   } catch (e) {
     console.warn('[ledgerListCacheReader] getLedgerListFromDataManagementCache failed:', e);
     return null;
   }
+}
+
+async function getLedgerListFromDataManagementCacheInternal(): Promise<LedgerListResponse | null> {
+  const [email, tallylocId, guid] = await Promise.all([
+    getUserEmail(),
+    getTallylocId(),
+    getGuid(),
+  ]);
+  if (!email || !guid || tallylocId == null || tallylocId === 0) return null;
+  const cacheKey = getLedgerListCacheKey(email, guid, tallylocId);
+  const database = await getDatabase();
+  const [results] = await database.executeSql(
+    `SELECT data FROM ${CUSTOMERS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [cacheKey]
+  );
+  if (results.rows.length === 0) return null;
+  const row = results.rows.item(0) as { data?: string };
+  const dataStr = row?.data;
+  if (typeof dataStr !== 'string') return null;
+  const parsed: unknown = JSON.parse(dataStr);
+  return normalizeToLedgerListResponse(parsed);
 }
 
 /**

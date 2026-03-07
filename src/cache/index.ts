@@ -11,11 +11,20 @@ export {
   getStockItemsFromDataManagementCache,
   getStockItemName,
   getStockItemNamesFromDataManagementCache,
+  saveStockItemsToDataManagementCache,
 } from './stockItemsCacheReader';
 export {
   getStockItemsAndGroupsFromDataManagementCache,
+  getStockGroupsFromDataManagementCache,
+  saveStockGroupsToDataManagementCache,
   type StockListEntry,
 } from './stockListCacheReader';
+export {
+  ensureCustomersInDataManagement,
+  ensureStockItemsInDataManagement,
+  ensureStockGroupsInDataManagement,
+  ensureAllDataManagementData,
+} from './dataManagementAutoSync';
 export {
   getSessionStockItems,
   setSessionStockItems,
