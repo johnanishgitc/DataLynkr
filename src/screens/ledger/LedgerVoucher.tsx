@@ -47,6 +47,7 @@ interface LedgerVoucherProps {
   onExportOpen: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
+  setExportData?: (data: LedgerReportData | null) => void;
 }
 
 export default function LedgerVoucher({
@@ -61,6 +62,7 @@ export default function LedgerVoucher({
   onExportOpen,
   onNavigateHome,
   onBankPress,
+  setExportData,
 }: LedgerVoucherProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -141,7 +143,10 @@ export default function LedgerVoucher({
     (async () => {
       const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
       if (t === 0 || !c || !g) {
-        if (!cancel) setData(null);
+        if (!cancel) {
+          setData(null);
+          setExportData?.(null);
+        }
         setLoading(false);
         return;
       }
@@ -159,9 +164,11 @@ export default function LedgerVoucher({
         if (cancel) return;
         const d = getDataOrConstruct(res as Parameters<typeof getDataOrConstruct>[0]);
         setData(d);
+        setExportData?.(d);
       } catch (e: unknown) {
         if (isUnauthorizedError(e)) {
           setData(null);
+          setExportData?.(null);
           return;
         }
         let msg = 'Network error';
@@ -175,6 +182,7 @@ export default function LedgerVoucher({
         }
         Alert.alert(strings.error, msg);
         setData(null);
+        setExportData?.(null);
       } finally {
         if (!cancel) setLoading(false);
       }

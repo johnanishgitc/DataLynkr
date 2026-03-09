@@ -173,15 +173,25 @@ export function parseQuantityInput(
     const leftMatch = left.match(new RegExp(`^${NUM}${WS}(.*)$`));
     const rightMatch = right.match(new RegExp(`^${NUM}${WS}(.*)$`));
     if (leftMatch && rightMatch) {
-      const baseQty = parseFloat(leftMatch[1]);
-      const addlQty = parseFloat(rightMatch[1]);
-      const baseUnitPart = (leftMatch[2] ?? '').trim().toLowerCase();
-      const addlUnitPart = (rightMatch[2] ?? '').trim().toLowerCase();
-      if (Number.isFinite(baseQty) && Number.isFinite(addlQty) && baseQty > 0) {
-        const baseMatch = !baseUnitPart || base.toLowerCase().includes(baseUnitPart) || (baseMain && baseMain.toLowerCase().includes(baseUnitPart));
-        const addlMatch = !addlUnitPart || (addl && addl.toLowerCase().includes(addlUnitPart));
-        if (baseMatch && addlMatch)
-          return { qty: baseQty, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: addlQty };
+      const q1 = parseFloat(leftMatch[1]);
+      const q2 = parseFloat(rightMatch[1]);
+      const unit1 = (leftMatch[2] ?? '').trim().toLowerCase();
+      const unit2 = (rightMatch[2] ?? '').trim().toLowerCase();
+      if (Number.isFinite(q1) && Number.isFinite(q2) && q1 > 0 && q2 > 0) {
+        // Base matches
+        const isBase1 = !unit1 || base.toLowerCase().includes(unit1) || (baseMain && baseMain.toLowerCase().includes(unit1));
+        const isBase2 = !unit2 || base.toLowerCase().includes(unit2) || (baseMain && baseMain.toLowerCase().includes(unit2));
+        // Addl matches
+        const isAddl1 = !unit1 || (addl && addl.toLowerCase().includes(unit1));
+        const isAddl2 = !unit2 || (addl && addl.toLowerCase().includes(unit2));
+
+        if (isBase1 && isAddl2) {
+          return { qty: q1, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q2 };
+        } else if (isAddl1 && isBase2) {
+          // Reversed: e.g. "25p = 1c" where base is 'Cases' (c) and addl is 'PCS' (p)
+          // Store it internally as baseQty = q2, customAddlQty = q1
+          return { qty: q2, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q1 };
+        }
       }
     }
   }
@@ -190,11 +200,8 @@ export function parseQuantityInput(
   if (baseIsCompound && addl) {
     const mainUnit = baseMain || base.split(/\s+of\s+/i)[0]?.trim() || base;
     const subUnit = baseSub || base.split(/\s+of\s+/i)[1]?.trim() || '';
-    const re = new RegExp(
-      `(?:(?<m>${NUM})${WS}(?<mu>${mainUnit}|\\w+))?${WS}(?:(?<s>${NUM})${WS}(?<su>${subUnit}|\\w+))?${WS}(?:(?<a>${NUM})${WS}(?<au>${addl}|\\w+))?`,
-      'gi'
-    );
-    const match = raw.match(new RegExp(`^(?<m>${NUM})${WS}(?<mu>\\w+)${WS}(?<s>${NUM})?${WS}(?<su>\\w+)${WS}(?<a>${NUM})${WS}(?<au>\\w+)$`, 'i'));
+    const UNIT = '([A-Za-z]+)';
+    const match = raw.match(new RegExp(`^(?<m>${NUM})${WS}(?<mu>${UNIT})${WS}(?<s>${NUM})?${WS}(?<su>${UNIT})${WS}(?<a>${NUM})${WS}(?<au>${UNIT})$`, 'i'));
     if (match) {
       const mQ = parseFloat(match[1]);
       const mu = (match[2] ?? '').trim().toLowerCase();
@@ -224,7 +231,8 @@ export function parseQuantityInput(
     const addlMain = unitConfig.ADDLUNITCOMP_BASEUNIT || addl.split(/\s+of\s+/i)[0]?.trim() || '';
     const addlSub = unitConfig.ADDLUNITCOMP_ADDLUNIT || addl.split(/\s+of\s+/i)[1]?.trim() || '';
     const addlConv = parseFloat(String(unitConfig.ADDLUNITCOMP_CONVERSION)) || 1;
-    const match = raw.match(new RegExp(`^(?<b>${NUM})${WS}(?<bu>\\w+)${WS}(?<m>${NUM})${WS}(?<mu>\\w+)${WS}(?<s>${NUM})?${WS}(?<su>\\w+)$`, 'i'));
+    const UNIT = '([A-Za-z]+)';
+    const match = raw.match(new RegExp(`^(?<b>${NUM})${WS}(?<bu>${UNIT})${WS}(?<m>${NUM})${WS}(?<mu>${UNIT})${WS}(?<s>${NUM})?${WS}(?<su>${UNIT})$`, 'i'));
     if (match) {
       const bQ = parseFloat(match[1]);
       const mQ = parseFloat(match[3]);
@@ -246,7 +254,7 @@ export function parseQuantityInput(
   if (baseIsCompound && baseMain && baseSub) {
     const hyphen = raw.replace(/\s+/g, ' ');
     const parts: { qty: number; unit: string }[] = [];
-    const tokenRe = new RegExp(`${NUM}${WS}([A-Za-z][A-Za-z0-9]*)`, 'g');
+    const tokenRe = new RegExp(`${NUM}${WS}([A-Za-z]+)`, 'g');
     let tok;
     while ((tok = tokenRe.exec(hyphen)) !== null) {
       const q = parseFloat(tok[1]);
@@ -283,7 +291,7 @@ export function parseQuantityInput(
     const addlLower = addl?.toLowerCase() ?? '';
     const matchBase = baseLower && (baseLower.includes(unitPart) || unitPart.includes(baseLower) || baseLower.startsWith(unitPart) || unitPart.startsWith(baseLower));
     const matchAddl = addlLower && (addlLower.includes(unitPart) || unitPart.includes(addlLower) || addlLower.startsWith(unitPart) || unitPart.startsWith(addlLower));
-    if (matchBase) return { qty: q, uom: 'base', isCompound: false };
+    if (matchBase) return { qty: q, subQty: baseIsCompound ? 0 : undefined, uom: 'base', isCompound: baseIsCompound };
     if (matchAddl) return { qty: q, uom: 'additional', isCompound: false };
     return { qty: q, uom: 'base', isCompound: false };
   }
@@ -327,16 +335,17 @@ export function convertToPrimaryQty(
   }
 
   if (parsedQty.isCustomConversion && customConversion) {
-    const baseQty = parsedQty.qty ?? 0;
-    return (baseQty * customConversion.conversion) / customConversion.denominator;
+    // When a custom conversion is entered (e.g. 1 CAR = 60 PCS), the entered base quantity is `parsedQty.qty`.
+    // We should return just the base quantity because primary quantity is ALWAYS in terms of the base UOM.
+    return parsedQty.qty ?? 0;
   }
 
   if (baseIsCompound && (parsedQty.qty != null || parsedQty.subQty != null)) {
     const main = parsedQty.qty ?? 0;
     const sub = parsedQty.subQty ?? 0;
     const compoundQty = main + sub / baseConv;
-    const effectiveDenom = denom / baseConv;
-    return (compoundQty * effectiveDenom) / conv;
+    // Return quantity in base sub-component (e.g. PCS when base is CAR of 40 PCS) so 1 CAR → 40 PCS
+    return compoundQty * baseConv;
   }
 
   if (parsedQty.uom === 'additional' && parsedQty.qty != null) {
@@ -367,6 +376,13 @@ export function convertToAlternativeQty(
   if (customConversion) {
     const altQty = baseQty * (customConversion.conversion / customConversion.denominator);
     return { qty: String(altQty), unit: unitConfig.ADDITIONALUNITS };
+  }
+
+  // When base is compound and additional unit is the base's sub-unit (from response), primary is already in that unit
+  const addlName = (unitConfig.ADDITIONALUNITS ?? '').trim().toLowerCase();
+  const baseSubName = (unitConfig.BASEUNITCOMP_ADDLUNIT ?? '').trim().toLowerCase();
+  if (baseIsCompound && addlName && baseSubName && addlName === baseSubName) {
+    return { qty: String(baseQty), unit: unitConfig.ADDITIONALUNITS };
   }
 
   if (addlIsCompound) {
@@ -447,11 +463,15 @@ export function getQuantityInRateUOM(
     case 'base':
       if (unitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes' && baseQtyOnly != null) return baseQtyOnly;
       return itemQuantity;
-    case 'additional':
+    case 'additional': {
+      const addlName = (unitConfig.ADDITIONALUNITS ?? '').trim().toLowerCase();
+      const baseSubName = (unitConfig.BASEUNITCOMP_ADDLUNIT ?? '').trim().toLowerCase();
+      if (baseIsCompound && addlName && baseSubName && addlName === baseSubName) return itemQuantity;
       if (customAddlQty != null) return customAddlQty;
       if (customConversion)
         return itemQuantity * (customConversion.conversion / customConversion.denominator);
       return itemQuantity * (conv / effectiveDenom);
+    }
     case 'component-main':
       if (compoundBaseQty != null) return compoundBaseQty;
       return itemQuantity;

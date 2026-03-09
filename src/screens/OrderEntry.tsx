@@ -240,6 +240,7 @@ export default function OrderEntry() {
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
   const [clearAllConfirmVisible, setClearAllConfirmVisible] = useState(false);
   const [leaveConfirmVisible, setLeaveConfirmVisible] = useState(false);
+  const [addMoreItemsConfirmVisible, setAddMoreItemsConfirmVisible] = useState(false);
   const pendingLeaveActionRef = useRef<(() => void) | null>(null);
   const tabNameRef = useRef(ORDERS_TAB_NAME);
   const prevTabNameRef = useRef(ORDERS_TAB_NAME);
@@ -574,7 +575,13 @@ export default function OrderEntry() {
     }
   }, []);
 
-  // Fetch voucher types when Voucher Type dropdown is opened
+  // Pre-fetch voucher types (and class data) in background as soon as Order Entry screen is opened
+  useEffect(() => {
+    if (voucherTypesList.length > 0) return;
+    fetchVoucherTypesAsync();
+  }, [fetchVoucherTypesAsync]);
+
+  // Fetch voucher types when Voucher Type dropdown is opened (if not already loaded)
   useEffect(() => {
     let cancel = false;
     if (!voucherTypeDropdownOpen || voucherTypesList.length > 0) return;
@@ -682,7 +689,13 @@ export default function OrderEntry() {
       attachmentLinks: undefined,
       attachmentUris: undefined,
     } as any);
-    setTimeout(() => setItemDropdownOpen(true), 250);
+    // Only when first item is added (no replace): ask "Do you want to add more items?"; otherwise auto-open items dropdown
+    const isFirstItemAdd = addedLength === 1 && !hasReplace;
+    if (isFirstItemAdd) {
+      setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
+    } else {
+      setTimeout(() => setItemDropdownOpen(true), 250);
+    }
   }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
@@ -4343,6 +4356,17 @@ export default function OrderEntry() {
         title={'Are you sure?\n\nIf you switch tabs or go back, the items in Cart will be cleared.'}
         confirmLabel="OK"
         variant="warning"
+      />
+      <DeleteConfirmationModal
+        visible={addMoreItemsConfirmVisible}
+        onCancel={() => setAddMoreItemsConfirmVisible(false)}
+        onConfirm={() => {
+          setAddMoreItemsConfirmVisible(false);
+          setTimeout(() => setItemDropdownOpen(true), 0);
+        }}
+        title="Do you want to add more items?"
+        confirmLabel="Yes"
+        variant="info"
       />
     </View >
   );

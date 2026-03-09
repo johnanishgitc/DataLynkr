@@ -33,6 +33,7 @@ interface PastOrdersProps {
   onExportOpen: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
+  setSalesExportData?: (data: any) => void;
 }
 
 export default function PastOrders({
@@ -47,6 +48,7 @@ export default function PastOrders({
   onExportOpen,
   onNavigateHome,
   onBankPress,
+  setSalesExportData,
 }: PastOrdersProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -105,6 +107,7 @@ export default function PastOrders({
     if (!ledger_name?.trim()) {
       setLoading(false);
       setOrders(null);
+      setSalesExportData?.(null);
       return;
     }
     let cancel = false;
@@ -129,9 +132,11 @@ export default function PastOrders({
         if (cancel) return;
         const typed = res as SalesOrderReportResponse;
         setOrders(typed.orders ?? []);
+        setSalesExportData?.(typed.orders ?? []);
       } catch (e: unknown) {
         if (isUnauthorizedError(e)) {
           setOrders(null);
+          setSalesExportData?.(null);
           return;
         }
         let msg = 'Network error';

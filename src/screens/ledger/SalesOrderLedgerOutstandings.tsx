@@ -39,6 +39,7 @@ interface SalesOrderLedgerOutstandingsProps {
   onExportOpen: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
+  setSalesExportData?: (data: any) => void;
 }
 
 /** Grouped stock item row - aggregates similar STOCKITEM entries with average rate */
@@ -70,6 +71,7 @@ export default function SalesOrderLedgerOutstandings({
   onExportOpen,
   onNavigateHome,
   onBankPress,
+  setSalesExportData,
 }: SalesOrderLedgerOutstandingsProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -137,6 +139,7 @@ export default function SalesOrderLedgerOutstandings({
       if (t === 0 || !c || !g) {
         if (!cancel) setSalesOrderRows(null);
         setLoading(false);
+        setSalesExportData?.(null);
         return;
       }
       try {
@@ -154,9 +157,11 @@ export default function SalesOrderLedgerOutstandings({
         if (cancel) return;
         const soRes = res as SalesOrderOutstandingResponse;
         setSalesOrderRows(soRes.DATA ?? []);
+        setSalesExportData?.(soRes.DATA ?? []);
       } catch (e: unknown) {
         if (isUnauthorizedError(e)) {
           setSalesOrderRows(null);
+          setSalesExportData?.(null);
           return;
         }
         let msg = 'Network error';

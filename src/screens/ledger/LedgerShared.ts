@@ -3,6 +3,7 @@ import type {
   LedgerReportData,
   VoucherEntry,
   SalesOrderOutstandingRow,
+  SalesOrderReportItem,
 } from '../../api';
 import { strings } from '../../constants/strings';
 import { colors } from '../../constants/colors';
@@ -111,32 +112,836 @@ export function formatBalance(debit: unknown, credit: unknown): string {
 }
 
 // ============ HTML/EXPORT UTILITIES ============
-export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: string): string {
+// ============ HTML/EXPORT UTILITIES ============
+export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: string, companyName: string, dateRangeStr: string): string {
   const rows = d.data ?? [];
   const opening = d.opening as { DEBITAMT?: unknown; CREDITAMT?: unknown } | undefined;
   const closing = d.closing as { DEBITAMT?: unknown; CREDITAMT?: unknown } | undefined;
-  const r = (arr: (string | number)[]) =>
-    '<tr>' + arr.map((c) => '<td>' + escapeHtml(String(c)) + '</td>').join('') + '</tr>';
-  const head = r(['Date', strings.particulars, strings.voucher_type, strings.voucher_number, strings.debit, strings.credit]);
+
   let body = '';
-  if (opening) body += r(['—', strings.opening_balance, '—', '—', amt(opening.DEBITAMT), amt(opening.CREDITAMT)]);
-  for (const v of rows) {
-    body += r([v.DATE ?? '—', v.PARTICULARS ?? '—', v.VCHTYPE ?? '—', v.VCHNO ?? '—', amt(v.DEBITAMT), amt(v.CREDITAMT)]);
+
+  if (opening) {
+    body += `<tr>
+      <td>—</td>
+      <td>${escapeHtml(strings.opening_balance)}</td>
+      <td>—</td>
+      <td>—</td>
+      <td>${escapeHtml(amt(opening.DEBITAMT))}</td>
+      <td>${escapeHtml(amt(opening.CREDITAMT))}</td>
+    </tr>`;
   }
-  if (closing) body += r(['—', strings.closing_balance, '—', '—', amt(closing.DEBITAMT), amt(closing.CREDITAMT)]);
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:6px;text-align:left}</style></head><body><h2>${escapeHtml(ledgerName)} – ${escapeHtml(reportName)}</h2><table><thead>${head}</thead><tbody>${body}</tbody></table></body></html>`;
+
+  let totalDeb = 0;
+  let totalCr = 0;
+
+  for (const v of rows) {
+    totalDeb += toNum(v.DEBITAMT);
+    totalCr += toNum(v.CREDITAMT);
+
+    body += `<tr>
+      <td>${escapeHtml(v.DATE ?? '—')}</td>
+      <td>${escapeHtml(v.PARTICULARS ?? '—')}</td>
+      <td>${escapeHtml(v.VCHTYPE ?? '—')}</td>
+      <td>${escapeHtml(v.VCHNO ?? '—')}</td>
+      <td>${escapeHtml(amt(v.DEBITAMT))}</td>
+      <td>${escapeHtml(amt(v.CREDITAMT))}</td>
+    </tr>`;
+  }
+
+  let summaryHtml = `
+    <tr>
+      <td class="total-label-cell" style="font-weight: bold; color: #111;">Opening Balance</td>
+      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(opening?.DEBITAMT || 0))}</td>
+      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(opening?.CREDITAMT || 0))}</td>
+    </tr>
+    <tr>
+      <td class="total-label-cell" style="font-weight: bold; color: #111;">Current Total</td>
+      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(totalDeb))}</td>
+      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(totalCr))}</td>
+    </tr>
+    <tr>
+      <td class="total-label-cell" style="font-weight: bold; color: #111;">Closing Balance</td>
+      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(closing?.DEBITAMT || 0))}</td>
+      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(closing?.CREDITAMT || 0))}</td>
+    </tr>
+  `;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    margin: 30px;
+    font-size: 13px;
+    color: #333;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 25px;
+  }
+  .header-company {
+    font-size: 20px;
+    font-weight: bold;
+    color: #1a233a;
+    margin: 0 0 8px 0;
+  }
+  .header-report {
+    font-size: 15px;
+    font-weight: bold;
+    color: #1a233a;
+    margin: 0 0 6px 0;
+  }
+  .header-ledger {
+    font-size: 14px;
+    color: #1a233a;
+    margin: 0 0 6px 0;
+  }
+  .header-period {
+    font-size: 13px;
+    color: #666;
+    margin: 0;
+  }
+  .main-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .main-table th {
+    font-weight: bold;
+    text-align: left;
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    background-color: #fff;
+    color: #111;
+    vertical-align: top;
+  }
+  .main-table td {
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    color: #333;
+    vertical-align: top;
+    word-break: break-word;
+  }
+  
+  /* Consistent column widths for exact alignment */
+  .col-1 { width: 14%; } /* Date */
+  .col-2 { width: 28%; } /* Particulars */
+  .col-3 { width: 15%; } /* Vch Type */
+  .col-4 { width: 15%; } /* Vch No */
+  .col-5 { width: 14%; } /* Debit */
+  .col-6 { width: 14%; } /* Credit */
+  
+  .totals-outer-wrapper {
+    margin-top: 20px;
+    border: 1px solid #dcdcdc;
+    padding: 20px;
+  }
+  
+  /* Explicit precise total row layout dodging PDF engine bugs */
+  .totals-row-exact {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .totals-row-exact td {
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    vertical-align: top;
+  }
+  .total-label-cell {
+    width: 72%; /* col 1+2+3+4 = 14+28+15+15 = 72% */
+    font-weight: bold;
+    color: #111;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-company">${escapeHtml(companyName)}</div>
+    <div class="header-report">${escapeHtml(reportName)}</div>
+    <div class="header-ledger">Ledger: <strong>${escapeHtml(ledgerName)}</strong></div>
+    <div class="header-period">Period: ${escapeHtml(dateRangeStr)}</div>
+  </div>
+  
+  <table class="main-table">
+    <colgroup>
+      <col class="col-1">
+      <col class="col-2">
+      <col class="col-3">
+      <col class="col-4">
+      <col class="col-5">
+      <col class="col-6">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Particulars</th>
+        <th>Vch Type</th>
+        <th>Vch No.</th>
+        <th>Debit</th>
+        <th>Credit</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${body}
+    </tbody>
+  </table>
+  
+  <div class="totals-outer-wrapper">
+    <table class="totals-row-exact">
+      ${summaryHtml}
+    </table>
+  </div>
+</body>
+</html>`;
 }
 
 export function buildRows(d: LedgerReportData): (string | number)[][] {
   const rows = d.data ?? [];
   const opening = d.opening as { DEBITAMT?: unknown; CREDITAMT?: unknown } | undefined;
   const closing = d.closing as { DEBITAMT?: unknown; CREDITAMT?: unknown } | undefined;
-  const out: (string | number)[][] = [['Date', strings.particulars, strings.voucher_type, strings.voucher_number, strings.debit, strings.credit]];
+  const out: (string | number)[][] = [['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit']];
+
   if (opening) out.push(['—', strings.opening_balance, '—', '—', amt(opening.DEBITAMT), amt(opening.CREDITAMT)]);
+
+  let totalDeb = 0;
+  let totalCr = 0;
+
   for (const v of rows) {
+    totalDeb += toNum(v.DEBITAMT);
+    totalCr += toNum(v.CREDITAMT);
     out.push([v.DATE ?? '—', v.PARTICULARS ?? '—', v.VCHTYPE ?? '—', v.VCHNO ?? '—', amt(v.DEBITAMT), amt(v.CREDITAMT)]);
   }
-  if (closing) out.push(['—', strings.closing_balance, '—', '—', amt(closing.DEBITAMT), amt(closing.CREDITAMT)]);
+
+  // Empty row for spacing before summary
+  out.push(['', '', '', '', '', '']);
+
+  // 3-row Summary Block
+  out.push(['', 'Opening Balance', '', '', amt(opening?.DEBITAMT || 0), amt(opening?.CREDITAMT || 0)]);
+  out.push(['', 'Current Total', '', '', amt(totalDeb), amt(totalCr)]);
+  out.push(['', 'Closing Balance', '', '', amt(closing?.DEBITAMT || 0), amt(closing?.CREDITAMT || 0)]);
+
+  return out;
+}
+
+// ============ BILL WISE OUTSTANDING EXPORT ============
+
+function billWiseBalanceStr(debit: unknown, credit: unknown): string {
+  const deb = toNum(debit);
+  const cr = toNum(credit);
+  if (deb > 0) return `${fmtNum(deb)} Dr`;
+  if (cr > 0) return `${fmtNum(cr)} Cr`;
+  return '—';
+}
+
+export function buildBillWiseHtml(d: LedgerReportData, ledgerName: string, reportName: string, companyName: string, dateRangeStr: string): string {
+  const rows = d.data ?? [];
+
+  let body = '';
+  let totalOpenDeb = 0, totalOpenCr = 0, totalPendDeb = 0, totalPendCr = 0;
+
+  for (const v of rows) {
+    const refNo = v.REFNO || v.BILLNAME || '—';
+    const openBal = billWiseBalanceStr(v.DEBITOPENBAL, v.CREDITOPENBAL);
+    const pendBal = billWiseBalanceStr(v.DEBITCLSBAL, v.CREDITCLSBAL);
+    const dueOn = v.DUEON ?? '—';
+    const overdueDays = v.OVERDUEDAYS != null ? String(v.OVERDUEDAYS) : '—';
+
+    totalOpenDeb += toNum(v.DEBITOPENBAL);
+    totalOpenCr += toNum(v.CREDITOPENBAL);
+    totalPendDeb += toNum(v.DEBITCLSBAL);
+    totalPendCr += toNum(v.CREDITCLSBAL);
+
+    body += `<tr>
+      <td>${escapeHtml(v.DATE ?? '—')}</td>
+      <td>${escapeHtml(refNo)}</td>
+      <td>${escapeHtml(openBal)}</td>
+      <td>${escapeHtml(pendBal)}</td>
+      <td>${escapeHtml(dueOn)}</td>
+      <td>${escapeHtml(overdueDays)}</td>
+    </tr>`;
+  }
+
+  // Total row
+  const totalOpenRaw = totalOpenDeb > totalOpenCr
+    ? `${fmtNum(totalOpenDeb - totalOpenCr)} Dr`
+    : totalOpenCr > totalOpenDeb
+      ? `${fmtNum(totalOpenCr - totalOpenDeb)} Cr`
+      : '0.00';
+  const totalPendRaw = totalPendDeb > totalPendCr
+    ? `${fmtNum(totalPendDeb - totalPendCr)} Dr`
+    : totalPendCr > totalPendDeb
+      ? `${fmtNum(totalPendCr - totalPendDeb)} Cr`
+      : '0.00';
+
+  const openTokens = totalOpenRaw.split(' ');
+  const pendTokens = totalPendRaw.split(' ');
+  const formattedOpenTotal = openTokens.length > 1 ? `${openTokens[0]}<br>${openTokens[1]}` : totalOpenRaw;
+  const formattedPendTotal = pendTokens.length > 1 ? `${pendTokens[0]}<br>${pendTokens[1]}` : totalPendRaw;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    margin: 30px;
+    font-size: 13px;
+    color: #333;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 25px;
+  }
+  .header-company {
+    font-size: 20px;
+    font-weight: bold;
+    color: #1a233a;
+    margin: 0 0 8px 0;
+  }
+  .header-report {
+    font-size: 15px;
+    font-weight: bold;
+    color: #1a233a;
+    margin: 0 0 6px 0;
+  }
+  .header-ledger {
+    font-size: 14px;
+    color: #1a233a;
+    margin: 0 0 6px 0;
+  }
+  .header-period {
+    font-size: 13px;
+    color: #666;
+    margin: 0;
+  }
+  .main-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .main-table th {
+    font-weight: bold;
+    text-align: left;
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    background-color: #fff;
+    color: #111;
+    vertical-align: top;
+  }
+  .main-table td {
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    color: #333;
+    vertical-align: top;
+  }
+  
+  /* Spacer row to create the visual gap before totals */
+  .spacer-row td {
+    border: none !important;
+    height: 25px;
+    padding: 0;
+  }
+
+  /* Totals row styling to look like a separate box */
+  .total-row td {
+    border: 1px solid #dcdcdc !important;
+    padding: 15px 10px;
+  }
+  .total-label {
+    font-weight: bold;
+    color: #111;
+  }
+  .total-value {
+    color: #333;
+  }
+  
+  /* Consistent column widths for exact alignment */
+  .col-1 { width: 14%; } /* Date */
+  .col-2 { width: 22%; } /* Ref No */
+  .col-3 { width: 18%; } /* Opening Amt */
+  .col-4 { width: 18%; } /* Pending Amt */
+  .col-5 { width: 14%; } /* Due On */
+  .col-6 { width: 14%; } /* Overdue */
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-company">${escapeHtml(companyName)}</div>
+    <div class="header-report">Bill wise O/s</div>
+    <div class="header-ledger">Ledger: <strong>${escapeHtml(ledgerName)}</strong></div>
+    <div class="header-period">Period: ${escapeHtml(dateRangeStr)}</div>
+  </div>
+  <table class="main-table" style="table-layout: fixed;">
+    <colgroup>
+      <col class="col-1">
+      <col class="col-2">
+      <col class="col-3">
+      <col class="col-4">
+      <col class="col-5">
+      <col class="col-6">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Ref No</th>
+        <th>Opening<br>Amount</th>
+        <th>Pending<br>Amount</th>
+        <th>Due On</th>
+        <th>Overdue<br>Days</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${body}
+      <tr class="spacer-row">
+        <td colspan="6"></td>
+      </tr>
+      
+      <tr class="total-row">
+        <td colspan="4" class="total-label">Total</td>
+        <td class="total-value">${formattedOpenTotal}</td>
+        <td class="total-value">${formattedPendTotal}</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+}
+
+export function buildBillWiseRows(d: LedgerReportData): (string | number)[][] {
+  const rows = d.data ?? [];
+  const out: (string | number)[][] = [['Date', 'Ref No', 'Opening Amount', 'Pending Amount', 'Due On', 'Overdue Days']];
+
+  let totalOpenDeb = 0, totalOpenCr = 0, totalPendDeb = 0, totalPendCr = 0;
+
+  for (const v of rows) {
+    const refNo = v.REFNO || v.BILLNAME || '—';
+    const openBal = billWiseBalanceStr(v.DEBITOPENBAL, v.CREDITOPENBAL);
+    const pendBal = billWiseBalanceStr(v.DEBITCLSBAL, v.CREDITCLSBAL);
+    const dueOn = v.DUEON ?? '—';
+    const overdueDays = v.OVERDUEDAYS != null ? String(v.OVERDUEDAYS) : '—';
+
+    totalOpenDeb += toNum(v.DEBITOPENBAL);
+    totalOpenCr += toNum(v.CREDITOPENBAL);
+    totalPendDeb += toNum(v.DEBITCLSBAL);
+    totalPendCr += toNum(v.CREDITCLSBAL);
+
+    out.push([v.DATE ?? '—', refNo, openBal, pendBal, dueOn, overdueDays]);
+  }
+
+  const totalOpenStr = totalOpenDeb > totalOpenCr
+    ? `${fmtNum(totalOpenDeb - totalOpenCr)} Dr`
+    : totalOpenCr > totalOpenDeb
+      ? `${fmtNum(totalOpenCr - totalOpenDeb)} Cr`
+      : '0.00';
+  const totalPendStr = totalPendDeb > totalPendCr
+    ? `${fmtNum(totalPendDeb - totalPendCr)} Dr`
+    : totalPendCr > totalPendDeb
+      ? `${fmtNum(totalPendCr - totalPendDeb)} Cr`
+      : '0.00';
+
+  out.push(['', 'Total', totalOpenStr, totalPendStr, '', '']);
+  return out;
+}
+
+// ============ SALES ORDER LEDGER OUTSTANDINGS EXPORT ============
+
+function soCommonCss(): string {
+  return `
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    margin: 30px;
+    font-size: 13px;
+    color: #333;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 25px;
+  }
+  .header-company {
+    font-size: 20px;
+    font-weight: bold;
+    color: #1a233a;
+    margin: 0 0 8px 0;
+  }
+  .header-report {
+    font-size: 15px;
+    font-weight: bold;
+    color: #1a233a;
+    margin: 0 0 6px 0;
+  }
+  .header-ledger {
+    font-size: 14px;
+    color: #1a233a;
+    margin: 0 0 6px 0;
+  }
+  .header-period {
+    font-size: 13px;
+    color: #666;
+    margin: 0;
+  }
+  .main-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .main-table th {
+    font-weight: bold;
+    text-align: left;
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    background-color: #fff;
+    color: #111;
+    vertical-align: top;
+  }
+  .main-table td {
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    color: #333;
+    vertical-align: top;
+    word-break: break-word;
+  }
+  .spacer-row td {
+    border: none !important;
+    height: 25px;
+    padding: 0;
+  }
+  .total-row td {
+    border: 1px solid #dcdcdc;
+    padding: 15px 10px;
+  }
+  .total-label {
+    font-weight: bold;
+    color: #111;
+    vertical-align: middle !important;
+  }
+  .total-value {
+    color: #333;
+  }`;
+}
+
+function soHeaderHtml(companyName: string, reportTitle: string, ledgerName: string, dateRangeStr: string): string {
+  return `<div class="header">
+    <div class="header-company">${escapeHtml(companyName)}</div>
+    <div class="header-report">${escapeHtml(reportTitle)}</div>
+    <div class="header-ledger">Ledger: <strong>${escapeHtml(ledgerName)}</strong></div>
+    <div class="header-period">Period: ${escapeHtml(dateRangeStr)}</div>
+  </div>`;
+}
+
+// ---- Sales Order Ledger Outstandings ----
+
+export function buildSalesOrderOutstandingHtml(
+  rows: SalesOrderOutstandingRow[],
+  ledgerName: string,
+  companyName: string,
+  dateRangeStr: string,
+): string {
+  let body = '';
+  let totalQty = 0;
+  let totalValue = 0;
+
+  for (const r of rows) {
+    const stockItem = r.STOCKITEM ?? '—';
+    const qtyStr = r.CLOSINGBALANCE || r.OPENINGBALANCE || '';
+    const qty = parseQtyStr(qtyStr);
+    const unit = parseQtyUnit(qtyStr);
+    const rateNum = parseRateStr(r.RATE);
+    const rateDisplay = rateNum > 0 ? fmtNum(rateNum) : '—';
+    const amtStr = (r.AMOUNT || '').toString().replace(/,/g, '');
+    const amtNum = parseFloat(amtStr);
+    const value = !isNaN(amtNum) ? amtNum : 0;
+
+    totalQty += qty;
+    totalValue += value;
+
+    body += `<tr>
+      <td>${escapeHtml(stockItem)}</td>
+      <td>${escapeHtml(qty !== 0 ? fmtNum(qty) : '—')}</td>
+      <td>${escapeHtml(unit || '—')}</td>
+      <td>${escapeHtml(rateDisplay)}</td>
+      <td>${escapeHtml(value !== 0 ? fmtNum(value) : '—')}</td>
+    </tr>`;
+  }
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  ${soCommonCss()}
+</style>
+</head>
+<body>
+  ${soHeaderHtml(companyName, 'Sales Order Ledger Outstandings', ledgerName, dateRangeStr)}
+  <table class="main-table">
+    <thead>
+      <tr>
+        <th style="width: 30%;">Particulars</th>
+        <th style="width: 15%;">Qty</th>
+        <th style="width: 15%;">Unit</th>
+        <th style="width: 20%;">Rate</th>
+        <th style="width: 20%;">Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${body}
+      <tr class="spacer-row"><td colspan="5"></td></tr>
+      <tr class="total-row">
+        <td colspan="3" class="total-label">Total</td>
+        <td class="total-value">${escapeHtml(fmtNum(totalQty))}</td>
+        <td class="total-value">${escapeHtml(fmtNum(totalValue))}</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+}
+
+export function buildSalesOrderOutstandingRows(rows: SalesOrderOutstandingRow[]): (string | number)[][] {
+  const out: (string | number)[][] = [['Particulars', 'Qty', 'Unit', 'Rate', 'Value']];
+  let totalQty = 0;
+  let totalValue = 0;
+
+  for (const r of rows) {
+    const stockItem = r.STOCKITEM ?? '—';
+    const qtyStr = r.CLOSINGBALANCE || r.OPENINGBALANCE || '';
+    const qty = parseQtyStr(qtyStr);
+    const unit = parseQtyUnit(qtyStr);
+    const rateNum = parseRateStr(r.RATE);
+    const rateDisplay = rateNum > 0 ? fmtNum(rateNum) : '—';
+    const amtStr = (r.AMOUNT || '').toString().replace(/,/g, '');
+    const amtNum = parseFloat(amtStr);
+    const value = !isNaN(amtNum) ? amtNum : 0;
+
+    totalQty += qty;
+    totalValue += value;
+
+    out.push([stockItem, qty !== 0 ? fmtNum(qty) : '—', unit || '—', rateDisplay, value !== 0 ? fmtNum(value) : '—']);
+  }
+
+  out.push(['', '', '', '', '']);
+  out.push(['Total', '', '', fmtNum(totalQty), fmtNum(totalValue)]);
+  return out;
+}
+
+// ---- Cleared Orders ----
+
+export function buildClearedOrdersHtml(
+  rows: SalesOrderOutstandingRow[],
+  ledgerName: string,
+  companyName: string,
+  dateRangeStr: string,
+): string {
+  // Group by NAME (order)
+  const byName = new Map<string, SalesOrderOutstandingRow[]>();
+  for (const row of rows) {
+    const key = row.NAME ?? '';
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key)!.push(row);
+  }
+
+  let body = '';
+  let grandTotalQty = 0;
+  let grandTotalValue = 0;
+
+  byName.forEach((group, name) => {
+    const first = group[0];
+    let totalValue = 0;
+    let totalQty = 0;
+    let unit = '';
+    let rate = '';
+    let discount = '';
+
+    for (const r of group) {
+      const amtStr = (r.AMOUNT || '').toString().trim().replace(/,/g, '');
+      const amtNum = parseFloat(amtStr);
+      if (!isNaN(amtNum)) {
+        totalValue += amtNum;
+      } else {
+        const q = parseQtyStr(r.OPENINGBALANCE || r.CLOSINGBALANCE);
+        const rn = parseRateStr(r.RATE);
+        totalValue += rn * Math.abs(q);
+      }
+      const q = parseQtyStr(r.OPENINGBALANCE || r.CLOSINGBALANCE);
+      totalQty += Math.abs(q);
+      if (!unit) unit = parseQtyUnit(r.OPENINGBALANCE || r.CLOSINGBALANCE);
+      if (!rate && r.RATE) rate = String(r.RATE).trim();
+      if (!discount && r.DISCOUNT != null) discount = String(r.DISCOUNT).trim();
+    }
+
+    const orderNo =
+      first?.VOUCHERS?.find((v) => String(v.VOUCHERTYPE || '').toLowerCase().includes('sales order'))?.VOUCHERNUMBER ??
+      name;
+    const date = first?.DATE ?? '—';
+    const clearedOn = first?.DATE ?? '—';
+
+    grandTotalQty += totalQty;
+    grandTotalValue += totalValue;
+
+    body += `<tr>
+      <td>${escapeHtml(date)}</td>
+      <td>${escapeHtml(orderNo || '—')}</td>
+      <td>${escapeHtml(clearedOn)}</td>
+      <td>${escapeHtml(totalQty !== 0 ? `${fmtNum(totalQty)} ${unit}` : '—')}</td>
+      <td>${escapeHtml(rate || '—')}</td>
+      <td>${escapeHtml(totalValue !== 0 ? fmtNum(totalValue) : '—')}</td>
+    </tr>`;
+  });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  ${soCommonCss()}
+</style>
+</head>
+<body>
+  ${soHeaderHtml(companyName, 'Cleared Orders', ledgerName, dateRangeStr)}
+  <table class="main-table">
+    <thead>
+      <tr>
+        <th style="width: 14%;">Date</th>
+        <th style="width: 18%;">Order No</th>
+        <th style="width: 14%;">Cleared On</th>
+        <th style="width: 18%;">Ordered Qty</th>
+        <th style="width: 18%;">Rate</th>
+        <th style="width: 18%;">Total Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${body}
+      <tr class="spacer-row"><td colspan="6"></td></tr>
+      <tr class="total-row">
+        <td colspan="4" class="total-label">Total</td>
+        <td class="total-value">${escapeHtml(fmtNum(grandTotalQty))}</td>
+        <td class="total-value">${escapeHtml(fmtNum(grandTotalValue))}</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+}
+
+export function buildClearedOrdersRows(rows: SalesOrderOutstandingRow[]): (string | number)[][] {
+  const out: (string | number)[][] = [['Date', 'Order No', 'Cleared On', 'Ordered Qty', 'Rate', 'Total Value']];
+
+  const byName = new Map<string, SalesOrderOutstandingRow[]>();
+  for (const row of rows) {
+    const key = row.NAME ?? '';
+    if (!byName.has(key)) byName.set(key, []);
+    byName.get(key)!.push(row);
+  }
+
+  let grandTotalQty = 0;
+  let grandTotalValue = 0;
+
+  byName.forEach((group, name) => {
+    const first = group[0];
+    let totalValue = 0;
+    let totalQty = 0;
+    let unit = '';
+    let rate = '';
+
+    for (const r of group) {
+      const amtStr = (r.AMOUNT || '').toString().trim().replace(/,/g, '');
+      const amtNum = parseFloat(amtStr);
+      if (!isNaN(amtNum)) {
+        totalValue += amtNum;
+      } else {
+        const q = parseQtyStr(r.OPENINGBALANCE || r.CLOSINGBALANCE);
+        const rn = parseRateStr(r.RATE);
+        totalValue += rn * Math.abs(q);
+      }
+      const q = parseQtyStr(r.OPENINGBALANCE || r.CLOSINGBALANCE);
+      totalQty += Math.abs(q);
+      if (!unit) unit = parseQtyUnit(r.OPENINGBALANCE || r.CLOSINGBALANCE);
+      if (!rate && r.RATE) rate = String(r.RATE).trim();
+    }
+
+    const orderNo =
+      first?.VOUCHERS?.find((v) => String(v.VOUCHERTYPE || '').toLowerCase().includes('sales order'))?.VOUCHERNUMBER ??
+      name;
+    const date = first?.DATE ?? '—';
+    const clearedOn = first?.DATE ?? '—';
+
+    grandTotalQty += totalQty;
+    grandTotalValue += totalValue;
+
+    out.push([date, orderNo || '—', clearedOn, totalQty !== 0 ? `${fmtNum(totalQty)} ${unit}` : '—', rate || '—', totalValue !== 0 ? fmtNum(totalValue) : '—']);
+  });
+
+  out.push(['', '', '', '', '', '']);
+  out.push(['Total', '', '', '', fmtNum(grandTotalQty), fmtNum(grandTotalValue)]);
+  return out;
+}
+
+// ---- Past Orders ----
+
+
+export function buildPastOrdersHtml(
+  orders: SalesOrderReportItem[],
+  ledgerName: string,
+  companyName: string,
+  dateRangeStr: string,
+): string {
+  let body = '';
+
+  for (const o of orders) {
+    body += `<tr>
+      <td>${escapeHtml(o.date || '—')}</td>
+      <td>${escapeHtml(o.vouchertypename || '—')}</td>
+      <td>${escapeHtml(o.vouchernumber || '—')}</td>
+      <td>${escapeHtml(o.partyledgername || '—')}</td>
+      <td>${escapeHtml(o.status || '—')}</td>
+    </tr>`;
+  }
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  ${soCommonCss()}
+</style>
+</head>
+<body>
+  ${soHeaderHtml(companyName, 'Past Orders', ledgerName, dateRangeStr)}
+  <table class="main-table">
+    <thead>
+      <tr>
+        <th style="width: 16%;">Date</th>
+        <th style="width: 22%;">Voucher Type</th>
+        <th style="width: 18%;">Voucher No</th>
+        <th style="width: 26%;">Party</th>
+        <th style="width: 18%;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${body}
+      <tr class="spacer-row"><td colspan="5"></td></tr>
+      <tr class="total-row">
+        <td colspan="4" class="total-label">Total Orders</td>
+        <td class="total-value">${orders.length}</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>`;
+}
+
+export function buildPastOrdersRows(orders: SalesOrderReportItem[]): (string | number)[][] {
+  const out: (string | number)[][] = [['Date', 'Voucher Type', 'Voucher No', 'Party', 'Status']];
+
+  for (const o of orders) {
+    out.push([o.date || '—', o.vouchertypename || '—', o.vouchernumber || '—', o.partyledgername || '—', o.status || '—']);
+  }
+
+  out.push(['', '', '', '', '']);
+  out.push(['Total Orders', '', '', '', String(orders.length)]);
   return out;
 }
 

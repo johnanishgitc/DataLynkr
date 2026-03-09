@@ -166,7 +166,12 @@ export default function OrderEntryItemDetail() {
   const [dueDate, setDueDate] = useState(formatDateDmmmYy(Date.now()));
   const [dueDatePickerVisible, setDueDatePickerVisible] = useState(false);
   /** Value (amount after discount) - computed from quantityInRateUOM * rate * (1 - discount/100). */
-  const [value, setValue] = useState(defaultRate);
+  const [value, setValue] = useState(() => {
+    const r = typeof defaultRate === 'number' ? defaultRate : parseFloat(String(defaultRate)) || 0;
+    const d = Math.max(0, Math.min(100, typeof defaultDiscount === 'number' ? defaultDiscount : parseFloat(String(defaultDiscount)) || 0));
+    const total = 1 * r * (1 - d / 100);
+    return Number.isFinite(total) ? total.toFixed(2) : '0';
+  });
   /** Units array from api/tally/stockitem (for UOM parsing and display). */
   const [units, setUnits] = useState<StockItemUnit[]>([]);
   /** Unit config for selected item (from buildUnitConfig). */
@@ -402,7 +407,7 @@ export default function OrderEntryItemDetail() {
     } else {
       setCustomConversion(null);
     }
-  }, [quantityInput, selectedItemUnitConfig, units, customConversion]);
+  }, [quantityInput, selectedItemUnitConfig, units]);
 
   /** Compute value (amount after discount) from quantityInRateUOM * rate * (1 - discount/100). */
   useEffect(() => {
@@ -1083,124 +1088,134 @@ export default function OrderEntryItemDetail() {
               {!isToBeAllocated ? (
                 <>
                   <View style={styles.row}>
-                    {perms.show_rateamt_Column ? (
-                      <View style={styles.half}>
-                        <Text style={styles.label}>Qty</Text>
-                        <TextInput
-                          ref={qtyInputRef}
-                          style={[styles.input, styles.inputRowField]}
-                          value={quantityInput}
-                          onChangeText={(text) => {
-                            const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
+                    <View style={styles.half}>
+                      <Text style={styles.label}>Qty</Text>
+                      <TextInput
+                        ref={qtyInputRef}
+                        style={[styles.input, styles.inputRowField]}
+                        value={quantityInput}
+                        onChangeText={(text) => {
+                          const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
+                          setQuantityInput(validated);
+                        }}
+                        onFocus={() => {
+                          const s = quantityInput;
+                          const spaceIdx = s.indexOf(' ');
+                          // When empty or no space yet, use default keyboard so user can type numbers or unit names
+                          if (s.trim() === '' || spaceIdx < 0) {
+                            setQtyKeyboardType('default');
+                            setQtySelection(undefined);
+                            return;
+                          }
+                          const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
+                          if (endOfNumber > 0) {
+                            setQtySelection({ start: endOfNumber, end: endOfNumber });
+                          }
+                          setQtyKeyboardType('numeric');
+                        }}
+                        onBlur={() => {
+                          let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
+                          if (validated.trim() === '' && selectedItemUnitConfig) {
+                            const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
+                            validated = baseUnit ? `1 ${baseUnit}` : '1';
                             setQuantityInput(validated);
-                          }}
-                          onFocus={() => {
-                            const s = quantityInput;
-                            const spaceIdx = s.indexOf(' ');
-                            // When empty or no space yet, use default keyboard so user can type numbers or unit names
-                            if (s.trim() === '' || spaceIdx < 0) {
-                              setQtyKeyboardType('default');
-                              setQtySelection(undefined);
-                              return;
+                            setItemQuantity(1);
+                            return;
+                          }
+                          if (validated && selectedItemUnitConfig) {
+                            const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
+                            if (parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
+                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                              const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
+                              const fmtBase = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
+                              const fmtAddl = addlDec === 0 ? String(Math.round(parsed.customAddlQty)) : parsed.customAddlQty.toFixed(Number(addlDec));
+                              setQuantityInput(`${fmtBase} ${selectedItemUnitConfig.BASEUNITS} = ${fmtAddl} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
+                            } else if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
+                              const formatted = formatCompoundBaseUnit(
+                                parsed.qty,
+                                parsed.subQty,
+                                selectedItemUnitConfig,
+                                units
+                              );
+                              setQuantityInput(formatted);
+                            } else if (parsed.uom === 'base' && parsed.qty != null) {
+                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                              const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
+                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
+                            } else if (parsed.uom === 'additional' && parsed.qty != null) {
+                              const primaryQty = convertToPrimaryQty(parsed, selectedItemUnitConfig, customConversion, units);
+                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                              const rounded = baseDec === 0 ? Math.round(primaryQty) : parseFloat(primaryQty.toFixed(Number(baseDec)));
+                              const fmt = baseDec === 0 ? String(rounded) : primaryQty.toFixed(Number(baseDec));
+                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
                             }
-                            const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
-                            if (endOfNumber > 0) {
-                              setQtySelection({ start: endOfNumber, end: endOfNumber });
-                            }
-                            setQtyKeyboardType('numeric');
-                          }}
-                          onBlur={() => {
-                            let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
-                            if (validated.trim() === '' && selectedItemUnitConfig) {
-                              const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
-                              validated = baseUnit ? `1 ${baseUnit}` : '1';
-                              setQuantityInput(validated);
-                              setItemQuantity(1);
-                              return;
-                            }
-                            if (validated && selectedItemUnitConfig) {
-                              const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                              if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
-                                const formatted = formatCompoundBaseUnit(
-                                  parsed.qty,
-                                  parsed.subQty,
-                                  selectedItemUnitConfig,
-                                  units
-                                );
-                                setQuantityInput(formatted);
-                              } else if (parsed.uom === 'base' && parsed.qty != null) {
-                                const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                                const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
-                                setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                              } else if (parsed.uom === 'additional' && parsed.qty != null) {
-                                const primaryQty = convertToPrimaryQty(parsed, selectedItemUnitConfig, customConversion, units);
-                                const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                                const rounded = baseDec === 0 ? Math.round(primaryQty) : parseFloat(primaryQty.toFixed(Number(baseDec)));
-                                const fmt = baseDec === 0 ? String(rounded) : primaryQty.toFixed(Number(baseDec));
-                                setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                              }
-                            } else if (validated) setQuantityInput(validated);
-                          }}
-                          onSubmitEditing={() => {
-                            let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
-                            if (validated.trim() === '' && selectedItemUnitConfig) {
-                              const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
-                              setQuantityInput(baseUnit ? `1 ${baseUnit}` : '1');
-                              setItemQuantity(1);
-                              qtyInputRef.current?.blur();
-                              return;
-                            }
-                            if (validated && selectedItemUnitConfig) {
-                              const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                              if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
-                                const formatted = formatCompoundBaseUnit(parsed.qty, parsed.subQty, selectedItemUnitConfig, units);
-                                setQuantityInput(formatted);
-                              } else if (parsed.uom === 'base' && parsed.qty != null) {
-                                const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                                const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
-                                setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                              } else if (parsed.uom === 'additional' && parsed.qty != null) {
-                                const primaryQty = convertToPrimaryQty(parsed, selectedItemUnitConfig, customConversion, units);
-                                const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                                const rounded = baseDec === 0 ? Math.round(primaryQty) : parseFloat(primaryQty.toFixed(Number(baseDec)));
-                                const fmt = baseDec === 0 ? String(rounded) : primaryQty.toFixed(Number(baseDec));
-                                setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                              }
-                            } else if (validated) setQuantityInput(validated);
+                          } else if (validated) setQuantityInput(validated);
+                        }}
+                        onSubmitEditing={() => {
+                          let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
+                          if (validated.trim() === '' && selectedItemUnitConfig) {
+                            const baseUnit = selectedItemUnitConfig.BASEUNITS ?? '';
+                            setQuantityInput(baseUnit ? `1 ${baseUnit}` : '1');
+                            setItemQuantity(1);
                             qtyInputRef.current?.blur();
-                          }}
-                          keyboardType={qtyKeyboardType}
-                          selection={qtySelection}
-                          onSelectionChange={(e) => {
-                            if (qtySelection) setQtySelection(undefined);
-                            const cursorPos = e.nativeEvent.selection.start;
-                            const spaceIdx = quantityInput.indexOf(' ');
-                            // Empty or no space: default keyboard (allow numbers and letters)
-                            if (spaceIdx < 0) {
-                              if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
-                              return;
+                            return;
+                          }
+                          if (validated && selectedItemUnitConfig) {
+                            const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
+                            if (parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
+                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                              const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
+                              const fmtBase = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
+                              const fmtAddl = addlDec === 0 ? String(Math.round(parsed.customAddlQty)) : parsed.customAddlQty.toFixed(Number(addlDec));
+                              setQuantityInput(`${fmtBase} ${selectedItemUnitConfig.BASEUNITS} = ${fmtAddl} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
+                            } else if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
+                              const formatted = formatCompoundBaseUnit(parsed.qty, parsed.subQty, selectedItemUnitConfig, units);
+                              setQuantityInput(formatted);
+                            } else if (parsed.uom === 'base' && parsed.qty != null) {
+                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                              const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
+                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
+                            } else if (parsed.uom === 'additional' && parsed.qty != null) {
+                              const primaryQty = convertToPrimaryQty(parsed, selectedItemUnitConfig, customConversion, units);
+                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
+                              const rounded = baseDec === 0 ? Math.round(primaryQty) : parseFloat(primaryQty.toFixed(Number(baseDec)));
+                              const fmt = baseDec === 0 ? String(rounded) : primaryQty.toFixed(Number(baseDec));
+                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
                             }
-                            if (cursorPos > spaceIdx) {
-                              if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
-                            } else {
-                              if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
-                            }
-                          }}
-                          placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
-                          placeholderTextColor={LABEL_GRAY}
-                        />
-                        {showAlternateQty ? (
-                          (() => {
-                            const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-                            return (
-                              <Text style={[styles.labelHint, { marginTop: 2 }]}>
-                                ({formatAlternateQtyDisplay(alt.qty, selectedItemUnitConfig)} {alt.unit})
-                              </Text>
-                            );
-                          })()
-                        ) : null}
-                      </View>
-                    ) : null}
+                          } else if (validated) setQuantityInput(validated);
+                          qtyInputRef.current?.blur();
+                        }}
+                        keyboardType={qtyKeyboardType}
+                        selection={qtySelection}
+                        onSelectionChange={(e) => {
+                          if (qtySelection) setQtySelection(undefined);
+                          const cursorPos = e.nativeEvent.selection.start;
+                          const spaceIdx = quantityInput.indexOf(' ');
+                          // Empty or no space: default keyboard (allow numbers and letters)
+                          if (spaceIdx < 0) {
+                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
+                            return;
+                          }
+                          if (cursorPos > spaceIdx) {
+                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
+                          } else {
+                            if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
+                          }
+                        }}
+                        placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
+                        placeholderTextColor={LABEL_GRAY}
+                      />
+                      {showAlternateQty ? (
+                        (() => {
+                          const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
+                          return (
+                            <Text style={[styles.labelHint, { marginTop: 2 }]}>
+                              ({formatAlternateQtyDisplay(alt.qty, selectedItemUnitConfig)} {alt.unit})
+                            </Text>
+                          );
+                        })()
+                      ) : null}
+                    </View>
                     {perms.show_rateamt_Column ? (
                       <View style={styles.half}>
                         <Text style={styles.label}>Rate</Text>
@@ -1757,25 +1772,7 @@ export default function OrderEntryItemDetail() {
                     onPress={() => {
                       setRateUOM(opt.value);
                       setPerDropdownOpen(false);
-                      // Doc §5.3: When Rate UOM changes, quantity stays same; preserve amount by auto-adjusting rate.
-                      if (selectedItemUnitConfig && opt.value !== rateUOM) {
-                        const qtyInNewUOM = getQuantityInRateUOM(itemQuantity, opt.value, selectedItemUnitConfig, units, {
-                          compoundBaseQty,
-                          compoundAddlQty,
-                          baseQtyOnly,
-                          customAddlQty,
-                          customConversion,
-                        });
-                        if (qtyInNewUOM > 0) {
-                          const currentTotal = parseFloat(value) || 0;
-                          const d = Math.max(0, Math.min(100, parseFloat(discount) || 0));
-                          const amountBeforeDiscount = d < 100 ? currentTotal / (1 - d / 100) : currentTotal;
-                          const newRate = amountBeforeDiscount / qtyInNewUOM;
-                          if (Number.isFinite(newRate) && newRate >= 0) {
-                            setRate(newRate.toFixed(2));
-                          }
-                        }
-                      }
+                      // Rate is not affected by Per; value is recomputed from quantityInRateUOM * rate * (1 - discount/100) via useEffect.
                     }}
                     activeOpacity={0.7}
                   >
