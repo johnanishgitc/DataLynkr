@@ -45,6 +45,7 @@ import { getString, getField, normalizeDate } from '../utils/salesTransformer';
 import { AppSidebar } from '../components/AppSidebar';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
+import { invalidateLedgerListCache } from '../cache';
 
 // Enable SQLite promises
 SQLite.enablePromise(true);
@@ -1699,6 +1700,7 @@ export default function DataManagement() {
           const customersBody = (customersResult.value as { data?: unknown })?.data ?? customersResult.value;
           const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
           await saveCustomersForCacheKey(ledgerListCacheKey, customersBody, indexContext);
+          invalidateLedgerListCache();
           console.log('[CacheManagement2] Customers (ledgerlist-w-addrs) saved for cache key:', ledgerListCacheKey);
         } else {
           console.warn('[CacheManagement2] Customers fetch failed:', customersResult.reason);
@@ -1858,6 +1860,7 @@ export default function DataManagement() {
           const customersBody = (customersResult.value as { data?: unknown })?.data ?? customersResult.value;
           const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
           await saveCustomersForCacheKey(ledgerListCacheKey, customersBody, indexContext);
+          invalidateLedgerListCache();
           console.log('[CacheManagement2] Customers (ledgerlist-w-addrs) refreshed for cache key:', ledgerListCacheKey);
         } else {
           console.warn('[CacheManagement2] Customers refresh failed:', customersResult.reason);
@@ -2598,10 +2601,10 @@ export default function DataManagement() {
 
   const handleClearAllCache = () => {
     if (!entries.length) {
-      // Cache list is empty but sales_cache.db may still have data (e.g. from a previous clear that didn't wipe native DB). Allow clearing dashboard data.
+      // Cache list is empty but sales_cache.db and cache2 (customers, items, stock groups) may still have data.
       Alert.alert(
-        'Clear dashboard data?',
-        'The cache list is empty. This will clear the sales database so the dashboard shows no data.',
+        'Clear all data?',
+        'This will clear the sales database and remove any cached customers, items, and stock groups from the database.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -2609,12 +2612,24 @@ export default function DataManagement() {
             style: 'destructive',
             onPress: async () => {
               try {
+                const database = await getDatabase();
+                await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
+                await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE}`);
+                await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
+                await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
+                await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
+                await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
+                invalidateLedgerListCache();
                 await clearSalesCacheForGuid('');
-                setStatusMessage('Dashboard data cleared.');
+                await refreshEntries();
+                setCustomerCount(0);
+                setItemCount(0);
+                setStockGroupCount(0);
+                setStatusMessage('All data cleared (customers, items, stock groups, and sales).');
                 setErrorMessage('');
               } catch (e) {
-                console.error('Failed to clear sales DB:', e);
-                Alert.alert('Error', 'Failed to clear dashboard data.');
+                console.error('Failed to clear data:', e);
+                Alert.alert('Error', 'Failed to clear data.');
               }
             },
           },
@@ -2655,6 +2670,7 @@ export default function DataManagement() {
               await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
               await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
               await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
+              invalidateLedgerListCache();
 
               // Delete files on disk (ignore individual errors)
               await Promise.all(
@@ -3037,6 +3053,7 @@ export default function DataManagement() {
       const body = (result as { data?: unknown })?.data ?? result;
       const indexContext: CacheIndexContext = { userId: userIdFromEmail(email), locationId: Number(tallylocId), company, guid };
       await saveCustomersForCacheKey(ledgerListCacheKey, body, indexContext);
+      invalidateLedgerListCache();
       const names = ledgerNamesFromPayload(body);
       setCustomerCount(names.length);
     } catch (e) {
@@ -3126,6 +3143,7 @@ export default function DataManagement() {
               await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE} WHERE cache_key = ?`, [ledgerKey]);
               await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
               await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
+              invalidateLedgerListCache();
               await clearSalesCacheForGuid(guid);
               await refreshEntries();
               setCustomerCount(0);

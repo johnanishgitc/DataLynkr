@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { getLedgerListNamesFromDataManagementCache } from '../cache';
-import { CustNamesDropdown, StatusBarTopBar, AppSidebar } from '../components';
+import { CustNamesDropdown, StatusBarTopBar, AppSidebar, BankUpiDetailsModal } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { colors } from '../constants/colors';
+import { apiService } from '../api/client';
+import type { BankUpiResponse } from '../api';
 
 const DEFAULT_REPORT = 'Ledger Vouchers';
 
@@ -32,9 +34,39 @@ export default function LedgerMain() {
   const [ledgerNames, setLedgerNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bankUpiVisible, setBankUpiVisible] = useState(false);
+  const [bankUpiData, setBankUpiData] = useState<BankUpiResponse | null>(null);
+  const [bankUpiLoading, setBankUpiLoading] = useState(false);
+  const [bankUpiError, setBankUpiError] = useState<string | null>(null);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  const openBankUpi = useCallback(async () => {
+    setBankUpiVisible(true);
+    setBankUpiError(null);
+    setBankUpiData(null);
+    if (tallylocId === 0 || !company || !guid) {
+      setBankUpiError('Company not configured.');
+      return;
+    }
+    setBankUpiLoading(true);
+    try {
+      const { data } = await apiService.getBankUpi({
+        tallyloc_id: tallylocId,
+        company,
+        guid,
+      });
+      setBankUpiData(data);
+    } catch (e) {
+      const message = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : 'Failed to load Bank & UPI details.';
+      setBankUpiError(message);
+    } finally {
+      setBankUpiLoading(false);
+    }
+  }, [tallylocId, company, guid]);
+
+  const closeBankUpi = useCallback(() => setBankUpiVisible(false), []);
 
   const goToAdminDashboard = useCallback(() => {
     closeSidebar();
@@ -107,6 +139,13 @@ export default function LedgerMain() {
     fetchLedgers();
   }, [fetchLedgers]);
 
+  // Refetch customer/ledger names when screen gains focus (e.g. returning from Data Management) so list stays in sync
+  useFocusEffect(
+    useCallback(() => {
+      fetchLedgers();
+    }, [fetchLedgers])
+  );
+
   const onSelectLedger = (ledgerName: string) => {
     const params = {
       ledger_name: ledgerName,
@@ -125,10 +164,17 @@ export default function LedgerMain() {
   if (tallylocId === 0 || !company || !guid) {
     return (
       <View style={styles.root}>
-        <StatusBarTopBar title="Ledger Reports" rightIcons="share-bell" onMenuPress={openSidebar} />
+        <StatusBarTopBar title="Ledger Reports" rightIcons="ledger-report" onMenuPress={openSidebar} onBankPress={openBankUpi} />
         <View style={styles.content}>
           <Text style={styles.msg}>Please configure company connection first.</Text>
         </View>
+        <BankUpiDetailsModal
+          visible={bankUpiVisible}
+          onClose={closeBankUpi}
+          data={bankUpiData}
+          loading={bankUpiLoading}
+          error={bankUpiError}
+        />
         <AppSidebar
           visible={sidebarOpen}
           onClose={closeSidebar}
@@ -145,7 +191,7 @@ export default function LedgerMain() {
 
   return (
     <View style={styles.root}>
-      <StatusBarTopBar title="Ledger Reports" rightIcons="share-bell" onMenuPress={openSidebar} />
+      <StatusBarTopBar title="Ledger Reports" rightIcons="ledger-report" onMenuPress={openSidebar} onBankPress={openBankUpi} />
       <View style={styles.content}>
         {loading ? (
           <View style={styles.centered}>
@@ -162,6 +208,13 @@ export default function LedgerMain() {
           />
         )}
       </View>
+      <BankUpiDetailsModal
+        visible={bankUpiVisible}
+        onClose={closeBankUpi}
+        data={bankUpiData}
+        loading={bankUpiLoading}
+        error={bankUpiError}
+      />
       <AppSidebar
         visible={sidebarOpen}
         onClose={closeSidebar}

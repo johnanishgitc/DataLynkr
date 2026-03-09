@@ -580,11 +580,17 @@ export function StockBreakdownModal({ visible, item, onClose, showGodown = true,
 
   useEffect(() => {
     if (!visible || !item || item === '—') return;
-    setByCompany(false);
+    // Default to company view if godown is not allowed
+    const startWithCompany = !showGodown && showCompany;
+    setByCompany(startWithCompany);
     setGodownData(null);
     setCompanyData(null);
     setError(null);
-    fetchGodown();
+    if (startWithCompany) {
+      fetchCompany();
+    } else {
+      fetchGodown();
+    }
   }, [visible, item]);
 
   useEffect(() => {

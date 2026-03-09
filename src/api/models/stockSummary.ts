@@ -22,6 +22,8 @@ export interface StockSummaryRequest {
     fromdate: string;
     todate: string;
     stockitem?: string;
+    /** Godown filter – from api/tally/godown-list */
+    godown?: string;
 }
 
 export interface StockSummaryItem {

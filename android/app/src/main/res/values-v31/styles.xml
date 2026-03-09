@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+    <!-- Customize your theme here. -->
+    <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+    <!-- White navigation bar (bottom system bar) with dark icons -->
+    <item name="android:navigationBarColor">#FFFFFF</item>
+    <item name="android:windowLightNavigationBar">true</item>
+    <!-- Prevent black screen before React/JS loads - match splash background -->
+    <item name="android:windowBackground">@drawable/launch_screen_background</item>
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:statusBarColor">#FFFFFF</item>
+    <!-- Fix for Android 12+ Black Screen before splash screen -->
+    <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+  </style>
+</resources>

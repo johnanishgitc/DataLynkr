@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     View,
     Text,
@@ -6,6 +6,7 @@ import {
     FlatList,
     StyleSheet,
     ActivityIndicator,
+    Animated,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -14,8 +15,11 @@ import { PeriodSelection } from '../components/PeriodSelection';
 import { apiService, isUnauthorizedError } from '../api';
 import type { MonthData, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
+import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
+
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -125,6 +129,32 @@ export default function StockItemMonthly() {
     const [months, setMonths] = useState<MonthData[]>([]);
     const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
     const [periodOpen, setPeriodOpen] = useState(false);
+
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const SCROLL_RANGE = 140;
+    const onScroll = useMemo(
+        () =>
+            Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                { useNativeDriver: true }
+            ),
+        [scrollY]
+    );
+
+    const { setFooterCollapseValue } = useScroll();
+    const footerCollapseProgress = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        setFooterCollapseValue(footerCollapseProgress);
+        const listenerId = scrollY.addListener(({ value }) => {
+            const raw = value / SCROLL_RANGE;
+            const eased = raw <= 0.5 ? raw * 1.3 : 0.65 + (raw - 0.5) * 0.7;
+            footerCollapseProgress.setValue(Math.min(1, eased));
+        });
+        return () => {
+            scrollY.removeListener(listenerId);
+            setFooterCollapseValue(null);
+        };
+    }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
 
     const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }) => {
         setLoading(true);
@@ -300,20 +330,16 @@ export default function StockItemMonthly() {
                     <Text style={s.errorText}>{error}</Text>
                 </View>
             ) : (
-                <FlatList
+                <AnimatedFlatList
                     data={listData}
                     keyExtractor={(item, idx) => String(idx)}
                     renderItem={renderItem}
                     contentContainerStyle={s.listContent}
                     showsVerticalScrollIndicator={false}
+                    onScroll={onScroll}
+                    scrollEventThrottle={16}
                 />
             )}
-
-            {/* Grand Total footer */}
-            <View style={s.grandTotalBar}>
-                <Text style={s.grandTotalText}>{strings.grand_total.toUpperCase()}</Text>
-                <Icon name="chevron-right" size={22} color={colors.white} />
-            </View>
 
             <PeriodSelection
                 visible={periodOpen}
@@ -334,12 +360,14 @@ const s = StyleSheet.create({
     filterSection: {
         backgroundColor: colors.bg_light_blue,
         paddingHorizontal: 16,
+        paddingTop: 2,
+        paddingBottom: 0,
     },
     primaryRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: 4,
-        paddingBottom: 6,
+        paddingTop: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
@@ -355,7 +383,8 @@ const s = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: 4,
+        paddingVertical: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
     },
     dateText: {
@@ -478,22 +507,6 @@ const s = StyleSheet.create({
         fontFamily: 'Roboto',
         fontSize: 13,
         color: colors.stock_text_dark,
-    },
-
-    // Grand Total footer
-    grandTotalBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: colors.primary_blue,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-    },
-    grandTotalText: {
-        fontFamily: 'Roboto',
-        fontSize: 14,
-        fontWeight: '700',
-        color: colors.white,
     },
 
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },

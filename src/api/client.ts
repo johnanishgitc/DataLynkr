@@ -53,6 +53,8 @@ import type {
   MonthlySummaryResponse,
   StockItemVouchersRequest,
   StockItemVouchersResponse,
+  BankUpiRequest,
+  BankUpiResponse,
 } from './models';
 
 const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
@@ -312,6 +314,10 @@ export const apiService = {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
     }),
+
+  /** Bank & UPI details for Ledger Reports header (companyinfo) */
+  getBankUpi: (body: BankUpiRequest) =>
+    getApi().post<BankUpiResponse>('api/tally/masterdata/companyinfo', body),
 
   /** User access permissions (access-control/user-access) for module & field-level controls */
   getUserAccess: (params: { tallylocId: number | string; co_guid: string }) =>

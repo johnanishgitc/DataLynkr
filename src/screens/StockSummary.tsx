@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     View,
     Text,
@@ -8,6 +8,7 @@ import {
     ActivityIndicator,
     Modal,
     TextInput,
+    Animated,
 } from 'react-native';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,10 +22,13 @@ import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavig
 import { apiService, isUnauthorizedError } from '../api';
 import type { StockSummaryItem } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
+import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { sharedStyles } from './ledger';
 import { getStockItemsAndGroupsFromDataManagementCache, type StockListEntry } from '../cache';
+
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -125,7 +129,42 @@ export default function StockSummary() {
     const [primarySearch, setPrimarySearch] = useState('');
     const [itemsAndGroups, setItemsAndGroups] = useState<StockListEntry[]>([]);
     const [loadingDropdown, setLoadingDropdown] = useState(false);
+    const [godown, setGodown] = useState<string>(() => (route.params as { godown?: string } | undefined)?.godown ?? '');
+    const [godownOptions, setGodownOptions] = useState<string[]>([]);
+    const [godownDropdownOpen, setGodownDropdownOpen] = useState(false);
+    const [loadingGodown, setLoadingGodown] = useState(false);
     const insets = useSafeAreaInsets();
+
+    // When navigated to Stock Group Summary (or Stock Item Monthly), use godown from params so it matches Stock Summary
+    useEffect(() => {
+        const paramGodown = (route.params as { godown?: string } | undefined)?.godown;
+        if (paramGodown !== undefined) setGodown(paramGodown);
+    }, [route.params]);
+
+    const scrollY = useRef(new Animated.Value(0)).current;
+    const SCROLL_RANGE = 140;
+    const onScroll = useMemo(
+        () =>
+            Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                { useNativeDriver: true }
+            ),
+        [scrollY]
+    );
+    const { setFooterCollapseValue } = useScroll();
+    const footerCollapseProgress = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        setFooterCollapseValue(footerCollapseProgress);
+        const listenerId = scrollY.addListener(({ value }) => {
+            const raw = value / SCROLL_RANGE;
+            const eased = raw <= 0.5 ? raw * 1.3 : 0.65 + (raw - 0.5) * 0.7;
+            footerCollapseProgress.setValue(Math.min(1, eased));
+        });
+        return () => {
+            scrollY.removeListener(listenerId);
+            setFooterCollapseValue(null);
+        };
+    }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -163,7 +202,7 @@ export default function StockSummary() {
         [closeSidebar, nav],
     );
 
-    const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }) => {
+    const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }, overrideGodown?: string) => {
         setLoading(true);
         setError('');
         try {
@@ -175,6 +214,7 @@ export default function StockSummary() {
             }
             const range = overrideRange ?? computeDateRange(bf);
             setDateRange(range);
+            const godownToUse = overrideGodown !== undefined ? overrideGodown : godown;
 
             const payload: any = {
                 tallyloc_id: t,
@@ -184,6 +224,7 @@ export default function StockSummary() {
                 todate: range.todate,
             };
             if (stockitemParam) payload.stockitem = stockitemParam;
+            if (godownToUse && godownToUse.trim()) payload.godown = godownToUse.trim();
 
             const res = await apiService.getStockSummary(payload);
             setItems(res.data?.stocksummary ?? []);
@@ -193,7 +234,7 @@ export default function StockSummary() {
         } finally {
             setLoading(false);
         }
-    }, [stockitemParam]);
+    }, [stockitemParam, godown]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
@@ -221,6 +262,34 @@ export default function StockSummary() {
         return () => { cancelled = true; };
     }, [primaryDropdownOpen]);
 
+    useEffect(() => {
+        if (!godownDropdownOpen) return;
+        let cancelled = false;
+        setLoadingGodown(true);
+        Promise.all([getTallylocId(), getCompany(), getGuid()])
+            .then(([t, c, g]) => {
+                if (cancelled || !t || !c || !g) return null;
+                return apiService.getGodownList({ tallyloc_id: t, company: c, guid: g });
+            })
+            .then((res) => {
+                if (cancelled) return;
+                if (res == null) {
+                    setGodownOptions([]);
+                    return;
+                }
+                const list = res.data?.godownData ?? [];
+                const names = list.map((row) => String(row?.GodownName ?? '').trim()).filter(Boolean);
+                setGodownOptions(names);
+            })
+            .catch(() => {
+                if (!cancelled) setGodownOptions([]);
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingGodown(false);
+            });
+        return () => { cancelled = true; };
+    }, [godownDropdownOpen]);
+
     const primaryDropdownList = useMemo(() => {
         const primary: StockListEntry[] = [{ name: 'Primary', type: 'group' }];
         const rest = itemsAndGroups.filter(
@@ -238,21 +307,23 @@ export default function StockSummary() {
                 return;
             }
             const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
+            const params = { stockitem: entry.name, breadcrumb: [entry.name], ...period, ...(godown ? { godown } : {}) };
             if (entry.type === 'item') {
-                nav.push('StockItemMonthly', { stockitem: entry.name, breadcrumb: [entry.name], ...period });
+                nav.push('StockItemMonthly', params);
             } else {
-                nav.push('StockGroupSummary', { stockitem: entry.name, breadcrumb: [entry.name], ...period });
+                nav.push('StockGroupSummary', params);
             }
         },
-        [nav, dateRange.fromdate, dateRange.todate]
+        [nav, dateRange.fromdate, dateRange.todate, godown]
     );
 
     const onItemPress = (item: StockSummaryItem) => {
         const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
+        const params = { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period, ...(godown ? { godown } : {}) };
         if (item.isitem === 'Yes') {
-            nav.push('StockItemMonthly', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period });
+            nav.push('StockItemMonthly', params);
         } else {
-            nav.push('StockGroupSummary', { stockitem: item.name, breadcrumb: [...breadcrumb, item.name], ...period });
+            nav.push('StockGroupSummary', params);
         }
     };
 
@@ -317,6 +388,21 @@ export default function StockSummary() {
                     <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
                 </TouchableOpacity>
 
+                {/* Godown row – tappable to open godown dropdown (api/tally/godown-list) */}
+                <TouchableOpacity
+                    style={s.godownRow}
+                    onPress={() => setGodownDropdownOpen(true)}
+                    activeOpacity={0.7}
+                >
+                    <Icon name="warehouse" size={16} color={colors.stock_text_dark} />
+                    <View style={s.godownFieldWrap}>
+                        <Text style={s.godownText} numberOfLines={1}>
+                            {godown || 'Select Godown'}
+                        </Text>
+                    </View>
+                    <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
+                </TouchableOpacity>
+
                 {/* Date range row */}
                 <TouchableOpacity style={s.dateRow} onPress={() => setPeriodOpen(true)} activeOpacity={0.7}>
                     <Icon name="calendar-month-outline" size={16} color={colors.stock_text_dark} />
@@ -356,12 +442,14 @@ export default function StockSummary() {
                     <Text style={s.errorText}>{strings.no_data}</Text>
                 </View>
             ) : (
-                <FlatList
+                <AnimatedFlatList
                     data={items}
                     keyExtractor={(item) => item.masterid}
                     renderItem={renderRow}
                     contentContainerStyle={s.listContent}
                     showsVerticalScrollIndicator={false}
+                    onScroll={onScroll}
+                    scrollEventThrottle={16}
                 />
             )}
 
@@ -390,6 +478,56 @@ export default function StockSummary() {
                 toDate={yyyymmddToMs(dateRange.todate)}
                 onApply={onPeriodApply}
             />
+
+            {/* Godown dropdown – from api/tally/godown-list */}
+            <Modal
+                visible={godownDropdownOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setGodownDropdownOpen(false)}
+            >
+                <TouchableOpacity
+                    style={sharedStyles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setGodownDropdownOpen(false)}
+                >
+                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                        <View style={sharedStyles.modalHeaderRow}>
+                            <Text style={sharedStyles.modalHeaderTitle}>Select Godown</Text>
+                            <TouchableOpacity onPress={() => setGodownDropdownOpen(false)} style={sharedStyles.modalHeaderClose}>
+                                <Icon name="close" size={24} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                        {loadingGodown ? (
+                            <View style={s.dropdownLoading}>
+                                <ActivityIndicator size="small" color={colors.primary_blue} />
+                                <Text style={s.dropdownLoadingText}>{strings.loading}</Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={godownOptions.map((n) => ({ name: n, label: n }))}
+                                keyExtractor={(item) => item.name}
+                                style={sharedStyles.modalList}
+                                keyboardShouldPersistTaps="handled"
+                                ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No godown options</Text>}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
+                                        onPress={() => {
+                                            setGodown(item.name);
+                                            setGodownDropdownOpen(false);
+                                            fetchData(undefined, item.name);
+                                        }}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item.label}</Text>
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
 
             {/* Primary dropdown – Items and Groups (same design as Order Entry customer dropdown) */}
             <Modal
@@ -469,16 +607,18 @@ export default function StockSummary() {
 const s = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.white },
 
-    // Filter section (light blue area)
+    // Filter section (light blue area) – match Order Entry section/cardRow heights
     filterSection: {
         backgroundColor: colors.bg_light_blue,
         paddingHorizontal: 16,
+        paddingTop: 2,
+        paddingBottom: 0,
     },
     primaryRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingTop: 4,
-        paddingBottom: 6,
+        paddingTop: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
@@ -493,13 +633,32 @@ const s = StyleSheet.create({
         fontWeight: '500',
         color: colors.stock_text_dark,
     },
+    godownRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 5,
+        paddingBottom: 8,
+        paddingHorizontal: 2,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.stock_border,
+    },
+    godownFieldWrap: {
+        flex: 1,
+        marginLeft: 6,
+    },
+    godownText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.stock_text_dark,
+    },
     dateRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: 4,
+        paddingVertical: 5,
+        paddingBottom: 8,
         paddingHorizontal: 2,
-        paddingBottom: 4,
     },
     dateText: {
         fontFamily: 'Roboto',

@@ -54,75 +54,99 @@ function normalizeToStockItemsResponse(raw: unknown): { data: unknown[] } | null
 }
 
 /**
+ * Read stock items from cache only (no API/ensure). Used by ensure* to avoid recursion.
+ */
+export async function getStockItemsFromDataManagementCacheIfPresent(): Promise<{ data: unknown[] } | null> {
+  return getStockItemsFromDataManagementCacheInternal();
+}
+
+/**
  * Load stock items from Data Management cache for the current user.
  * Returns null if not logged in, no company, or no cached data.
- * No API calls are made.
+ * If cache is empty, automatically fetches from API and saves to Data Management, then re-reads.
  */
 export async function getStockItemsFromDataManagementCache(): Promise<{ data: unknown[] } | null> {
   try {
-    const [email, tallylocId, guid] = await Promise.all([
-      getUserEmail(),
-      getTallylocId(),
-      getGuid(),
-    ]);
-    if (!email || !guid || tallylocId == null || tallylocId === 0) return null;
-    const cacheKey = getStockItemsCacheKey(email, guid, tallylocId);
-    const database = await getDatabase();
-    const [results] = await database.executeSql(
-      `SELECT data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
-      [cacheKey]
-    );
-    if (results.rows.length === 0) return null;
-    const row = results.rows.item(0) as { data?: string };
-    const dataStr = row?.data;
-    if (typeof dataStr !== 'string') return null;
-    const parsed: unknown = JSON.parse(dataStr);
-    return normalizeToStockItemsResponse(parsed);
+    const result = await getStockItemsFromDataManagementCacheInternal();
+    if (result !== null && (result.data?.length ?? 0) > 0) return result;
+    const { ensureStockItemsInDataManagement } = await import('./dataManagementAutoSync');
+    await ensureStockItemsInDataManagement();
+    return await getStockItemsFromDataManagementCacheInternal();
   } catch (e) {
     console.warn('[stockItemsCacheReader] getStockItemsFromDataManagementCache failed:', e);
     return null;
   }
 }
 
+async function getStockItemsFromDataManagementCacheInternal(): Promise<{ data: unknown[] } | null> {
+  const [email, tallylocId, guid] = await Promise.all([
+    getUserEmail(),
+    getTallylocId(),
+    getGuid(),
+  ]);
+  if (!email || !guid || tallylocId == null || tallylocId === 0) return null;
+  const cacheKey = getStockItemsCacheKey(email, guid, tallylocId);
+  const database = await getDatabase();
+  const [results] = await database.executeSql(
+    `SELECT data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [cacheKey]
+  );
+  if (results.rows.length === 0) return null;
+  const row = results.rows.item(0) as { data?: string };
+  const dataStr = row?.data;
+  if (typeof dataStr !== 'string') return null;
+  const parsed: unknown = JSON.parse(dataStr);
+  return normalizeToStockItemsResponse(parsed);
+}
+
 /**
  * Load only stock item names for dropdown (fast path: reads names_json, no full data parse).
  * Uses in-memory cache after first load for instant subsequent opens.
+ * If cache is empty, automatically fetches from API and saves to Data Management, then re-reads.
  */
 export async function getStockItemNamesFromDataManagementCache(): Promise<string[]> {
   try {
-    const [email, tallylocId, guid] = await Promise.all([
-      getUserEmail(),
-      getTallylocId(),
-      getGuid(),
-    ]);
-    if (!email || !guid || tallylocId == null || tallylocId === 0) return [];
-    const cacheKey = getStockItemsCacheKey(email, guid, tallylocId);
-    if (namesMemoryCache?.key === cacheKey) return namesMemoryCache.names;
-    const database = await getDatabase();
-    const [results] = await database.executeSql(
-      `SELECT names_json, data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
-      [cacheKey]
-    );
-    if (results.rows.length === 0) return [];
-    const row = results.rows.item(0) as { names_json?: string | null; data?: string };
-    const namesStr = row?.names_json;
-    if (typeof namesStr === 'string' && namesStr.length > 0) {
-      const names = JSON.parse(namesStr) as string[];
-      const arr = Array.isArray(names) ? names : [];
-      namesMemoryCache = { key: cacheKey, names: arr };
-      return arr;
-    }
-    const dataStr = row?.data;
-    if (typeof dataStr !== 'string') return [];
-    const parsed: unknown = JSON.parse(dataStr);
-    const normalized = normalizeToStockItemsResponse(parsed);
-    const names = (normalized?.data ?? []).map((i) => getStockItemName(i)).filter(Boolean);
-    namesMemoryCache = { key: cacheKey, names };
-    return names;
+    const names = await getStockItemNamesFromDataManagementCacheInternal();
+    if (names.length > 0) return names;
+    const { ensureStockItemsInDataManagement } = await import('./dataManagementAutoSync');
+    await ensureStockItemsInDataManagement();
+    return await getStockItemNamesFromDataManagementCacheInternal();
   } catch (e) {
     console.warn('[stockItemsCacheReader] getStockItemNamesFromDataManagementCache failed:', e);
     return [];
   }
+}
+
+async function getStockItemNamesFromDataManagementCacheInternal(): Promise<string[]> {
+  const [email, tallylocId, guid] = await Promise.all([
+    getUserEmail(),
+    getTallylocId(),
+    getGuid(),
+  ]);
+  if (!email || !guid || tallylocId == null || tallylocId === 0) return [];
+  const cacheKey = getStockItemsCacheKey(email, guid, tallylocId);
+  if (namesMemoryCache?.key === cacheKey) return namesMemoryCache.names;
+  const database = await getDatabase();
+  const [results] = await database.executeSql(
+    `SELECT names_json, data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [cacheKey]
+  );
+  if (results.rows.length === 0) return [];
+  const row = results.rows.item(0) as { names_json?: string | null; data?: string };
+  const namesStr = row?.names_json;
+  if (typeof namesStr === 'string' && namesStr.length > 0) {
+    const names = JSON.parse(namesStr) as string[];
+    const arr = Array.isArray(names) ? names : [];
+    namesMemoryCache = { key: cacheKey, names: arr };
+    return arr;
+  }
+  const dataStr = row?.data;
+  if (typeof dataStr !== 'string') return [];
+  const parsed: unknown = JSON.parse(dataStr);
+  const normalized = normalizeToStockItemsResponse(parsed);
+  const names = (normalized?.data ?? []).map((i) => getStockItemName(i)).filter(Boolean);
+  namesMemoryCache = { key: cacheKey, names };
+  return names;
 }
 
 /** Extract display name from a stock item (API may use NAME, name, STOCKITEMNAME, etc.). */
@@ -131,4 +155,36 @@ export function getStockItemName(item: unknown): string {
   const o = item as Record<string, unknown>;
   const n = o.NAME ?? o.name ?? o.Name ?? o.STOCKITEMNAME ?? o.stockitemname ?? o.STOCKITEM ?? '';
   return String(n ?? '').trim();
+}
+
+/**
+ * Save stock items to Data Management cache for the current user.
+ * Used when auto-syncing after reading empty cache from anywhere in the app.
+ * Invalidates in-memory names cache so next read is fresh.
+ */
+export async function saveStockItemsToDataManagementCache(data: unknown): Promise<void> {
+  try {
+    const [email, tallylocId, guid] = await Promise.all([
+      getUserEmail(),
+      getTallylocId(),
+      getGuid(),
+    ]);
+    if (!email || !guid || tallylocId == null || tallylocId === 0) return;
+    const cacheKey = getStockItemsCacheKey(email, guid, tallylocId);
+    const normalized = normalizeToStockItemsResponse(data);
+    const list = normalized?.data ?? [];
+    const names = (list as unknown[]).map((i) => getStockItemName(i)).filter(Boolean);
+    const database = await getDatabase();
+    const dataJson = JSON.stringify(data);
+    const namesJson = JSON.stringify(names);
+    const createdAt = new Date().toISOString();
+    await database.executeSql(
+      `INSERT OR REPLACE INTO ${STOCK_ITEMS_TABLE} (cache_key, data, created_at, names_json) VALUES (?, ?, ?, ?)`,
+      [cacheKey, dataJson, createdAt, namesJson]
+    );
+    namesMemoryCache = null;
+  } catch (e) {
+    console.warn('[stockItemsCacheReader] saveStockItemsToDataManagementCache failed:', e);
+    throw e;
+  }
 }

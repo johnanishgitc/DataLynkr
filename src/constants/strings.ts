@@ -75,6 +75,7 @@ export const strings = {
   ledger: 'Ledger',
   approvals: 'Approvals',
   summary: 'Summary',
+  stock: 'Stock',
   stock_summary: 'Stock Summary',
   export: 'Export',
   pdf: 'PDF',

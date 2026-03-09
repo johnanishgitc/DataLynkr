@@ -41,6 +41,23 @@ export type PlaceOrderPermissions = {
     show_creditdayslimit: boolean;
 };
 
+/** Fallback when permissions are not available (e.g. OrderEntryItemDetail using params from OrderEntry). All restricted. */
+export const DEFAULT_PLACE_ORDER_PERMISSIONS: PlaceOrderPermissions = {
+    show_rateamt_Column: false,
+    edit_rate: false,
+    show_disc_Column: false,
+    edit_discount: false,
+    show_ClsStck_Column: false,
+    show_ClsStck_yesno: false,
+    show_godownbrkup: false,
+    show_multicobrkup: false,
+    show_itemdesc: false,
+    show_itemshasqty: false,
+    allow_vchtype: false,
+    show_ordduedate: false,
+    show_creditdayslimit: false,
+};
+
 /**
  * Shown while the API call is in flight.
  * Most are true so the UI looks fully unlocked during the brief loading moment.
@@ -151,7 +168,9 @@ export function useUserAccess(): UseUserAccessReturn {
                     const name = String(mod.module_name ?? mod.module_key ?? '').trim();
                     if (name) {
                         const mappedKey = MODULE_NAME_MAP[name] ?? name;
-                        modAccess[mappedKey] = toBool(mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted);
+                        const isEnabledRaw = mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted;
+                        // If the API omits the enabled flag entirely, assume it's true because the module is listed.
+                        modAccess[mappedKey] = isEnabledRaw !== undefined ? toBool(isEnabledRaw) : true;
                     }
                 }
                 if (!cancelled) setModuleAccess(modAccess);
@@ -172,26 +191,22 @@ export function useUserAccess(): UseUserAccessReturn {
                         }
                     }
 
-                    // When permissions array is empty, ALL permissions are false.
-                    // Owner fallback only applies when some permissions exist but
-                    // a specific key is missing from the list.
-                    const hasAnyPerms = perms.length > 0;
-                    const fallback = hasAnyPerms && isOwner;
-
+                    // Permissions are strictly driven by the API response.
+                    // If a key is absent, it is false – no owner fallback.
                     const resolved: PlaceOrderPermissions = {
-                        show_rateamt_Column: permMap.show_rateamt_Column ?? fallback,
-                        edit_rate: permMap.edit_rate ?? fallback,
-                        show_disc_Column: permMap.show_disc_Column ?? fallback,
-                        edit_discount: permMap.edit_discount ?? fallback,
-                        show_ClsStck_Column: permMap.show_ClsStck_Column ?? fallback,
-                        show_ClsStck_yesno: permMap.show_ClsStck_yesno ?? false, // always explicit
-                        show_godownbrkup: permMap.show_godownbrkup ?? fallback,
-                        show_multicobrkup: permMap.show_multicobrkup ?? fallback,
-                        show_itemdesc: permMap.show_itemdesc ?? false, // always explicit
-                        show_itemshasqty: permMap.show_itemshasqty ?? false, // always explicit
-                        allow_vchtype: permMap.allow_vchtype ?? fallback,
-                        show_ordduedate: permMap.show_ordduedate ?? fallback,
-                        show_creditdayslimit: permMap.show_creditdayslimit ?? fallback,
+                        show_rateamt_Column: permMap.show_rateamt_Column ?? false,
+                        edit_rate: permMap.edit_rate ?? false,
+                        show_disc_Column: permMap.show_disc_Column ?? false,
+                        edit_discount: permMap.edit_discount ?? false,
+                        show_ClsStck_Column: permMap.show_ClsStck_Column ?? false,
+                        show_ClsStck_yesno: permMap.show_ClsStck_yesno ?? false,
+                        show_godownbrkup: permMap.show_godownbrkup ?? false,
+                        show_multicobrkup: permMap.show_multicobrkup ?? false,
+                        show_itemdesc: permMap.show_itemdesc ?? false,
+                        show_itemshasqty: permMap.show_itemshasqty ?? false,
+                        allow_vchtype: permMap.allow_vchtype ?? false,
+                        show_ordduedate: permMap.show_ordduedate ?? false,
+                        show_creditdayslimit: permMap.show_creditdayslimit ?? false,
                     };
 
                     if (!cancelled) setPermissions(resolved);

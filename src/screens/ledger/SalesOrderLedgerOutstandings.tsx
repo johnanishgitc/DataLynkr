@@ -38,6 +38,7 @@ interface SalesOrderLedgerOutstandingsProps {
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
   onNavigateHome: () => void;
+  onBankPress?: () => void;
 }
 
 /** Grouped stock item row - aggregates similar STOCKITEM entries with average rate */
@@ -68,6 +69,7 @@ export default function SalesOrderLedgerOutstandings({
   onPeriodSelectionOpen,
   onExportOpen,
   onNavigateHome,
+  onBankPress,
 }: SalesOrderLedgerOutstandingsProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -320,7 +322,8 @@ export default function SalesOrderLedgerOutstandings({
           title="Ledger Reports"
           leftIcon="menu"
           onMenuPress={onNavigateHome}
-          rightIcons="share-bell"
+          rightIcons="ledger-report"
+          onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
           compact
         />

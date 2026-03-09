@@ -272,17 +272,19 @@ export function parseQuantityInput(
       return { qty: 0, subQty: singleNum, uom: 'base', isCompound: true, totalQty: singleNum / baseConv };
   }
 
-  // Simple: "10" or "10 box" or "25 nos"
+  // Simple: "10", "10 box", "25 nos", "1p" (Tally-style: abbreviation like p→PCS, b→box)
   const simpleMatch = raw.match(new RegExp(`^${NUM}${WS}(.*)$`));
   if (simpleMatch) {
     const q = parseFloat(simpleMatch[1]);
     const unitPart = (simpleMatch[2] ?? '').trim().toLowerCase();
     if (!Number.isFinite(q)) return { uom: 'base', isCompound: false };
     if (!unitPart) return { qty: q, uom: 'base', isCompound: false };
-    if (base && (base.toLowerCase().includes(unitPart) || unitPart.includes(base.toLowerCase())))
-      return { qty: q, uom: 'base', isCompound: false };
-    if (addl && (addl.toLowerCase().includes(unitPart) || unitPart.includes(addl.toLowerCase())))
-      return { qty: q, uom: 'additional', isCompound: false };
+    const baseLower = base?.toLowerCase() ?? '';
+    const addlLower = addl?.toLowerCase() ?? '';
+    const matchBase = baseLower && (baseLower.includes(unitPart) || unitPart.includes(baseLower) || baseLower.startsWith(unitPart) || unitPart.startsWith(baseLower));
+    const matchAddl = addlLower && (addlLower.includes(unitPart) || unitPart.includes(addlLower) || addlLower.startsWith(unitPart) || unitPart.startsWith(addlLower));
+    if (matchBase) return { qty: q, uom: 'base', isCompound: false };
+    if (matchAddl) return { qty: q, uom: 'additional', isCompound: false };
     return { qty: q, uom: 'base', isCompound: false };
   }
 
@@ -504,4 +506,51 @@ export function getRateUOMOptions(unitConfig: UnitConfig | null, unitsArray: Sto
     }
   }
   return options.length ? options : [{ value: 'base', label: base || '1' }];
+}
+
+/**
+ * Map API unit name (e.g. RATEUNIT, STDPRICEUNIT, LASTPRICEUNIT) to rateUOM value.
+ * Matches PlaceOrder.js mapUnitToRateUOM: base, additional, component-main, component-sub,
+ * additional-component-main, additional-component-sub.
+ */
+export function getRateUOMFromUnitName(
+  unitName: string | undefined | null,
+  unitConfig: UnitConfig | null,
+  unitsArray: StockItemUnit[]
+): string | null {
+  if (!unitName || !unitConfig) return null;
+  const name = String(unitName).toLowerCase().trim();
+  if (!name) return null;
+
+  const baseUnitObj = unitsArray?.length
+    ? unitsArray.find((u) => (u.NAME ?? '').toLowerCase() === (unitConfig.BASEUNITS ?? '').toLowerCase())
+    : null;
+  const hasCompoundBaseUnit = baseUnitObj && (baseUnitObj as { ISSIMPLEUNIT?: string }).ISSIMPLEUNIT === 'No';
+  const addlUnitObj =
+    unitsArray?.length && unitConfig.ADDITIONALUNITS
+      ? unitsArray.find((u) => (u.NAME ?? '').toLowerCase() === (unitConfig.ADDITIONALUNITS ?? '').toLowerCase())
+      : null;
+  const hasCompoundAddlUnit = addlUnitObj && (addlUnitObj as { ISSIMPLEUNIT?: string }).ISSIMPLEUNIT === 'No';
+
+  if (hasCompoundBaseUnit && baseUnitObj) {
+    const baseCompBase = ((baseUnitObj as { BASEUNITS?: string }).BASEUNITS ?? '').toLowerCase().trim();
+    const baseCompAddl = ((baseUnitObj as { ADDITIONALUNITS?: string }).ADDITIONALUNITS ?? '').toLowerCase().trim();
+    if (name === baseCompBase) return 'component-main';
+    if (name === baseCompAddl) return 'component-sub';
+  } else {
+    const baseUnitName = (unitConfig.BASEUNITS ?? '').toLowerCase().trim();
+    if (name === baseUnitName) return 'base';
+  }
+
+  if (hasCompoundAddlUnit && addlUnitObj) {
+    const addlCompBase = ((addlUnitObj as { BASEUNITS?: string }).BASEUNITS ?? '').toLowerCase().trim();
+    const addlCompAddl = ((addlUnitObj as { ADDITIONALUNITS?: string }).ADDITIONALUNITS ?? '').toLowerCase().trim();
+    if (name === addlCompBase) return 'additional-component-main';
+    if (name === addlCompAddl) return 'additional-component-sub';
+  } else if (unitConfig.ADDITIONALUNITS) {
+    const addlUnitName = (unitConfig.ADDITIONALUNITS ?? '').toLowerCase().trim();
+    if (name === addlUnitName) return 'additional';
+  }
+
+  return null;
 }

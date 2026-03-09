@@ -38,6 +38,7 @@ interface ClearedOrdersProps {
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
   onNavigateHome: () => void;
+  onBankPress?: () => void;
 }
 
 interface ClearedOrderGroup {
@@ -63,6 +64,7 @@ export default function ClearedOrders({
   onPeriodSelectionOpen,
   onExportOpen,
   onNavigateHome,
+  onBankPress,
 }: ClearedOrdersProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -267,7 +269,8 @@ export default function ClearedOrders({
           title="Ledger Reports"
           leftIcon="menu"
           onMenuPress={onNavigateHome}
-          rightIcons="share-bell"
+          rightIcons="ledger-report"
+          onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
           compact
         />

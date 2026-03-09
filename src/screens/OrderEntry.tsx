@@ -66,7 +66,6 @@ import type {
 import {
   cacheManager,
   getLedgerListFromDataManagementCache,
-  saveLedgerListToDataManagementCache,
 } from '../cache';
 import { isBatchWiseOnFromItem } from '../utils/orderEntryBatchWise';
 import { deobfuscatePrice } from '../utils/priceUtils';
@@ -88,7 +87,7 @@ import IconSvg from '../assets/orderEntryOE3/icon.svg';
 import { QRCodeScanner } from '../components/QRCodeScanner';
 import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
-import { useUserAccess } from '../hooks/useUserAccess';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 
 // OrdEnt1 exact colors - no modifications
 const HEADER_BG = '#1f3a89';
@@ -177,7 +176,7 @@ export default function OrderEntry() {
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderEntry'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
-  const { permissions, moduleAccess } = useUserAccess();
+  const { permissions, moduleAccess } = useModuleAccess();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
@@ -198,6 +197,7 @@ export default function OrderEntry() {
   const [classDropdownOpen, setClassDropdownOpen] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
   const [ledgerNames, setLedgerNames] = useState<string[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
   const [partyDetailsExpanded, setPartyDetailsExpanded] = useState(false);
   const [voucherTypeOptions, setVoucherTypeOptions] = useState<string[]>([]);
   const [voucherTypesList, setVoucherTypesList] = useState<VoucherTypeItem[]>([]);
@@ -210,7 +210,6 @@ export default function OrderEntry() {
   const [scannedExactMatches, setScannedExactMatches] = useState<StockItem[] | null>(null);
   const customerInputRef = useRef<TextInput>(null);
   const itemInputRef = useRef<TextInput>(null);
-  const customersEmptyFetchStartedRef = useRef(false);
 
   useEffect(() => {
     if (customerDropdownOpen) {
@@ -219,32 +218,6 @@ export default function OrderEntry() {
       }, 100);
     }
   }, [customerDropdownOpen]);
-
-  // When customer dropdown is open and list is empty, fetch customers from API in background and refresh list
-  useEffect(() => {
-    if (!customerDropdownOpen || ledgerNames.length > 0) return;
-    if (customersEmptyFetchStartedRef.current) return;
-    customersEmptyFetchStartedRef.current = true;
-    (async () => {
-      try {
-        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-        if (!t || !c || !g) return;
-        const { data } = await apiService.getLedgerList({ tallyloc_id: t, company: c, guid: g });
-        const res = data as LedgerListResponse;
-        if (res?.error) return;
-        await saveLedgerListToDataManagementCache(res);
-        const fresh = await getLedgerListFromDataManagementCache();
-        const list = (fresh?.ledgers ?? fresh?.data ?? []) as LedgerItem[];
-        const items = Array.isArray(list) ? list : [];
-        setLedgerItems(items);
-        setLedgerNames(items.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
-      } catch {
-        // ignore; list stays empty
-      } finally {
-        customersEmptyFetchStartedRef.current = false;
-      }
-    })();
-  }, [customerDropdownOpen, ledgerNames.length]);
 
   useEffect(() => {
     if (itemDropdownOpen) {
@@ -518,27 +491,31 @@ export default function OrderEntry() {
     return segs.join(' | ');
   };
 
-  // Load customers from Data Management cache (no API call)
+  // Fetch customers when customer or consignee dropdown opens (same pattern as Stock Summary items/groups dropdown).
+  // Reads from Data Management cache; if empty, fetches from API and saves, then shows list. Loading shown in dropdown until done.
   useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        const res = await getLedgerListFromDataManagementCache();
+    if (!customerDropdownOpen && !consigneeCustomerDropdownOpen) return;
+    let cancelled = false;
+    setCustomersLoading(true);
+    getLedgerListFromDataManagementCache()
+      .then((res) => {
+        if (cancelled) return;
         const list = (res?.ledgers ?? res?.data ?? []) as LedgerItem[];
         const items = Array.isArray(list) ? list : [];
-        if (!cancel) {
-          setLedgerItems(items);
-          setLedgerNames(items.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
-        }
-      } catch {
-        if (!cancel) {
+        setLedgerItems(items);
+        setLedgerNames(items.map((i) => String(i?.NAME ?? '').trim()).filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) {
           setLedgerItems([]);
           setLedgerNames([]);
         }
-      }
-    })();
-    return () => { cancel = true; };
-  }, []);
+      })
+      .finally(() => {
+        if (!cancelled) setCustomersLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [customerDropdownOpen, consigneeCustomerDropdownOpen]);
 
   // Fetch latest order for selected customer (for Order No / Order Date in Details)
   useEffect(() => {
@@ -2402,7 +2379,14 @@ export default function OrderEntry() {
                                 }}
                               >
                                 <View style={styles.orderItemTop}>
-                                  <Text style={[styles.orderItemName, { flex: 1 }]} numberOfLines={1}>{group.name}</Text>
+                                  <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <Text style={[styles.orderItemName, { flexShrink: 1 }]} numberOfLines={1}>{group.name}</Text>
+                                    {(group as { isAllocItem?: boolean }).isAllocItem ? (
+                                      <Text style={[styles.orderItemQty, { flexShrink: 0 }]}>
+                                        Qty: {group.totalQty ?? group.items.reduce((s, i) => s + Number(i.qty || 0), 0)}
+                                      </Text>
+                                    ) : null}
+                                  </View>
                                   {!isExpanded ? (
                                     <TouchableOpacity
                                       style={[styles.orderItemOptionsBtn, { backgroundColor: '#d1d5db' }]}
@@ -2419,7 +2403,8 @@ export default function OrderEntry() {
                                       {(() => {
                                         const isAlloc = (group as { isAllocItem?: boolean }).isAllocItem;
                                         if (isAlloc) {
-                                          return <Text style={styles.orderItemQty}>Qty: {group.totalQty}</Text>;
+                                          const qty = group.totalQty ?? group.items.reduce((s, i) => s + Number(i.qty || 0), 0);
+                                          return <Text style={styles.orderItemQty}>Qty: {qty}</Text>;
                                         }
                                         const single = group.items.length === 1 ? group.items[0] : undefined;
                                         const first = group.items[0] as AddedOrderItemWithStock | undefined;
@@ -2465,9 +2450,13 @@ export default function OrderEntry() {
                                       return (
                                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, width: '100%' }}>
                                           {showStock ? (
-                                            <TouchableOpacity onPress={() => setStockBreakdownItem(group.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
-                                              <Text style={styles.orderItemStockTaxLine}>Stock: <Text style={styles.orderItemStockLink}>{stockDisplay}</Text></Text>
-                                            </TouchableOpacity>
+                                            (permissions.show_godownbrkup || permissions.show_multicobrkup) ? (
+                                              <TouchableOpacity onPress={() => setStockBreakdownItem(group.name)} activeOpacity={0.7} style={styles.orderItemStockLinkTouch}>
+                                                <Text style={styles.orderItemStockTaxLine}>Stock: <Text style={styles.orderItemStockLink}>{stockDisplay}</Text></Text>
+                                              </TouchableOpacity>
+                                            ) : (
+                                              <Text style={styles.orderItemStockTaxLine}>Stock: {stockDisplay}</Text>
+                                            )
                                           ) : null}
                                           {showStock && showTax ? (
                                             <Text style={styles.orderItemStockTaxLine}> | </Text>
@@ -3616,7 +3605,16 @@ export default function OrderEntry() {
               style={sharedStyles.modalList}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No customers found</Text>}
+              ListEmptyComponent={
+                customersLoading ? (
+                  <View style={{ padding: 24, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={[sharedStyles.modalEmpty, { marginTop: 8 }]}>{strings.loading}</Text>
+                  </View>
+                ) : (
+                  <Text style={sharedStyles.modalEmpty}>No customers found</Text>
+                )
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={sharedStyles.modalOpt}
@@ -3709,7 +3707,16 @@ export default function OrderEntry() {
               style={sharedStyles.modalList}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No customers found</Text>}
+              ListEmptyComponent={
+                customersLoading ? (
+                  <View style={{ padding: 24, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={[sharedStyles.modalEmpty, { marginTop: 8 }]}>{strings.loading}</Text>
+                  </View>
+                ) : (
+                  <Text style={sharedStyles.modalEmpty}>No customers found</Text>
+                )
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
@@ -3925,10 +3932,9 @@ export default function OrderEntry() {
               renderItem={({ item }) => {
                 const name = (item.NAME ?? '').trim() || '-';
                 const isAlloc = isItemToBeAllocated(name);
-                const closing = (item.CLOSINGSTOCK ?? (item as any).closingstock ?? 0) || 0;
                 return (
                   <TouchableOpacity
-                    style={[sharedStyles.modalOpt, isAlloc && { backgroundColor: '#fef9c3' }]}
+                    style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 25 }, isAlloc && { backgroundColor: '#fef9c3' }]}
                     onPress={() => {
                       setItemSearch('');
                       setItemDropdownOpen(false);
@@ -3954,25 +3960,12 @@ export default function OrderEntry() {
                       <Text style={sharedStyles.modalOptTxt} numberOfLines={2}>
                         {name}
                       </Text>
-                      {!isAlloc && (permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno || permissions.show_rateamt_Column) && (
+                      {!isAlloc && permissions.show_rateamt_Column && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                          {(permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) ? (
-                            <>
-                              <Text style={{ fontSize: 12, color: colors.text_gray }}>Stock Available: </Text>
-                              <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>{permissions.show_ClsStck_yesno ? (Number(closing) > 0 ? 'Yes' : 'No') : String(closing)}</Text>
-                            </>
-                          ) : null}
-                          {(permissions.show_ClsStck_Column || permissions.show_ClsStck_yesno) && permissions.show_rateamt_Column ? (
-                            <Text style={{ fontSize: 12, color: colors.text_gray, marginHorizontal: 4 }}>|</Text>
-                          ) : null}
-                          {permissions.show_rateamt_Column ? (
-                            <>
-                              <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
-                              <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
-                                ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
-                              </Text>
-                            </>
-                          ) : null}
+                          <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
+                          <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
+                            ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
+                          </Text>
                         </View>
                       )}
                     </View>
