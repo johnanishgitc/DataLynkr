@@ -168,7 +168,9 @@ export function useUserAccess(): UseUserAccessReturn {
                     const name = String(mod.module_name ?? mod.module_key ?? '').trim();
                     if (name) {
                         const mappedKey = MODULE_NAME_MAP[name] ?? name;
-                        modAccess[mappedKey] = toBool(mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted);
+                        const isEnabledRaw = mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted;
+                        // If the API omits the enabled flag entirely, assume it's true because the module is listed.
+                        modAccess[mappedKey] = isEnabledRaw !== undefined ? toBool(isEnabledRaw) : true;
                     }
                 }
                 if (!cancelled) setModuleAccess(modAccess);
