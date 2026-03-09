@@ -7,6 +7,8 @@ import {
   FlatList,
   TextInput,
   ActivityIndicator,
+  StatusBar,
+  Alert,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -25,12 +27,14 @@ import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
+import { requestStoragePermissionForRootExport } from '../utils/permissions';
 import { formatDate } from '../utils/dateUtils';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
 import * as XLSX from 'xlsx';
 import RNFS from 'react-native-fs';
 import FileViewer from 'react-native-file-viewer';
+import Share from 'react-native-share';
 
 // Import individual report components
 import {
@@ -55,7 +59,6 @@ import {
   buildPastOrdersHtml,
   buildPastOrdersRows,
 } from './ledger';
-import { Alert } from 'react-native';
 
 type Route = RouteProp<LedgerStackParamList, 'LedgerEntries'>;
 
@@ -184,6 +187,14 @@ export default function LedgerEntries() {
     return REPORT_OPTIONS.filter((n) => n.toLowerCase().includes(q));
   }, [reportSearch]);
 
+  // Set status bar to blue when Ledger Reports screen is focused (e.g. after navigating from Order Success)
+  useFocusEffect(
+    React.useCallback(() => {
+      StatusBar.setBackgroundColor(colors.primary_blue);
+      StatusBar.setBarStyle('light-content');
+    }, [])
+  );
+
   // Re-read customers from Data Management cache every time the screen gets focus;
   // auto-fetches from API and saves to Data Management if cache is empty
   useFocusEffect(
@@ -245,6 +256,37 @@ export default function LedgerEntries() {
   const onPeriodSelectionOpen = () => setPeriodSelectionOpen(true);
   const onExportOpen = () => setExportVisible(true);
 
+  /** Ensures DataLynkr/{connectionName} exists and returns its path. Tries storage root first (same level as Download); falls back to Download/Documents if creation fails. */
+  const getExportDir = useCallback(async (): Promise<string> => {
+    await requestStoragePermissionForRootExport();
+    const downloadsOrDocs = RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath;
+    const storageRoot = downloadsOrDocs.replace(/\/[^/]+\/?$/, '');
+    const dataLynkrDir = `${storageRoot}/DataLynkr`;
+    const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_') || 'Default';
+    const connectionName = company.trim() ? safe(company.trim()) : 'Default';
+    const exportDir = `${dataLynkrDir}/${connectionName}`;
+    try {
+      if (!(await RNFS.exists(dataLynkrDir))) {
+        await RNFS.mkdir(dataLynkrDir);
+      }
+      if (!(await RNFS.exists(exportDir))) {
+        await RNFS.mkdir(exportDir);
+      }
+      return exportDir;
+    } catch {
+      const fallbackBase = downloadsOrDocs;
+      const fallbackDataLynkr = `${fallbackBase}/DataLynkr`;
+      const fallbackDir = `${fallbackDataLynkr}/${connectionName}`;
+      if (!(await RNFS.exists(fallbackDataLynkr))) {
+        await RNFS.mkdir(fallbackDataLynkr);
+      }
+      if (!(await RNFS.exists(fallbackDir))) {
+        await RNFS.mkdir(fallbackDir);
+      }
+      return fallbackDir;
+    }
+  }, [company]);
+
   // Export handlers
   const onPdf = async () => {
     const isBillWise = report_name === 'Bill Wise Outstandings';
@@ -275,7 +317,10 @@ export default function LedgerEntries() {
         html = buildHtml(exportData!, ledger_name, report_name, company, dateRangeStr);
       }
 
-      const fileName = `ledger_${ledger_name.replace(/[^a-z0-9]/gi, '_')}`;
+      const exportDir = await getExportDir();
+      const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
+      const datePart = `${formatDate(from_date).replace(/\//g, '-')}_${formatDate(to_date).replace(/\//g, '-')}`;
+      const fileName = `${safe(report_name)}_${safe(ledger_name)}_${datePart}`;
       const res = await RNHTMLtoPDF.convert({
         html,
         fileName,
@@ -285,23 +330,29 @@ export default function LedgerEntries() {
       const tempPath = (res as { filePath?: string })?.filePath;
       if (!tempPath) throw new Error('Could not generate PDF');
 
-      const path = (RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath) + `/${fileName}.pdf`;
+      const path = `${exportDir}/${fileName}.pdf`;
 
-      // Move from internal storage to exact downloads directory
+      // Move from internal storage to export directory
       if (await RNFS.exists(path)) {
         await RNFS.unlink(path);
       }
       await RNFS.copyFile(tempPath, path);
 
+      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
       Alert.alert(
         strings.ok,
-        `PDF saved successfully at:\n${path}`,
+        'PDF saved successfully.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Open PDF',
             onPress: () => FileViewer.open(path, { showOpenWithDialog: true })
               .catch((e: Error) => Alert.alert('Error Opening File', e.message || 'No suitable app found to open this file.'))
+          },
+          {
+            text: 'Share',
+            onPress: () => Share.open({ url: fileUrl, type: 'application/pdf', title: 'Share PDF' })
+              .catch(() => {})
           }
         ]
       );
@@ -340,27 +391,37 @@ export default function LedgerEntries() {
         sheetData = buildRows(exportData!);
       }
 
+      const exportDir = await getExportDir();
+      const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
+      const datePart = `${formatDate(from_date).replace(/\//g, '-')}_${formatDate(to_date).replace(/\//g, '-')}`;
+      const name = `${safe(report_name)}_${safe(ledger_name)}_${datePart}.xlsx`;
+      const path = `${exportDir}/${name}`;
+
       const sheet = XLSX.utils.aoa_to_sheet(sheetData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, sheet, 'Ledger');
       const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const name = `ledger_${ledger_name.replace(/[^a-z0-9]/gi, '_')}.xlsx`;
-      const path = (RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath) + '/' + name;
 
       if (await RNFS.exists(path)) {
         await RNFS.unlink(path);
       }
       await RNFS.writeFile(path, wbout, 'base64');
 
+      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
       Alert.alert(
         strings.ok,
-        `Excel saved successfully at:\n${path}`,
+        'Excel saved successfully.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Open Excel',
             onPress: () => FileViewer.open(path, { showOpenWithDialog: true })
               .catch((e: Error) => Alert.alert('Error Opening File', e.message || 'No suitable app found to open this file.'))
+          },
+          {
+            text: 'Share',
+            onPress: () => Share.open({ url: fileUrl, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', title: 'Share Excel' })
+              .catch(() => {})
           }
         ]
       );

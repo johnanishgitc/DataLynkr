@@ -50,7 +50,9 @@ export type AddedOrderItem = {
   id?: number;
   name: string;
   qty: string | number;
+  enteredQty?: string;
   rate: string | number;
+  rateUnit?: string;
   total: number;
   unit: string;
   discount?: number;

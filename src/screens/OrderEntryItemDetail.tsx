@@ -97,6 +97,7 @@ type OrderLineItem = {
   id: number;
   name: string;
   qty: number;
+  enteredQty?: string;
   rate: number;
   discount: number;
   total: number;
@@ -110,6 +111,7 @@ type OrderLineItem = {
   description?: string;
   attachmentLinks?: string[];
   attachmentUris?: string[];
+  rateUnit?: string;
 };
 
 
@@ -183,6 +185,7 @@ export default function OrderEntryItemDetail() {
   const [compoundBaseQty, setCompoundBaseQty] = useState<number | null>(null);
   const [compoundAddlQty, setCompoundAddlQty] = useState<number | null>(null);
   const [baseQtyOnly, setBaseQtyOnly] = useState<number | null>(null);
+  const [enteredAddlQty, setEnteredAddlQty] = useState<number | null>(null);
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [nextId, setNextId] = useState(1);
   const [qtySelection, setQtySelection] = useState<{ start: number; end: number } | undefined>();
@@ -257,18 +260,24 @@ export default function OrderEntryItemDetail() {
 
     let rateUOMFromApi: string | null = null;
     const s = stockItem as Record<string, unknown> | undefined;
-    if (config && s) {
-      if (selectedLedger) {
-        const ledger = selectedLedger as Record<string, unknown>;
-        const plName = (ledger.PRICELEVEL ?? ledger.pricelevel) != null ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim() : '';
-        const priceLevels = s.PRICELEVELS ?? s.pricelevels;
-        if (plName && Array.isArray(priceLevels)) {
-          const pl = (priceLevels as PriceLevelEntry[]).find((e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === plName) as PriceLevelEntry | undefined;
-          if (pl?.RATEUNIT) rateUOMFromApi = getRateUOMFromUnitName(String(pl.RATEUNIT).trim(), config, units);
-        }
+    if (config) {
+      const source = (editOrderItems != null && editOrderItems.length > 0) ? editOrderItems[0] : editOrderItem;
+      if (source?.rateUnit) {
+        rateUOMFromApi = getRateUOMFromUnitName(source.rateUnit, config, units);
       }
-      if (!rateUOMFromApi && s.STDPRICEUNIT) rateUOMFromApi = getRateUOMFromUnitName(String(s.STDPRICEUNIT), config, units);
-      if (!rateUOMFromApi && s.LASTPRICEUNIT) rateUOMFromApi = getRateUOMFromUnitName(String(s.LASTPRICEUNIT), config, units);
+      if (!rateUOMFromApi && s) {
+        if (selectedLedger) {
+          const ledger = selectedLedger as Record<string, unknown>;
+          const plName = (ledger.PRICELEVEL ?? ledger.pricelevel) != null ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim() : '';
+          const priceLevels = s.PRICELEVELS ?? s.pricelevels;
+          if (plName && Array.isArray(priceLevels)) {
+            const pl = (priceLevels as PriceLevelEntry[]).find((e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === plName) as PriceLevelEntry | undefined;
+            if (pl?.RATEUNIT) rateUOMFromApi = getRateUOMFromUnitName(String(pl.RATEUNIT).trim(), config, units);
+          }
+        }
+        if (!rateUOMFromApi && s.STDPRICEUNIT) rateUOMFromApi = getRateUOMFromUnitName(String(s.STDPRICEUNIT), config, units);
+        if (!rateUOMFromApi && s.LASTPRICEUNIT) rateUOMFromApi = getRateUOMFromUnitName(String(s.LASTPRICEUNIT), config, units);
+      }
     }
     setRateUOM(rateUOMFromApi ?? getDefaultRateUOM(config));
 
@@ -289,7 +298,7 @@ export default function OrderEntryItemDetail() {
       const selected = editOrderItem != null ? editOrderItems.find((e) => e.id === editOrderItem.id) : null;
       const source = selected ?? editOrderItems[0];
       const qtyNum = typeof source.qty === 'number' ? source.qty : parseFloat(String(source.qty)) || 0;
-      setQuantityInput(String(source.qty));
+      setQuantityInput(source.enteredQty ?? String(source.qty));
       setItemQuantity(qtyNum);
       setRate(String(source.rate));
       setDiscount(String(source.discount ?? 0));
@@ -297,6 +306,11 @@ export default function OrderEntryItemDetail() {
       setValue(String(source.total.toFixed(2)));
       setMfgDate(source.mfgDate ?? '');
       setExpiryDate(source.expiryDate ?? '');
+      if (source.rateUnit && selectedItemUnitConfig) {
+        setRateUOM(getRateUOMFromUnitName(source.rateUnit, selectedItemUnitConfig, units));
+      } else {
+        setRateUOM('base');
+      }
       // Description is common to all batches: use first non-empty from any batch
       const commonDesc = (editOrderItems.find((oi) => oi.description && String(oi.description).trim())?.description ?? editOrderItems[0]?.description ?? '').trim();
       setDescription(commonDesc);
@@ -314,6 +328,8 @@ export default function OrderEntryItemDetail() {
             total: oi.total,
             stock: oi.stock ?? 0,
             tax: oi.tax ?? 0,
+            enteredQty: oi.enteredQty,
+            rateUnit: oi.rateUnit,
             dueDate: oi.dueDate,
             mfgDate: oi.mfgDate,
             expiryDate: oi.expiryDate,
@@ -335,7 +351,7 @@ export default function OrderEntryItemDetail() {
     if (editOrderItem && item) {
       const qtyNum = typeof editOrderItem.qty === 'number' ? editOrderItem.qty : parseFloat(String(editOrderItem.qty)) || 0;
       const rateNum = typeof editOrderItem.rate === 'number' ? editOrderItem.rate : parseFloat(String(editOrderItem.rate)) || 0;
-      setQuantityInput(String(editOrderItem.qty));
+      setQuantityInput(editOrderItem.enteredQty ?? String(editOrderItem.qty));
       setItemQuantity(qtyNum);
       setRate(String(editOrderItem.rate));
       setDiscount(String(editOrderItem.discount ?? 0));
@@ -344,6 +360,11 @@ export default function OrderEntryItemDetail() {
       setMfgDate(editOrderItem.mfgDate ?? '');
       setExpiryDate(editOrderItem.expiryDate ?? '');
       setDescription(editOrderItem.description ?? '');
+      if (editOrderItem.rateUnit && selectedItemUnitConfig) {
+        setRateUOM(getRateUOMFromUnitName(editOrderItem.rateUnit, selectedItemUnitConfig, units));
+      } else {
+        setRateUOM('base');
+      }
       setLineItems([
         {
           id: editOrderItem.id,
@@ -354,6 +375,8 @@ export default function OrderEntryItemDetail() {
           total: editOrderItem.total,
           stock: editOrderItem.stock ?? 0,
           tax: editOrderItem.tax ?? 0,
+          enteredQty: editOrderItem.enteredQty,
+          rateUnit: editOrderItem.rateUnit,
           dueDate: editOrderItem.dueDate,
           mfgDate: editOrderItem.mfgDate,
           expiryDate: editOrderItem.expiryDate,
@@ -369,7 +392,7 @@ export default function OrderEntryItemDetail() {
       setGodown(editOrderItem.godown ?? '');
       setBatch(editOrderItem.batch ?? '');
     }
-  }, [editOrderItem?.id, editOrderItems]);
+  }, [item?.stockItem?.MASTERID ?? item?.name ?? null, units, editOrderItem?.id, editOrderItems, selectedItemUnitConfig]);
 
   /** Parse quantity input and derive itemQuantity + compound state (UOM_IMPLEMENTATION_GUIDE § Quantity Parsing). */
   useEffect(() => {
@@ -396,6 +419,7 @@ export default function OrderEntryItemDetail() {
     }
     setCompoundAddlQty(parsed.compoundAddlQty ?? null);
     setBaseQtyOnly(parsed.uom === 'base' && !parsed.isCompound && parsed.qty != null ? parsed.qty : null);
+    setEnteredAddlQty(parsed.uom === 'additional' && parsed.qty != null ? parsed.qty : null);
     setCustomAddlQty(parsed.customAddlQty ?? null);
     if (parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
       setCustomConversion({
@@ -422,13 +446,14 @@ export default function OrderEntryItemDetail() {
       compoundBaseQty,
       compoundAddlQty,
       baseQtyOnly,
+      enteredAddlQty,
       customAddlQty,
       customConversion,
     });
     const amount = qtyInRateUOM * r;
     const total = amount * (1 - d / 100);
     setValue(Number.isFinite(total) ? total.toFixed(2) : '0');
-  }, [itemQuantity, rate, discount, rateUOM, selectedItemUnitConfig, units, compoundBaseQty, compoundAddlQty, baseQtyOnly, customAddlQty, customConversion]);
+  }, [itemQuantity, rate, discount, rateUOM, selectedItemUnitConfig, units, compoundBaseQty, compoundAddlQty, baseQtyOnly, enteredAddlQty, customAddlQty, customConversion]);
 
   useEffect(() => {
     if (!item || editOrderItem || (editOrderItems != null && editOrderItems.length > 0)) return;
@@ -613,6 +638,7 @@ export default function OrderEntryItemDetail() {
     const singleItemFromForm = (): AddedOrderItemWithStock => ({
       name,
       qty: isToBeAllocated ? '0' : String(Math.max(0, itemQuantity)),
+      enteredQty: isToBeAllocated ? undefined : quantityInput.trim() || undefined,
       rate: String(r),
       unit: baseUnit,
       discount: d,
@@ -628,11 +654,13 @@ export default function OrderEntryItemDetail() {
       stockItem: item ?? undefined,
       attachmentLinks: [...attachmentLinks],
       attachmentUris: [...attachmentUris],
+      rateUnit: getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per,
     });
     // Description is common to all batches: use current form value for every line. For "item to be allocated", qty is not sent in payload.
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
       name: line.name,
       qty: isToBeAllocated ? '0' : String(line.qty),
+      enteredQty: isToBeAllocated ? undefined : line.enteredQty,
       rate: String(line.rate),
       unit: baseUnit,
       discount: line.discount,
@@ -648,6 +676,7 @@ export default function OrderEntryItemDetail() {
       stockItem: item ?? undefined,
       attachmentLinks: line.attachmentLinks ?? [],
       attachmentUris: line.attachmentUris ?? [],
+      rateUnit: line.rateUnit,
     });
     const addedItems: AddedOrderItemWithStock[] =
       isSingleLineEdit
@@ -672,10 +701,10 @@ export default function OrderEntryItemDetail() {
       ...(allLinks.length > 0 ? { attachmentLinks: allLinks } : {}),
       ...(allUris.length > 0 ? { attachmentUris: allUris } : {}),
     });
-  }, [navigation, lineItems, name, isToBeAllocated, itemQuantity, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [navigation, lineItems, name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const populateFormFromLine = useCallback((line: OrderLineItem, allLineItems?: OrderLineItem[]) => {
-    setQuantityInput(String(line.qty));
+    setQuantityInput(line.enteredQty ?? String(line.qty));
     setItemQuantity(line.qty);
     setRate(String(line.rate));
     setDiscount(String(line.discount));
@@ -685,6 +714,11 @@ export default function OrderEntryItemDetail() {
     setExpiryDate(line.expiryDate ?? '');
     setGodown(line.godown ?? '');
     setBatch(line.batch ?? '');
+    if (line.rateUnit && selectedItemUnitConfig) {
+      setRateUOM(getRateUOMFromUnitName(line.rateUnit, selectedItemUnitConfig, units));
+    } else {
+      setRateUOM('base');
+    }
     // When editing a line, prefer that line's description; else show first non-empty from any batch
     const lineDesc = line.description != null && String(line.description).trim() !== '' ? String(line.description).trim() : '';
     const commonDesc = lineDesc || (allLineItems?.find((l) => l.description && String(l.description).trim())?.description?.trim() ?? '');
@@ -714,6 +748,7 @@ export default function OrderEntryItemDetail() {
         id: nextId,
         name,
         qty: isToBeAllocated ? 0 : Math.max(0, itemQuantity),
+        enteredQty: quantityInput.trim() || undefined,
         rate: r,
         discount: d,
         total,
@@ -727,6 +762,7 @@ export default function OrderEntryItemDetail() {
         description: description || undefined,
         attachmentLinks: attachmentLinks.length > 0 ? [...attachmentLinks] : undefined,
         attachmentUris: attachmentUris.length > 0 ? [...attachmentUris] : undefined,
+        rateUnit: getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per,
       },
     ]);
     setNextId((id) => id + 1);
@@ -742,7 +778,7 @@ export default function OrderEntryItemDetail() {
     // Clear attachments for new batch
     setAttachmentLinks([]);
     setAttachmentUris([]);
-  }, [name, isToBeAllocated, itemQuantity, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const handleUpdateItem = useCallback(() => {
     if (selectedLineId == null) return;
@@ -764,6 +800,7 @@ export default function OrderEntryItemDetail() {
           ? {
             ...l,
             qty: isToBeAllocated ? 0 : Math.max(0, itemQuantity),
+            enteredQty: quantityInput.trim() || undefined,
             rate: r,
             discount: d,
             total: roundedTotal,
@@ -775,6 +812,7 @@ export default function OrderEntryItemDetail() {
             description: description || undefined,
             attachmentLinks: attachmentLinks.length > 0 ? [...attachmentLinks] : undefined,
             attachmentUris: attachmentUris.length > 0 ? [...attachmentUris] : undefined,
+            rateUnit: getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per,
           }
           : {
             ...l,
@@ -795,7 +833,7 @@ export default function OrderEntryItemDetail() {
     // Clear attachments after update
     setAttachmentLinks([]);
     setAttachmentUris([]);
-  }, [selectedLineId, isToBeAllocated, itemQuantity, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [selectedLineId, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const handleRemoveLineItem = useCallback((id: number) => {
     setLineItems((prev) => prev.filter((i) => i.id !== id));
@@ -1129,7 +1167,9 @@ export default function OrderEntryItemDetail() {
                               const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
                               const fmtBase = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
                               const fmtAddl = addlDec === 0 ? String(Math.round(parsed.customAddlQty)) : parsed.customAddlQty.toFixed(Number(addlDec));
-                              setQuantityInput(`${fmtBase} ${selectedItemUnitConfig.BASEUNITS} = ${fmtAddl} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
+                              const txtBase = selectedItemUnitConfig.BASEUNITS || parsed.customUnit1 || '';
+                              const txtAddl = selectedItemUnitConfig.ADDITIONALUNITS || parsed.customUnit2 || '';
+                              setQuantityInput(`${fmtBase} ${txtBase} = ${fmtAddl} ${txtAddl}`.replace(/\s+/g, ' ').trim());
                             } else if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
                               const formatted = formatCompoundBaseUnit(
                                 parsed.qty,
@@ -1143,11 +1183,9 @@ export default function OrderEntryItemDetail() {
                               const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
                               setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
                             } else if (parsed.uom === 'additional' && parsed.qty != null) {
-                              const primaryQty = convertToPrimaryQty(parsed, selectedItemUnitConfig, customConversion, units);
-                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                              const rounded = baseDec === 0 ? Math.round(primaryQty) : parseFloat(primaryQty.toFixed(Number(baseDec)));
-                              const fmt = baseDec === 0 ? String(rounded) : primaryQty.toFixed(Number(baseDec));
-                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
+                              const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
+                              const fmt = addlDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(addlDec));
+                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
                             }
                           } else if (validated) setQuantityInput(validated);
                         }}
@@ -1167,7 +1205,9 @@ export default function OrderEntryItemDetail() {
                               const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
                               const fmtBase = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
                               const fmtAddl = addlDec === 0 ? String(Math.round(parsed.customAddlQty)) : parsed.customAddlQty.toFixed(Number(addlDec));
-                              setQuantityInput(`${fmtBase} ${selectedItemUnitConfig.BASEUNITS} = ${fmtAddl} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
+                              const txtBase = selectedItemUnitConfig.BASEUNITS || parsed.customUnit1 || '';
+                              const txtAddl = selectedItemUnitConfig.ADDITIONALUNITS || parsed.customUnit2 || '';
+                              setQuantityInput(`${fmtBase} ${txtBase} = ${fmtAddl} ${txtAddl}`.replace(/\s+/g, ' ').trim());
                             } else if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
                               const formatted = formatCompoundBaseUnit(parsed.qty, parsed.subQty, selectedItemUnitConfig, units);
                               setQuantityInput(formatted);
@@ -1176,11 +1216,9 @@ export default function OrderEntryItemDetail() {
                               const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
                               setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
                             } else if (parsed.uom === 'additional' && parsed.qty != null) {
-                              const primaryQty = convertToPrimaryQty(parsed, selectedItemUnitConfig, customConversion, units);
-                              const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
-                              const rounded = baseDec === 0 ? Math.round(primaryQty) : parseFloat(primaryQty.toFixed(Number(baseDec)));
-                              const fmt = baseDec === 0 ? String(rounded) : primaryQty.toFixed(Number(baseDec));
-                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
+                              const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
+                              const fmt = addlDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(addlDec));
+                              setQuantityInput(`${fmt} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
                             }
                           } else if (validated) setQuantityInput(validated);
                           qtyInputRef.current?.blur();
@@ -1207,6 +1245,15 @@ export default function OrderEntryItemDetail() {
                       />
                       {showAlternateQty ? (
                         (() => {
+                          if (enteredAddlQty != null) {
+                            const baseDec = selectedItemUnitConfig?.BASEUNIT_DECIMAL ?? 0;
+                            const fmt = baseDec === 0 ? String(Math.round(itemQuantity)) : itemQuantity.toFixed(Number(baseDec));
+                            return (
+                              <Text style={[styles.labelHint, { marginTop: 2 }]}>
+                                ({fmt} {selectedItemUnitConfig?.BASEUNITS})
+                              </Text>
+                            );
+                          }
                           const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
                           return (
                             <Text style={[styles.labelHint, { marginTop: 2 }]}>

@@ -46,6 +46,8 @@ export type ParsedQuantity = {
   compoundAddlSubQty?: number;
   isComponentUnit?: boolean;
   componentType?: 'main' | 'sub';
+  customUnit1?: string;
+  customUnit2?: string;
 };
 
 const NUM = '([0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)';
@@ -186,11 +188,18 @@ export function parseQuantityInput(
         const isAddl2 = !unit2 || (addl && addl.toLowerCase().includes(unit2));
 
         if (isBase1 && isAddl2) {
-          return { qty: q1, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q2 };
+          return { qty: q1, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q2, customUnit1: unit1, customUnit2: unit2 };
         } else if (isAddl1 && isBase2) {
           // Reversed: e.g. "25p = 1c" where base is 'Cases' (c) and addl is 'PCS' (p)
           // Store it internally as baseQty = q2, customAddlQty = q1
-          return { qty: q2, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q1 };
+          return { qty: q2, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q1, customUnit1: unit2, customUnit2: unit1 };
+        } else {
+          // Forgiving fallback: user typed X = Y but units didn't perfectly match base/addl configs.
+          if (isBase2) {
+            return { qty: q2, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q1, customUnit1: unit2, customUnit2: unit1 };
+          }
+          // Default: assume left is base, right is addl
+          return { qty: q1, uom: 'base', isCompound: false, isCustomConversion: true, customAddlQty: q2, customUnit1: unit1, customUnit2: unit2 };
         }
       }
     }
@@ -447,6 +456,7 @@ export function getQuantityInRateUOM(
     compoundBaseQty?: number | null;
     compoundAddlQty?: number | null;
     baseQtyOnly?: number | null;
+    enteredAddlQty?: number | null;
     customAddlQty?: number | null;
     customConversion?: CustomConversion | null;
   }
@@ -457,16 +467,18 @@ export function getQuantityInRateUOM(
   const baseIsCompound = unitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes';
   const baseConv = parseFloat(String(unitConfig.BASEUNITCOMP_CONVERSION)) || 1;
   const effectiveDenom = baseIsCompound ? denom / baseConv : denom;
-  const { compoundBaseQty, compoundAddlQty, baseQtyOnly, customAddlQty, customConversion } = opts;
+  const { compoundBaseQty, compoundAddlQty, baseQtyOnly, enteredAddlQty, customAddlQty, customConversion } = opts;
 
   switch (rateUOM) {
     case 'base':
       if (unitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes' && baseQtyOnly != null) return baseQtyOnly;
+      if (enteredAddlQty != null) return enteredAddlQty / (conv / effectiveDenom);
       return itemQuantity;
     case 'additional': {
       const addlName = (unitConfig.ADDITIONALUNITS ?? '').trim().toLowerCase();
       const baseSubName = (unitConfig.BASEUNITCOMP_ADDLUNIT ?? '').trim().toLowerCase();
       if (baseIsCompound && addlName && baseSubName && addlName === baseSubName) return itemQuantity;
+      if (enteredAddlQty != null) return enteredAddlQty;
       if (customAddlQty != null) return customAddlQty;
       if (customConversion)
         return itemQuantity * (customConversion.conversion / customConversion.denominator);

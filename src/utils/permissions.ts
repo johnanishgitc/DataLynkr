@@ -1,5 +1,7 @@
-import { Platform, Linking, Alert, PermissionsAndroid } from 'react-native';
+import { Platform, Linking, Alert, PermissionsAndroid, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { StoragePermissionModule } = NativeModules;
 
 const PERMISSION_PROMPTED_KEY = '@DataLynkr:background_permission_prompted';
 
@@ -81,6 +83,68 @@ export async function requestStoragePermission(): Promise<boolean> {
     console.error('[PERMISSIONS] Error requesting storage permission:', error);
     return false;
   }
+}
+
+/**
+ * On Android 11+ (API 30+), returns true if app has "All files" (MANAGE_EXTERNAL_STORAGE) access.
+ * Needed to create the DataLynkr folder at storage root. On older Android or iOS, returns true.
+ */
+export async function hasManageExternalStorage(): Promise<boolean> {
+  if (Platform.OS !== 'android' || !StoragePermissionModule) return true;
+  try {
+    if (Number(Platform.Version) >= 30) {
+      return await StoragePermissionModule.hasManageExternalStorage();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Opens the system screen where the user can grant "All files" access (Android 11+).
+ * No-op on older Android or iOS.
+ */
+export async function openManageExternalStorageSettings(): Promise<void> {
+  if (Platform.OS !== 'android' || !StoragePermissionModule) return;
+  try {
+    if (Number(Platform.Version) >= 30) {
+      await StoragePermissionModule.openManageExternalStorageSettings();
+    }
+  } catch (e) {
+    console.error('[PERMISSIONS] Error opening manage external storage settings:', e);
+  }
+}
+
+/**
+ * Request storage permission for exporting to DataLynkr folder at storage root.
+ * On Android 11+: if "All files" is not granted, shows an alert and opens the permission screen.
+ * Returns true if we have (or don't need) permission, false after prompting user to grant.
+ */
+export async function requestStoragePermissionForRootExport(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  const api = Number(Platform.Version);
+  if (api >= 30) {
+    const has = await hasManageExternalStorage();
+    if (has) return true;
+    return new Promise((resolve) => {
+      Alert.alert(
+        'Storage access',
+        'To save exports to the DataLynkr folder (same level as Download), allow "All files" or "Files and media" access for DataLynkr.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          {
+            text: 'Open Settings',
+            onPress: async () => {
+              await openManageExternalStorageSettings();
+              resolve(false);
+            },
+          },
+        ]
+      );
+    });
+  }
+  return requestStoragePermission();
 }
 
 /**
