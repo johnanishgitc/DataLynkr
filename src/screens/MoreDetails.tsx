@@ -1,7 +1,7 @@
 /**
  * More Details - Figma 3045-59118, 3045-59311, 3045-59471
  * figma_codes: BuyerDetails, ConsigneeDetails, OrderDetails
- * Header "More Details" + account strip + tabs (Order Details | Buyer Details | Consignee Details) + content.
+ * Header "More Details" + account strip + tabs (Buyer Details | Consignee Details | Order Details) + content.
  * 
  * API Response format:
  * {
@@ -437,11 +437,12 @@ export default function MoreDetails() {
     get(voucher, 'particulars') ||
     '—';
 
-  const [activeTab, setActiveTab] = useState<TabKey>('order');
+  const [activeTab, setActiveTab] = useState<TabKey>('buyer');
   const { width } = useWindowDimensions();
   const horizontalScrollRef = useRef<ScrollView>(null);
 
-  const TABS: TabKey[] = ['order', 'buyer', 'consignee'];
+  /** Tab order: Buyer → Consignee → Order */
+  const TABS: TabKey[] = ['buyer', 'consignee', 'order'];
 
   React.useEffect(() => {
     setScrollDirection('up');
@@ -487,22 +488,8 @@ export default function MoreDetails() {
         </View>
       </View>
 
-      {/* Tabs - Order Details | Buyer Details | Consignee Details */}
+      {/* Tabs - Buyer Details | Consignee Details | Order Details */}
       <View style={styles.tabsRow}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'order' && styles.tabSelected]}
-          onPress={() => goToPage('order')}
-          activeOpacity={0.7}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'order' && styles.tabTextSelected,
-            ]}
-          >
-            {strings.order_details ?? 'Order Details'}
-          </Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'buyer' && styles.tabSelected]}
           onPress={() => goToPage('buyer')}
@@ -531,9 +518,23 @@ export default function MoreDetails() {
             {strings.consignee_details ?? 'Consignee Details'}
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'order' && styles.tabSelected]}
+          onPress={() => goToPage('order')}
+          activeOpacity={0.7}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'order' && styles.tabTextSelected,
+            ]}
+          >
+            {strings.order_details ?? 'Order Details'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Swipeable content: Order | Buyer | Consignee */}
+      {/* Swipeable content: Buyer | Consignee | Order */}
       <ScrollView
         ref={horizontalScrollRef}
         horizontal
@@ -550,13 +551,6 @@ export default function MoreDetails() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator
         >
-          <OrderDetailsContent voucher={voucher} />
-        </ScrollView>
-        <ScrollView
-          style={[styles.pageScroll, { width }]}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator
-        >
           <BuyerDetailsContent voucher={voucher} />
         </ScrollView>
         <ScrollView
@@ -565,6 +559,13 @@ export default function MoreDetails() {
           showsVerticalScrollIndicator
         >
           <ConsigneeDetailsContent voucher={voucher} />
+        </ScrollView>
+        <ScrollView
+          style={[styles.pageScroll, { width }]}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator
+        >
+          <OrderDetailsContent voucher={voucher} />
         </ScrollView>
       </ScrollView>
     </View>

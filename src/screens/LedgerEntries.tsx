@@ -58,6 +58,7 @@ import {
   buildClearedOrdersRows,
   buildPastOrdersHtml,
   buildPastOrdersRows,
+  escapeHtml,
 } from './ledger';
 
 type Route = RouteProp<LedgerStackParamList, 'LedgerEntries'>;
@@ -321,11 +322,17 @@ export default function LedgerEntries() {
       const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
       const datePart = `${formatDate(from_date).replace(/\//g, '-')}_${formatDate(to_date).replace(/\//g, '-')}`;
       const fileName = `${safe(report_name)}_${safe(ledger_name)}_${datePart}`;
+
+      // Using JS injection for footer to handle page numbers since raw css counters might struggle in RN-HTML-to-PDF depending on the webview engine. We can also just enable built in header/footer on iOS/Android if `react-native-html-to-pdf` supports it. But typically we add base64
       const res = await RNHTMLtoPDF.convert({
-        html,
+        html: html,
         fileName,
         width: 800,
         height: 1024,
+        paddingTop: 80,
+        paddingBottom: 60,
+        paddingLeft: 30,
+        paddingRight: 30,
       });
       const tempPath = (res as { filePath?: string })?.filePath;
       if (!tempPath) throw new Error('Could not generate PDF');
@@ -352,7 +359,7 @@ export default function LedgerEntries() {
           {
             text: 'Share',
             onPress: () => Share.open({ url: fileUrl, type: 'application/pdf', title: 'Share PDF' })
-              .catch(() => {})
+              .catch(() => { })
           }
         ]
       );
@@ -421,7 +428,7 @@ export default function LedgerEntries() {
           {
             text: 'Share',
             onPress: () => Share.open({ url: fileUrl, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', title: 'Share Excel' })
-              .catch(() => {})
+              .catch(() => { })
           }
         ]
       );

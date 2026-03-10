@@ -1,4 +1,5 @@
 import { StyleSheet } from 'react-native';
+import { formatDate } from '../../utils/dateUtils';
 import type {
   LedgerReportData,
   VoucherEntry,
@@ -63,7 +64,13 @@ export function toNum(x: unknown): number {
 }
 
 export function fmtNum(n: number): string {
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (isNaN(n)) return '0.00';
+  const formattingOptions = {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    style: 'decimal'
+  };
+  return new Intl.NumberFormat('en-IN', formattingOptions).format(n);
 }
 
 export function parseQtyStr(raw: string | null | undefined): number {
@@ -150,19 +157,19 @@ export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: s
 
   let summaryHtml = `
     <tr>
-      <td class="total-label-cell" style="font-weight: bold; color: #111;">Opening Balance</td>
-      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(opening?.DEBITAMT || 0))}</td>
-      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(opening?.CREDITAMT || 0))}</td>
+      <td class="total-label-cell">Opening Balance</td>
+      <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(amt(opening?.DEBITAMT || 0))}</td>
+      <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(amt(opening?.CREDITAMT || 0))}</td>
     </tr>
     <tr>
-      <td class="total-label-cell" style="font-weight: bold; color: #111;">Current Total</td>
-      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(totalDeb))}</td>
-      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(totalCr))}</td>
+      <td class="total-label-cell">Current Total</td>
+      <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(amt(totalDeb))}</td>
+      <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(amt(totalCr))}</td>
     </tr>
     <tr>
-      <td class="total-label-cell" style="font-weight: bold; color: #111;">Closing Balance</td>
-      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(closing?.DEBITAMT || 0))}</td>
-      <td style="width: 14%; text-align: right; vertical-align: middle;">${escapeHtml(amt(closing?.CREDITAMT || 0))}</td>
+      <td class="total-label-cell">Closing Balance</td>
+      <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(amt(closing?.DEBITAMT || 0))}</td>
+      <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(amt(closing?.CREDITAMT || 0))}</td>
     </tr>
   `;
 
@@ -171,61 +178,8 @@ export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: s
 <head>
 <meta charset="utf-8">
 <style>
-  body {
-    font-family: 'Segoe UI', Arial, sans-serif;
-    margin: 30px;
-    font-size: 13px;
-    color: #333;
-  }
-  .header {
-    text-align: center;
-    margin-bottom: 25px;
-  }
-  .header-company {
-    font-size: 20px;
-    font-weight: bold;
-    color: #1a233a;
-    margin: 0 0 8px 0;
-  }
-  .header-report {
-    font-size: 15px;
-    font-weight: bold;
-    color: #1a233a;
-    margin: 0 0 6px 0;
-  }
-  .header-ledger {
-    font-size: 14px;
-    color: #1a233a;
-    margin: 0 0 6px 0;
-  }
-  .header-period {
-    font-size: 13px;
-    color: #666;
-    margin: 0;
-  }
-  .main-table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-  }
-  .main-table th {
-    font-weight: bold;
-    text-align: left;
-    border: 1px solid #dcdcdc;
-    padding: 12px 10px;
-    background-color: #fff;
-    color: #111;
-    vertical-align: top;
-  }
-  .main-table td {
-    border: 1px solid #dcdcdc;
-    padding: 12px 10px;
-    color: #333;
-    vertical-align: top;
-    word-break: break-word;
-  }
-  
-  /* Consistent column widths for exact alignment */
+  ${soCommonCss('Ledger Vouchers', ledgerName)}
+  /* Local overrides for 6-col ledger */
   .col-1 { width: 14%; } /* Date */
   .col-2 { width: 28%; } /* Particulars */
   .col-3 { width: 15%; } /* Vch Type */
@@ -238,8 +192,6 @@ export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: s
     border: 1px solid #dcdcdc;
     padding: 20px;
   }
-  
-  /* Explicit precise total row layout dodging PDF engine bugs */
   .totals-row-exact {
     width: 100%;
     border-collapse: collapse;
@@ -248,22 +200,18 @@ export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: s
   .totals-row-exact td {
     border: 1px solid #dcdcdc;
     padding: 12px 10px;
-    vertical-align: top;
+    vertical-align: middle;
+    line-height: 1.4;
   }
   .total-label-cell {
-    width: 72%; /* col 1+2+3+4 = 14+28+15+15 = 72% */
+    width: 72%;
     font-weight: bold;
     color: #111;
   }
 </style>
 </head>
 <body>
-  <div class="header">
-    <div class="header-company">${escapeHtml(companyName)}</div>
-    <div class="header-report">${escapeHtml(reportName)}</div>
-    <div class="header-ledger">Ledger: <strong>${escapeHtml(ledgerName)}</strong></div>
-    <div class="header-period">Period: ${escapeHtml(dateRangeStr)}</div>
-  </div>
+  ${soHeaderHtml(companyName, reportName, ledgerName, dateRangeStr)}
   
   <table class="main-table">
     <colgroup>
@@ -280,8 +228,8 @@ export function buildHtml(d: LedgerReportData, ledgerName: string, reportName: s
         <th>Particulars</th>
         <th>Vch Type</th>
         <th>Vch No.</th>
-        <th>Debit</th>
-        <th>Credit</th>
+        <th style="text-align: right; padding-right: 15px;">Debit</th>
+        <th style="text-align: right; padding-right: 15px;">Credit</th>
       </tr>
     </thead>
     <tbody>
@@ -357,10 +305,10 @@ export function buildBillWiseHtml(d: LedgerReportData, ledgerName: string, repor
     body += `<tr>
       <td>${escapeHtml(v.DATE ?? '—')}</td>
       <td>${escapeHtml(refNo)}</td>
-      <td>${escapeHtml(openBal)}</td>
-      <td>${escapeHtml(pendBal)}</td>
-      <td>${escapeHtml(dueOn)}</td>
-      <td>${escapeHtml(overdueDays)}</td>
+      <td style="text-align: right; padding-right: 15px;">${escapeHtml(openBal)}</td>
+      <td style="text-align: right; padding-right: 15px;">${escapeHtml(pendBal)}</td>
+      <td style="text-align: right; padding-right: 15px;">${escapeHtml(dueOn)}</td>
+      <td style="text-align: right; padding-right: 15px;">${escapeHtml(overdueDays)}</td>
     </tr>`;
   }
 
@@ -397,30 +345,36 @@ export function buildBillWiseHtml(d: LedgerReportData, ledgerName: string, repor
     margin-bottom: 25px;
   }
   .header-company {
-    font-size: 20px;
+    font-size: 24px;
     font-weight: bold;
-    color: #1a233a;
+    color: #1a365d;
     margin: 0 0 8px 0;
   }
   .header-report {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: bold;
-    color: #1a233a;
+    color: #1a365d;
     margin: 0 0 6px 0;
   }
   .header-ledger {
-    font-size: 14px;
-    color: #1a233a;
-    margin: 0 0 6px 0;
+    font-size: 15px;
+    color: #1a365d;
+    font-weight: bold;
+    margin: 0 0 8px 0;
+  }
+  .header-ledger span {
+    font-weight: normal;
+    color: #475569;
   }
   .header-period {
-    font-size: 13px;
-    color: #666;
+    font-size: 14px;
+    color: #64748b;
     margin: 0;
   }
   .main-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
   }
   .main-table th {
     font-weight: bold;
@@ -436,26 +390,7 @@ export function buildBillWiseHtml(d: LedgerReportData, ledgerName: string, repor
     padding: 12px 10px;
     color: #333;
     vertical-align: top;
-  }
-  
-  /* Spacer row to create the visual gap before totals */
-  .spacer-row td {
-    border: none !important;
-    height: 25px;
-    padding: 0;
-  }
-
-  /* Totals row styling to look like a separate box */
-  .total-row td {
-    border: 1px solid #dcdcdc !important;
-    padding: 15px 10px;
-  }
-  .total-label {
-    font-weight: bold;
-    color: #111;
-  }
-  .total-value {
-    color: #333;
+    word-break: break-word;
   }
   
   /* Consistent column widths for exact alignment */
@@ -465,16 +400,65 @@ export function buildBillWiseHtml(d: LedgerReportData, ledgerName: string, repor
   .col-4 { width: 18%; } /* Pending Amt */
   .col-5 { width: 14%; } /* Due On */
   .col-6 { width: 14%; } /* Overdue */
+  
+  .totals-outer-wrapper {
+    margin-top: 20px;
+    border: 1px solid #dcdcdc;
+    padding: 20px;
+  }
+  .totals-row-exact {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .totals-row-exact td {
+    border: 1px solid #dcdcdc;
+    padding: 12px 10px;
+    vertical-align: middle;
+    line-height: 1.4;
+  }
+  .total-label-cell {
+    width: 72%;
+    font-weight: bold;
+    color: #111;
+  }
+  @page {
+    margin: 60px 40px;
+    @top-left {
+      content: "${formatDate(new Date())}, ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}";
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @top-right {
+      content: "Bill wise O/s - ${escapeHtml(ledgerName)}";
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @bottom-right {
+      content: counter(page) "/" counter(pages);
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @bottom-left {
+      content: "about:blank";
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+  }
 </style>
 </head>
 <body>
   <div class="header">
     <div class="header-company">${escapeHtml(companyName)}</div>
     <div class="header-report">Bill wise O/s</div>
-    <div class="header-ledger">Ledger: <strong>${escapeHtml(ledgerName)}</strong></div>
+    <div class="header-ledger"><span>Ledger:</span> ${escapeHtml(ledgerName)}</div>
     <div class="header-period">Period: ${escapeHtml(dateRangeStr)}</div>
   </div>
-  <table class="main-table" style="table-layout: fixed;">
+  <table class="main-table">
     <colgroup>
       <col class="col-1">
       <col class="col-2">
@@ -487,25 +471,26 @@ export function buildBillWiseHtml(d: LedgerReportData, ledgerName: string, repor
       <tr>
         <th>Date</th>
         <th>Ref No</th>
-        <th>Opening<br>Amount</th>
-        <th>Pending<br>Amount</th>
-        <th>Due On</th>
-        <th>Overdue<br>Days</th>
+        <th style="padding-right: 15px;">Opening<br>Amount</th>
+        <th style="padding-right: 15px;">Pending<br>Amount</th>
+        <th style="padding-right: 15px;">Due On</th>
+        <th style="padding-right: 15px;">Overdue<br>Days</th>
       </tr>
     </thead>
     <tbody>
       ${body}
-      <tr class="spacer-row">
-        <td colspan="6"></td>
-      </tr>
-      
-      <tr class="total-row">
-        <td colspan="4" class="total-label">Total</td>
-        <td class="total-value">${formattedOpenTotal}</td>
-        <td class="total-value">${formattedPendTotal}</td>
-      </tr>
     </tbody>
   </table>
+  
+  <div class="totals-outer-wrapper">
+    <table class="totals-row-exact">
+      <tr>
+        <td class="total-label-cell">Total</td>
+        <td style="width: 14%; text-align: right; padding-right: 15px;">${formattedOpenTotal}</td>
+        <td style="width: 14%; text-align: right; padding-right: 15px;">${formattedPendTotal}</td>
+      </tr>
+    </table>
+  </div>
 </body>
 </html>`;
 }
@@ -548,7 +533,10 @@ export function buildBillWiseRows(d: LedgerReportData): (string | number)[][] {
 
 // ============ SALES ORDER LEDGER OUTSTANDINGS EXPORT ============
 
-function soCommonCss(): string {
+function soCommonCss(reportName: string, ledgerName: string): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   return `
   body {
     font-family: 'Segoe UI', Arial, sans-serif;
@@ -561,25 +549,30 @@ function soCommonCss(): string {
     margin-bottom: 25px;
   }
   .header-company {
-    font-size: 20px;
+    font-size: 24px;
     font-weight: bold;
-    color: #1a233a;
+    color: #1a365d;
     margin: 0 0 8px 0;
   }
   .header-report {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: bold;
-    color: #1a233a;
+    color: #1a365d;
     margin: 0 0 6px 0;
   }
   .header-ledger {
-    font-size: 14px;
-    color: #1a233a;
-    margin: 0 0 6px 0;
+    font-size: 15px;
+    color: #1a365d;
+    font-weight: bold;
+    margin: 0 0 8px 0;
+  }
+  .header-ledger span {
+    font-weight: normal;
+    color: #475569;
   }
   .header-period {
-    font-size: 13px;
-    color: #666;
+    font-size: 14px;
+    color: #64748b;
     margin: 0;
   }
   .main-table {
@@ -619,6 +612,58 @@ function soCommonCss(): string {
   }
   .total-value {
     color: #333;
+  }
+  .totals-outer-wrapper {
+    margin-top: 20px;
+    border: 1px solid #dcdcdc;
+    padding: 20px;
+  }
+  .totals-row-exact {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    border: 1px solid #dcdcdc;
+  }
+  .totals-row-exact td {
+    padding: 12px 10px;
+    vertical-align: middle;
+    line-height: 1.4;
+    border-right: 1px solid #dcdcdc;
+  }
+  .totals-row-exact td:last-child {
+    border-right: none;
+  }
+  .total-label-cell {
+    width: 72%;
+    font-weight: bold;
+    color: #111;
+  }
+  @page {
+    margin: 60px 40px;
+    @top-left {
+      content: "${formatDate(new Date())}, ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}";
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @top-right {
+      content: "${escapeHtml(reportName)} - ${escapeHtml(ledgerName)}";
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @bottom-right {
+      content: counter(page) "/" counter(pages);
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @bottom-left {
+      content: "about:blank";
+      font-size: 10px;
+      color: #333;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
   }`;
 }
 
@@ -671,7 +716,7 @@ export function buildSalesOrderOutstandingHtml(
 <head>
 <meta charset="utf-8">
 <style>
-  ${soCommonCss()}
+  ${soCommonCss('Sales Order Ledger Outstandings', ledgerName)}
 </style>
 </head>
 <body>
@@ -680,22 +725,26 @@ export function buildSalesOrderOutstandingHtml(
     <thead>
       <tr>
         <th style="width: 30%;">Particulars</th>
-        <th style="width: 15%;">Qty</th>
-        <th style="width: 15%;">Unit</th>
-        <th style="width: 20%;">Rate</th>
-        <th style="width: 20%;">Value</th>
+        <th style="width: 15%; text-align: right; padding-right: 15px;">Qty</th>
+        <th style="width: 15%; text-align: right; padding-right: 15px;">Unit</th>
+        <th style="width: 20%; text-align: right; padding-right: 15px;">Rate</th>
+        <th style="width: 20%; text-align: right; padding-right: 15px;">Value</th>
       </tr>
     </thead>
     <tbody>
       ${body}
       <tr class="spacer-row"><td colspan="5"></td></tr>
-      <tr class="total-row">
-        <td colspan="3" class="total-label">Total</td>
-        <td class="total-value">${escapeHtml(fmtNum(totalQty))}</td>
-        <td class="total-value">${escapeHtml(fmtNum(totalValue))}</td>
-      </tr>
     </tbody>
   </table>
+  <div class="totals-outer-wrapper">
+    <table class="totals-row-exact">
+      <tr>
+        <td class="total-label-cell">Total</td>
+        <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(fmtNum(totalQty))}</td>
+        <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(fmtNum(totalValue))}</td>
+      </tr>
+    </table>
+  </div>
 </body>
 </html>`;
 }
@@ -796,7 +845,7 @@ export function buildClearedOrdersHtml(
 <head>
 <meta charset="utf-8">
 <style>
-  ${soCommonCss()}
+  ${soCommonCss('Cleared Orders', ledgerName)}
 </style>
 </head>
 <body>
@@ -807,21 +856,25 @@ export function buildClearedOrdersHtml(
         <th style="width: 14%;">Date</th>
         <th style="width: 18%;">Order No</th>
         <th style="width: 14%;">Cleared On</th>
-        <th style="width: 18%;">Ordered Qty</th>
-        <th style="width: 18%;">Rate</th>
-        <th style="width: 18%;">Total Value</th>
+        <th style="width: 18%; text-align: right; padding-right: 15px;">Ordered Qty</th>
+        <th style="width: 18%; text-align: right; padding-right: 15px;">Rate</th>
+        <th style="width: 18%; text-align: right; padding-right: 15px;">Total Value</th>
       </tr>
     </thead>
     <tbody>
       ${body}
       <tr class="spacer-row"><td colspan="6"></td></tr>
-      <tr class="total-row">
-        <td colspan="4" class="total-label">Total</td>
-        <td class="total-value">${escapeHtml(fmtNum(grandTotalQty))}</td>
-        <td class="total-value">${escapeHtml(fmtNum(grandTotalValue))}</td>
-      </tr>
     </tbody>
   </table>
+  <div class="totals-outer-wrapper">
+    <table class="totals-row-exact">
+      <tr>
+        <td class="total-label-cell">Total</td>
+        <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(fmtNum(grandTotalQty))}</td>
+        <td style="width: 14%; text-align: right; padding-right: 15px;">${escapeHtml(fmtNum(grandTotalValue))}</td>
+      </tr>
+    </table>
+  </div>
 </body>
 </html>`;
 }
@@ -905,7 +958,7 @@ export function buildPastOrdersHtml(
 <head>
 <meta charset="utf-8">
 <style>
-  ${soCommonCss()}
+  ${soCommonCss('Past Orders', ledgerName)}
 </style>
 </head>
 <body>
@@ -923,12 +976,16 @@ export function buildPastOrdersHtml(
     <tbody>
       ${body}
       <tr class="spacer-row"><td colspan="5"></td></tr>
-      <tr class="total-row">
-        <td colspan="4" class="total-label">Total Orders</td>
-        <td class="total-value">${orders.length}</td>
-      </tr>
     </tbody>
   </table>
+  <div class="totals-outer-wrapper">
+    <table class="totals-row-exact">
+      <tr>
+        <td class="total-label-cell">Total Orders</td>
+        <td style="text-align: right;">${orders.length}</td>
+      </tr>
+    </table>
+  </div>
 </body>
 </html>`;
 }
