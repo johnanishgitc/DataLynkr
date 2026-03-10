@@ -150,7 +150,7 @@ export type ApprovalsStackParamList = {
 };
 
 export type SummaryStackParamList = {
-  StockSummary: undefined;
+  StockSummary: { primary?: boolean; fromdate?: string; todate?: string; godown?: string } | undefined;
   StockGroupSummary: { stockitem: string; breadcrumb: string[]; fromdate?: string; todate?: string; godown?: string };
   StockItemMonthly: { stockitem: string; breadcrumb: string[]; fromdate?: string; todate?: string; godown?: string };
   StockItemVouchers: {

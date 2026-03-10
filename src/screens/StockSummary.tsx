@@ -114,9 +114,10 @@ export default function StockSummary() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
 
-    // If navigated as StockGroupSummary, we get stockitem & breadcrumb
+    // If navigated as StockGroupSummary, we get stockitem & breadcrumb. primary = user chose "Primary" (top-level summary).
     const isGroupDrill = route.name === 'StockGroupSummary';
     const stockitemParam: string | undefined = route.params?.stockitem;
+    const primarySelected = Boolean((route.params as { primary?: boolean } | undefined)?.primary);
     const breadcrumb: string[] = route.params?.breadcrumb ?? [];
 
     const [loading, setLoading] = useState(true);
@@ -242,11 +243,18 @@ export default function StockSummary() {
     }, [fetchData]);
 
     useEffect(() => {
+        const shouldFetchPrimary = !stockitemParam && primarySelected;
+        if (!stockitemParam && !shouldFetchPrimary) {
+            setLoading(false);
+            setItems([]);
+            setError('');
+            return;
+        }
         const fromdate = route.params?.fromdate;
         const todate = route.params?.todate;
         const paramRange = (fromdate && todate) ? { fromdate: String(fromdate), todate: String(todate) } : undefined;
         fetchData(paramRange);
-    }, [fetchData, route.params?.fromdate, route.params?.todate]);
+    }, [fetchData, stockitemParam, primarySelected, route.params?.fromdate, route.params?.todate]);
 
     useEffect(() => {
         if (!primaryDropdownOpen) return;
@@ -303,7 +311,11 @@ export default function StockSummary() {
             setPrimaryDropdownOpen(false);
             setPrimarySearch('');
             if (entry.name === 'Primary') {
-                nav.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'StockSummary' }] }));
+                const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
+                nav.dispatch(CommonActions.reset({
+                    index: 0,
+                    routes: [{ name: 'StockSummary', params: { primary: true, ...period, ...(godown ? { godown } : {}) } }],
+                }));
                 return;
             }
             const period = dateRange.fromdate && dateRange.todate ? { fromdate: dateRange.fromdate, todate: dateRange.todate } : undefined;
@@ -382,7 +394,7 @@ export default function StockSummary() {
                     <Icon name="magnify" size={18} color={colors.stock_text_dark} />
                     <View style={s.primaryFieldWrap}>
                         <Text style={s.primaryText} numberOfLines={1}>
-                            {stockitemParam || 'Primary'}
+                            {stockitemParam || (primarySelected ? 'Primary' : 'Select item or group')}
                         </Text>
                     </View>
                     <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
