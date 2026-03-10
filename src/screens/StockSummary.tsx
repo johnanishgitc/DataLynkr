@@ -33,8 +33,8 @@ const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 /* ── Helpers ─────────────────────────────────────────────── */
 
 /** Get financial-year fromdate/todate in YYYYMMDD.
- *  If booksfrom is available, use its month/day as FY start;
- *  otherwise default to Apr 1. */
+ *  fromdate = start of current FY (booksfrom or Apr 1).
+ *  todate = today (financial year till date). */
 function computeDateRange(booksfrom: string): { fromdate: string; todate: string } {
     const now = new Date();
     let fyStartMonth = 4; // April
@@ -52,10 +52,7 @@ function computeDateRange(booksfrom: string): { fromdate: string; todate: string
     if (now < cutoff) fyStartYear -= 1;
 
     const fromdate = `${fyStartYear}${String(fyStartMonth).padStart(2, '0')}${String(fyStartDay).padStart(2, '0')}`;
-    const fyEndYear = fyStartYear + 1;
-    const endMonth = fyStartMonth === 1 ? 12 : fyStartMonth - 1;
-    const endDay = new Date(fyEndYear, endMonth, 0).getDate(); // last day of end month
-    const todate = `${fyEndYear}${String(endMonth).padStart(2, '0')}${String(endDay).padStart(2, '0')}`;
+    const todate = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
     return { fromdate, todate };
 }
 
@@ -131,6 +128,8 @@ export default function StockSummary() {
     const [itemsAndGroups, setItemsAndGroups] = useState<StockListEntry[]>([]);
     const [loadingDropdown, setLoadingDropdown] = useState(false);
     const [godown, setGodown] = useState<string>(() => (route.params as { godown?: string } | undefined)?.godown ?? '');
+    const godownRef = useRef(godown);
+    godownRef.current = godown;
     const [godownOptions, setGodownOptions] = useState<string[]>([]);
     const [godownDropdownOpen, setGodownDropdownOpen] = useState(false);
     const [loadingGodown, setLoadingGodown] = useState(false);
@@ -215,7 +214,14 @@ export default function StockSummary() {
             }
             const range = overrideRange ?? computeDateRange(bf);
             setDateRange(range);
-            const godownToUse = overrideGodown !== undefined ? overrideGodown : godown;
+            const godownToUse = overrideGodown !== undefined ? overrideGodown : godownRef.current;
+
+            // Do not call API until a godown is selected
+            if (!godownToUse || !godownToUse.trim()) {
+                setItems([]);
+                setLoading(false);
+                return;
+            }
 
             const payload: any = {
                 tallyloc_id: t,
@@ -223,9 +229,9 @@ export default function StockSummary() {
                 guid: g,
                 fromdate: range.fromdate,
                 todate: range.todate,
+                godown: godownToUse.trim(),
             };
             if (stockitemParam) payload.stockitem = stockitemParam;
-            if (godownToUse && godownToUse.trim()) payload.godown = godownToUse.trim();
 
             const res = await apiService.getStockSummary(payload);
             setItems(res.data?.stocksummary ?? []);
@@ -235,7 +241,7 @@ export default function StockSummary() {
         } finally {
             setLoading(false);
         }
-    }, [stockitemParam, godown]);
+    }, [stockitemParam]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
@@ -254,7 +260,30 @@ export default function StockSummary() {
         const todate = route.params?.todate;
         const paramRange = (fromdate && todate) ? { fromdate: String(fromdate), todate: String(todate) } : undefined;
         fetchData(paramRange);
-    }, [fetchData, stockitemParam, primarySelected, route.params?.fromdate, route.params?.todate]);
+    }, [fetchData, stockitemParam, primarySelected, godown, route.params?.fromdate, route.params?.todate]);
+
+    // Initialise default period to financial year (or route params if provided)
+    useEffect(() => {
+        let cancelled = false;
+        const initDateRange = async () => {
+            const fromdate = route.params?.fromdate;
+            const todate = route.params?.todate;
+            if (fromdate && todate) {
+                if (!cancelled) {
+                    setDateRange({ fromdate: String(fromdate), todate: String(todate) });
+                }
+                return;
+            }
+            const bf = await getBooksfrom();
+            if (!cancelled) {
+                setDateRange(computeDateRange(bf));
+            }
+        };
+        initDateRange();
+        return () => {
+            cancelled = true;
+        };
+    }, [route.params?.fromdate, route.params?.todate]);
 
     useEffect(() => {
         if (!primaryDropdownOpen) return;
@@ -528,7 +557,6 @@ export default function StockSummary() {
                                         onPress={() => {
                                             setGodown(item.name);
                                             setGodownDropdownOpen(false);
-                                            fetchData(undefined, item.name);
                                         }}
                                         activeOpacity={0.7}
                                     >

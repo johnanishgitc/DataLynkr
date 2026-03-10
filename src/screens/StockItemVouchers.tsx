@@ -13,6 +13,7 @@ import {
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar } from '../components';
 import { PeriodSelection } from '../components/PeriodSelection';
@@ -23,6 +24,7 @@ import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/stora
 import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
+import { sharedStyles } from './ledger';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -167,6 +169,7 @@ function OutwardIcon({ size = 16 }: { size?: number }) {
 export default function StockItemVouchers() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
+    const insets = useSafeAreaInsets();
 
     const stockitemParam: string = route.params?.stockitem ?? '';
     const paramFromdate: string | undefined = route.params?.fromdate;
@@ -412,7 +415,7 @@ export default function StockItemVouchers() {
                             {selectedStockItem || strings.select_stock_item}
                         </Text>
                     </View>
-                    <Icon name="chevron-down" size={20} color={colors.stock_text_dark} />
+                    <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
                 </TouchableOpacity>
                 <TouchableOpacity style={s.dateRow} onPress={() => setPeriodOpen(true)} activeOpacity={0.7}>
                     <Icon name="calendar-month-outline" size={16} color={colors.stock_text_dark} />
@@ -492,51 +495,67 @@ export default function StockItemVouchers() {
                 onApply={onPeriodApply}
             />
 
-            {/* Stock item dropdown – options from Data Management */}
-            <Modal visible={stockItemDropdownOpen} transparent animationType="fade">
+            {/* Stock item dropdown – same design as Stock Summary (items/groups) */}
+            <Modal
+                visible={stockItemDropdownOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+            >
                 <TouchableOpacity
-                    style={s.stockItemModalOverlay}
+                    style={sharedStyles.modalOverlay}
                     activeOpacity={1}
                     onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
                 >
-                    <View style={s.stockItemModalContent} onStartShouldSetResponder={() => true}>
-                        <Text style={s.stockItemModalTitle}>{strings.select_stock_item}</Text>
-                        <TextInput
-                            style={s.stockItemModalSearch}
-                            placeholder="Search…"
-                            placeholderTextColor={colors.text_disabled}
-                            value={stockItemSearch}
-                            onChangeText={setStockItemSearch}
-                        />
-                        <FlatList
-                            data={filteredStockItems}
-                            keyExtractor={(i) => i}
-                            style={s.stockItemModalList}
-                            ListEmptyComponent={
-                                <Text style={s.stockItemModalEmpty}>
-                                    {stockItemNames.length === 0 ? 'Loading…' : 'No stock items found. Use Data Management to download stock items.'}
-                                </Text>
-                            }
-                            renderItem={({ item }) => (
-                                <TouchableOpacity
-                                    style={s.stockItemModalRow}
-                                    onPress={() => {
-                                        setSelectedStockItem(item);
-                                        setStockItemDropdownOpen(false);
-                                        setStockItemSearch('');
-                                        fetchData();
-                                    }}
-                                >
-                                    <Text style={s.stockItemModalRowText} numberOfLines={2}>{item}</Text>
-                                </TouchableOpacity>
-                            )}
-                        />
-                        <TouchableOpacity
-                            style={s.stockItemModalCancel}
-                            onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
-                        >
-                            <Text style={s.stockItemModalCancelText}>Cancel</Text>
-                        </TouchableOpacity>
+                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                        <View style={sharedStyles.modalHeaderRow}>
+                            <Text style={sharedStyles.modalHeaderTitle}>{strings.select_stock_item}</Text>
+                            <TouchableOpacity
+                                onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+                                style={sharedStyles.modalHeaderClose}
+                            >
+                                <Icon name="close" size={24} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={sharedStyles.modalSearchRow}>
+                            <TextInput
+                                style={sharedStyles.modalSearchInput}
+                                placeholder="Search stock items…"
+                                placeholderTextColor={colors.text_secondary}
+                                value={stockItemSearch}
+                                onChangeText={setStockItemSearch}
+                            />
+                            <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
+                        </View>
+                        {stockItemNames.length === 0 ? (
+                            <View style={s.dropdownLoading}>
+                                <ActivityIndicator size="small" color={colors.primary_blue} />
+                                <Text style={s.dropdownLoadingText}>{strings.loading}</Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={filteredStockItems}
+                                keyExtractor={(i) => i}
+                                style={sharedStyles.modalList}
+                                keyboardShouldPersistTaps="handled"
+                                keyboardDismissMode="on-drag"
+                                ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No stock items found. Use Data Management to download stock items.</Text>}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
+                                        onPress={() => {
+                                            setSelectedStockItem(item);
+                                            setStockItemDropdownOpen(false);
+                                            setStockItemSearch('');
+                                            fetchData();
+                                        }}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
                     </View>
                 </TouchableOpacity>
             </Modal>
@@ -586,57 +605,8 @@ const s = StyleSheet.create({
         color: colors.stock_text_dark,
     },
 
-    stockItemModalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'flex-end',
-    },
-    stockItemModalContent: {
-        backgroundColor: colors.bg_light_blue,
-        borderTopLeftRadius: 12,
-        borderTopRightRadius: 12,
-        paddingTop: 16,
-        paddingHorizontal: 16,
-        maxHeight: '70%',
-    },
-    stockItemModalTitle: {
-        fontFamily: 'Roboto',
-        fontSize: 16,
-        fontWeight: '600',
-        color: colors.stock_text_dark,
-        marginBottom: 10,
-    },
-    stockItemModalSearch: {
-        backgroundColor: colors.white,
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        fontSize: 15,
-        color: colors.stock_text_dark,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: colors.stock_border,
-    },
-    stockItemModalList: { maxHeight: 320 },
-    stockItemModalEmpty: {
-        padding: 16,
-        textAlign: 'center',
-        color: colors.text_secondary,
-        fontSize: 14,
-    },
-    stockItemModalRow: {
-        paddingVertical: 12,
-        paddingHorizontal: 4,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.stock_border,
-    },
-    stockItemModalRowText: {
-        fontFamily: 'Roboto',
-        fontSize: 14,
-        color: colors.stock_text_dark,
-    },
-    stockItemModalCancel: { padding: 16, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.stock_border },
-    stockItemModalCancelText: { fontFamily: 'Roboto', fontSize: 16, color: colors.primary_blue },
+    dropdownLoading: { padding: 24, alignItems: 'center' },
+    dropdownLoadingText: { marginTop: 8, color: colors.text_secondary },
 
     legendRow: {
         flexDirection: 'row',

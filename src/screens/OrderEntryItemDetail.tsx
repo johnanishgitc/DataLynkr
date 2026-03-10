@@ -144,9 +144,10 @@ export default function OrderEntryItemDetail() {
   const taxNum = itemTax(item);
   /** Prefer explicit param from OrderEntry so godown/batch show correctly even if item loses keys in nav. */
   const isBatchWiseOn = route.params?.isBatchWiseOn ?? isBatchWiseOnFromItem(item);
-  /** Show mfg/expiry date fields only when batch wise is on AND item has both HASMFGDATE and HASEXPDATE set to Yes. */
+  /** Show mfg/expiry date fields only when batch wise is on AND item has both HASMFGDATE and HASEXPDATE set to Yes, and permission enables batch/godown. */
   const s = (item?.stockItem ?? item) as any;
   const showMfgExpiryDates =
+    perms.enable_batchGodown &&
     isBatchWiseOn &&
     isBatchWiseOnValue(s?.HASMFGDATE) &&
     isBatchWiseOnValue(s?.HASEXPDATE);
@@ -571,7 +572,8 @@ export default function OrderEntryItemDetail() {
 
   /** When ISBATCHWISEON is No: show godown+batch only if api/tally/godown-list returns multiple GodownNames; then batch is greyed out. */
   const showGodownBatchWhenNotBatchWise = !isBatchWiseOn && godownOptions.length > 1;
-  const showGodownBatchRow = isBatchWiseOn || showGodownBatchWhenNotBatchWise;
+  /** Show godown & batch row only when permission enbale_batchGodown is granted. */
+  const showGodownBatchRow = perms.enable_batchGodown && (isBatchWiseOn || showGodownBatchWhenNotBatchWise);
 
   useEffect(() => {
     if (isBatchWiseOn) setGodownDropdownOpen(false);
@@ -1109,7 +1111,7 @@ export default function OrderEntryItemDetail() {
                       maxLength={500}
                       numberOfLines={4}
                     />
-                    {isToBeAllocated && (
+                    {isToBeAllocated && !perms.disable_attachment && (
                       <TouchableOpacity
                         style={styles.attachBtnInDescriptionCorner}
                         onPress={() => setClipPopupVisible(true)}
@@ -1520,8 +1522,8 @@ export default function OrderEntryItemDetail() {
                 )}
               </View>
 
-              {/* Attachment list – similar to draft mode in OrderEntry */}
-              {isToBeAllocated && (
+              {/* Attachment list – similar to draft mode in OrderEntry; hidden when disable_attachment permission is set */}
+              {isToBeAllocated && !perms.disable_attachment && (
                 <View style={styles.attachSection}>
                   <View style={styles.attachSectionHeader}>
                     <View style={styles.attachSectionIconWrap}>

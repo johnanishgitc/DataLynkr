@@ -2039,6 +2039,7 @@ export default function OrderEntry() {
                   />
                 </View>
 
+                {!permissions.disable_attachment && (
                 <View style={[styles.draftAttachmentsSection, !selectedCustomer && styles.draftAttachmentsSectionDisabled]}>
                   <View style={styles.draftAttachmentsHeader}>
                     {/* Placeholder for complex vector icon, using multiple icons to simulate */}
@@ -2079,10 +2080,12 @@ export default function OrderEntry() {
                     </View>
                   )}
                 </View>
+                )}
               </ScrollView>
 
               {!isKeyboardVisible && (
                 <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom - 8, 2), borderTopWidth: 1, borderTopColor: '#ffffff', backgroundColor: '#fff' }]}>
+                  {!permissions.disable_attachment && (
                   <TouchableOpacity style={[styles.footerAttachDraft, !selectedCustomer && styles.footerAttachDraftDisabled]} onPress={handleAttachment} disabled={!selectedCustomer || uploadingAttachments}>
                     {uploadingAttachments ? (
                       <ActivityIndicator size="small" color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
@@ -2090,6 +2093,7 @@ export default function OrderEntry() {
                       <OrderEntryPaperclipIcon width={21} height={22} color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
                     )}
                   </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     style={styles.footerClearAllDraft}
                     onPress={() => setClearAllConfirmVisible(true)}
@@ -2441,6 +2445,7 @@ export default function OrderEntry() {
                                     </View>
                                     {(group as { isAllocItem?: boolean }).isAllocItem ? (
                                       (() => {
+                                        if (permissions.disable_attachment) return null;
                                         const first = group.items[0] as OrderEntryOrderItem | undefined;
                                         const links = first?.attachmentLinks ?? [];
                                         const uris = first?.attachmentUris ?? [];
@@ -2867,6 +2872,7 @@ export default function OrderEntry() {
         <>
           <View style={styles.footerSpacer} />
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom - 8, 2) }]}>
+            {!permissions.disable_attachment && (
             <TouchableOpacity
               style={[styles.footerAttach, attachmentsDisabledNonDraft && styles.footerAttachDisabled]}
               onPress={handleAttachment}
@@ -2879,6 +2885,7 @@ export default function OrderEntry() {
                 <OrderEntryPaperclipIcon width={21} height={22} color={!attachmentsDisabledNonDraft ? '#0E172B' : '#9ca3af'} />
               )}
             </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
               <Text style={styles.footerBtnText}>{strings.add_details}</Text>
             </TouchableOpacity>
@@ -3964,6 +3971,18 @@ export default function OrderEntry() {
                 }}
               />
               <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
+              <TouchableOpacity
+                onPress={() => {
+                  setItemDropdownOpen(false);
+                  setItemSearch('');
+                  setScannedExactMatches(null);
+                  handleScanClick();
+                }}
+                style={{ padding: 8, marginLeft: 4 }}
+                accessibilityLabel="Scan QR code"
+              >
+                <OrderEntryQRIcon width={20} height={21} color="#0E172B" />
+              </TouchableOpacity>
             </View>
             <FlatList
               data={itemListForDropdown}
@@ -4414,6 +4433,7 @@ export default function OrderEntry() {
         }}
         title="Do you want to add more items?"
         confirmLabel="Yes"
+        cancelLabel="No"
         variant="info"
       />
     </View >
