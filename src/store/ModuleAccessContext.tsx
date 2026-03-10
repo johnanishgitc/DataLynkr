@@ -33,6 +33,8 @@ export function useModuleAccess(): ModuleAccessContextValue {
                 show_ClsStck_Column: true, show_ClsStck_yesno: false, show_godownbrkup: true,
                 show_multicobrkup: true, show_itemdesc: false, show_itemshasqty: false,
                 allow_vchtype: true, show_ordduedate: true, show_creditdayslimit: true,
+                disable_attachment: false,
+                enable_batchGodown: false,
             },
             loading: false,
         };

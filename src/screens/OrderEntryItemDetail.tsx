@@ -144,9 +144,10 @@ export default function OrderEntryItemDetail() {
   const taxNum = itemTax(item);
   /** Prefer explicit param from OrderEntry so godown/batch show correctly even if item loses keys in nav. */
   const isBatchWiseOn = route.params?.isBatchWiseOn ?? isBatchWiseOnFromItem(item);
-  /** Show mfg/expiry date fields only when batch wise is on AND item has both HASMFGDATE and HASEXPDATE set to Yes. */
+  /** Show mfg/expiry date fields only when batch wise is on AND item has both HASMFGDATE and HASEXPDATE set to Yes, and permission enables batch/godown. */
   const s = (item?.stockItem ?? item) as any;
   const showMfgExpiryDates =
+    perms.enable_batchGodown &&
     isBatchWiseOn &&
     isBatchWiseOnValue(s?.HASMFGDATE) &&
     isBatchWiseOnValue(s?.HASEXPDATE);
@@ -254,8 +255,14 @@ export default function OrderEntryItemDetail() {
       setRateUOM('base');
       return;
     }
-    const stockItem = item?.stockItem ?? item;
-    const config = buildUnitConfig(stockItem, units);
+    // Resolve actual API stock item: when editing, item may be cart item with item.stockItem = wrapper from modal (wrapper has .stockItem = raw API item).
+    const itemAny = item as { stockItem?: unknown } | null | undefined;
+    const inner = itemAny?.stockItem as { stockItem?: unknown } | undefined;
+    const rawStockItem = (inner != null && typeof inner === 'object' && inner.stockItem != null)
+      ? inner.stockItem
+      : itemAny?.stockItem ?? item;
+    const stockItem = rawStockItem as Record<string, unknown> | undefined;
+    const config = buildUnitConfig(stockItem as Parameters<typeof buildUnitConfig>[0], units);
     setSelectedItemUnitConfig(config);
 
     let rateUOMFromApi: string | null = null;
@@ -565,7 +572,8 @@ export default function OrderEntryItemDetail() {
 
   /** When ISBATCHWISEON is No: show godown+batch only if api/tally/godown-list returns multiple GodownNames; then batch is greyed out. */
   const showGodownBatchWhenNotBatchWise = !isBatchWiseOn && godownOptions.length > 1;
-  const showGodownBatchRow = isBatchWiseOn || showGodownBatchWhenNotBatchWise;
+  /** Show godown & batch row only when permission enbale_batchGodown is granted. */
+  const showGodownBatchRow = perms.enable_batchGodown && (isBatchWiseOn || showGodownBatchWhenNotBatchWise);
 
   useEffect(() => {
     if (isBatchWiseOn) setGodownDropdownOpen(false);
@@ -635,6 +643,9 @@ export default function OrderEntryItemDetail() {
     const formTotal = parseFloat(value) || 0;
     // When there is only one item in the list and we're in edit mode, use current form values so "Update Cart" without "Update Batch" still applies edits.
     // For "item to be allocated", qty is not asked and not sent in place-order payload.
+    const resolvedStockItem = (item != null && typeof item === 'object' && (item as { stockItem?: unknown }).stockItem != null)
+      ? (item as { stockItem: unknown }).stockItem
+      : item;
     const singleItemFromForm = (): AddedOrderItemWithStock => ({
       name,
       qty: isToBeAllocated ? '0' : String(Math.max(0, itemQuantity)),
@@ -651,10 +662,10 @@ export default function OrderEntryItemDetail() {
       godown: godown || undefined,
       batch: batch || undefined,
       description: description || undefined,
-      stockItem: item ?? undefined,
+      stockItem: resolvedStockItem as AddedOrderItemWithStock['stockItem'],
       attachmentLinks: [...attachmentLinks],
       attachmentUris: [...attachmentUris],
-      rateUnit: getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per,
+      rateUnit: getRateUOMOptions(selectedItemUnitConfig, units, per).find((o) => o.value === rateUOM)?.label ?? per,
     });
     // Description is common to all batches: use current form value for every line. For "item to be allocated", qty is not sent in payload.
     const toAddedItem = (line: OrderLineItem): AddedOrderItemWithStock => ({
@@ -673,7 +684,7 @@ export default function OrderEntryItemDetail() {
       godown: line.godown,
       batch: line.batch,
       description: description || undefined,
-      stockItem: item ?? undefined,
+      stockItem: resolvedStockItem as AddedOrderItemWithStock['stockItem'],
       attachmentLinks: line.attachmentLinks ?? [],
       attachmentUris: line.attachmentUris ?? [],
       rateUnit: line.rateUnit,
@@ -762,7 +773,7 @@ export default function OrderEntryItemDetail() {
         description: description || undefined,
         attachmentLinks: attachmentLinks.length > 0 ? [...attachmentLinks] : undefined,
         attachmentUris: attachmentUris.length > 0 ? [...attachmentUris] : undefined,
-        rateUnit: getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per,
+        rateUnit: getRateUOMOptions(selectedItemUnitConfig, units, per).find((o) => o.value === rateUOM)?.label ?? per,
       },
     ]);
     setNextId((id) => id + 1);
@@ -812,7 +823,7 @@ export default function OrderEntryItemDetail() {
             description: description || undefined,
             attachmentLinks: attachmentLinks.length > 0 ? [...attachmentLinks] : undefined,
             attachmentUris: attachmentUris.length > 0 ? [...attachmentUris] : undefined,
-            rateUnit: getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per,
+            rateUnit: getRateUOMOptions(selectedItemUnitConfig, units, per).find((o) => o.value === rateUOM)?.label ?? per,
           }
           : {
             ...l,
@@ -1100,7 +1111,7 @@ export default function OrderEntryItemDetail() {
                       maxLength={500}
                       numberOfLines={4}
                     />
-                    {isToBeAllocated && (
+                    {isToBeAllocated && !perms.disable_attachment && (
                       <TouchableOpacity
                         style={styles.attachBtnInDescriptionCorner}
                         onPress={() => setClipPopupVisible(true)}
@@ -1303,7 +1314,7 @@ export default function OrderEntryItemDetail() {
                           activeOpacity={0.7}
                         >
                           <Text style={[styles.inputFlex, { paddingHorizontal: 0 }]} numberOfLines={1}>
-                            {getRateUOMOptions(selectedItemUnitConfig, units).find((o) => o.value === rateUOM)?.label ?? per}
+                            {getRateUOMOptions(selectedItemUnitConfig, units, per).find((o) => o.value === rateUOM)?.label ?? per}
                           </Text>
                           <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
                         </TouchableOpacity>
@@ -1511,8 +1522,8 @@ export default function OrderEntryItemDetail() {
                 )}
               </View>
 
-              {/* Attachment list – similar to draft mode in OrderEntry */}
-              {isToBeAllocated && (
+              {/* Attachment list – similar to draft mode in OrderEntry; hidden when disable_attachment permission is set */}
+              {isToBeAllocated && !perms.disable_attachment && (
                 <View style={styles.attachSection}>
                   <View style={styles.attachSectionHeader}>
                     <View style={styles.attachSectionIconWrap}>
@@ -1812,7 +1823,7 @@ export default function OrderEntryItemDetail() {
           {perDropdownOpen ? (
             <View style={[styles.dropdownOverlayContent, { top: perDropdownAnchor.top, left: perDropdownAnchor.left, width: Math.max(perDropdownAnchor.width || 120, 120) }]}>
               <View style={styles.overlayDropdown}>
-                {getRateUOMOptions(selectedItemUnitConfig, units).map((opt) => (
+                {getRateUOMOptions(selectedItemUnitConfig, units, per).map((opt) => (
                   <TouchableOpacity
                     key={opt.value}
                     style={styles.inlineDropdownOpt}

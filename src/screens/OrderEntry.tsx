@@ -258,6 +258,8 @@ export default function OrderEntry() {
   const [ledgerDetailsExpanded, setLedgerDetailsExpanded] = useState(false);
   /** Per-ledger amount strings for METHODTYPE "As User Defined Value" (key = ledger NAME). */
   const [ledgerValues, setLedgerValues] = useState<Record<string, string>>({});
+  /** Raw percentage string while editing (key = ledger NAME). When set, % input shows this; on blur we clear so formatted "X.00%" shows. */
+  const [ledgerPctEditing, setLedgerPctEditing] = useState<Record<string, string>>({});
   const [editDetailsModalVisible, setEditDetailsModalVisible] = useState(false);
   const [editDetailsOrderNo, setEditDetailsOrderNo] = useState('');
   const [editDetailsOrderDate, setEditDetailsOrderDate] = useState<Date>(() => new Date());
@@ -635,6 +637,7 @@ export default function OrderEntry() {
         setSelectedVoucherType('');
         setSelectedClass('');
         setLedgerValues({});
+        setLedgerPctEditing({});
         setCustomerDropdownOpen(false);
         setVoucherTypeDropdownOpen(false);
         setClassDropdownOpen(false);
@@ -690,13 +693,8 @@ export default function OrderEntry() {
       attachmentLinks: undefined,
       attachmentUris: undefined,
     } as any);
-    // Only when first item is added (no replace): ask "Do you want to add more items?"; otherwise auto-open items dropdown
-    const isFirstItemAdd = addedLength === 1 && !hasReplace;
-    if (isFirstItemAdd) {
-      setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
-    } else {
-      setTimeout(() => setItemDropdownOpen(true), 250);
-    }
+    // Show "Do you want to add more items?" after Add to Cart or Update Cart
+    setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
   }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
@@ -1586,6 +1584,7 @@ export default function OrderEntry() {
         setSelectedVoucherType('');
         setSelectedClass('');
         setLedgerValues({});
+        setLedgerPctEditing({});
         setVoucherTypeDropdownOpen(false);
         setClassDropdownOpen(false);
         if (isDraftMode) {
@@ -1698,6 +1697,7 @@ export default function OrderEntry() {
     setSelectedVoucherType('');
     setSelectedClass('');
     setLedgerValues({});
+    setLedgerPctEditing({});
     setLatestOrder(null);
     setBatchNo('');
     setCreditLimitInfo(null);
@@ -2039,6 +2039,7 @@ export default function OrderEntry() {
                   />
                 </View>
 
+                {!permissions.disable_attachment && (
                 <View style={[styles.draftAttachmentsSection, !selectedCustomer && styles.draftAttachmentsSectionDisabled]}>
                   <View style={styles.draftAttachmentsHeader}>
                     {/* Placeholder for complex vector icon, using multiple icons to simulate */}
@@ -2079,10 +2080,12 @@ export default function OrderEntry() {
                     </View>
                   )}
                 </View>
+                )}
               </ScrollView>
 
               {!isKeyboardVisible && (
                 <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom - 8, 2), borderTopWidth: 1, borderTopColor: '#ffffff', backgroundColor: '#fff' }]}>
+                  {!permissions.disable_attachment && (
                   <TouchableOpacity style={[styles.footerAttachDraft, !selectedCustomer && styles.footerAttachDraftDisabled]} onPress={handleAttachment} disabled={!selectedCustomer || uploadingAttachments}>
                     {uploadingAttachments ? (
                       <ActivityIndicator size="small" color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
@@ -2090,6 +2093,7 @@ export default function OrderEntry() {
                       <OrderEntryPaperclipIcon width={21} height={22} color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
                     )}
                   </TouchableOpacity>
+                  )}
                   <TouchableOpacity
                     style={styles.footerClearAllDraft}
                     onPress={() => setClearAllConfirmVisible(true)}
@@ -2441,6 +2445,7 @@ export default function OrderEntry() {
                                     </View>
                                     {(group as { isAllocItem?: boolean }).isAllocItem ? (
                                       (() => {
+                                        if (permissions.disable_attachment) return null;
                                         const first = group.items[0] as OrderEntryOrderItem | undefined;
                                         const links = first?.attachmentLinks ?? [];
                                         const uris = first?.attachmentUris ?? [];
@@ -2760,11 +2765,28 @@ export default function OrderEntry() {
                               <TextInput
                                 style={styles.ledgerDetailsInputSmall}
                                 value={
-                                  calculatedLedgerAmounts.subtotal > 0 && amount > 0
-                                    ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
-                                    : ''
+                                  ledgerPctEditing[name] !== undefined
+                                    ? ledgerPctEditing[name]
+                                    : calculatedLedgerAmounts.subtotal > 0 && amount > 0
+                                      ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
+                                      : ''
                                 }
+                                onFocus={() => {
+                                  const currentPct =
+                                    calculatedLedgerAmounts.subtotal > 0 && amount > 0
+                                      ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
+                                      : '';
+                                  setLedgerPctEditing((prev) => ({ ...prev, [name]: currentPct }));
+                                }}
+                                onBlur={() => {
+                                  setLedgerPctEditing((prev) => {
+                                    const next = { ...prev };
+                                    delete next[name];
+                                    return next;
+                                  });
+                                }}
                                 onChangeText={(pctStr) => {
+                                  setLedgerPctEditing((prev) => ({ ...prev, [name]: pctStr }));
                                   const pct = parseFloat(pctStr);
                                   if (!Number.isNaN(pct) && calculatedLedgerAmounts.subtotal > 0) {
                                     const amt = (calculatedLedgerAmounts.subtotal * pct) / 100;
@@ -2795,9 +2817,9 @@ export default function OrderEntry() {
                           </>
                         ) : (
                           <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
-                            <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
-                              {methodType === 'As Total Amount Rounding' ? ''
-                                : (() => {
+                            {methodType !== 'As Total Amount Rounding' ? (
+                              <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
+                                {(() => {
                                   const formatPct = (n: number) => {
                                     if (!Number.isFinite(n)) return '0';
                                     if (n === Math.round(n)) return String(Math.round(n));
@@ -2812,8 +2834,13 @@ export default function OrderEntry() {
                                   }
                                   return configRate === 0 ? '0%' : `${formatPct(configRate)}%`;
                                 })()}
+                              </Text>
+                            ) : null}
+                            <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>
+                              {methodType === 'As Total Amount Rounding'
+                                ? (amount < 0 ? `-₹${Math.abs(amount).toFixed(2)}` : ` ₹${amount.toFixed(2)}`)
+                                : `₹${amount.toFixed(2)}`}
                             </Text>
-                            <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>₹{amount.toFixed(2)}</Text>
                           </View>
                         )}
                       </View>
@@ -2845,6 +2872,7 @@ export default function OrderEntry() {
         <>
           <View style={styles.footerSpacer} />
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom - 8, 2) }]}>
+            {!permissions.disable_attachment && (
             <TouchableOpacity
               style={[styles.footerAttach, attachmentsDisabledNonDraft && styles.footerAttachDisabled]}
               onPress={handleAttachment}
@@ -2857,6 +2885,7 @@ export default function OrderEntry() {
                 <OrderEntryPaperclipIcon width={21} height={22} color={!attachmentsDisabledNonDraft ? '#0E172B' : '#9ca3af'} />
               )}
             </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
               <Text style={styles.footerBtnText}>{strings.add_details}</Text>
             </TouchableOpacity>
@@ -3764,6 +3793,7 @@ export default function OrderEntry() {
                       const name = (first.NAME ?? '').trim();
                       setSelectedVoucherType(name);
                       setLedgerValues({});
+                      setLedgerPctEditing({});
                       const classes = first.VOUCHERCLASSLIST ?? [];
                       const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
                       const hasClasses = classNames.length > 0;
@@ -3818,6 +3848,7 @@ export default function OrderEntry() {
                   onPress={() => {
                     setSelectedVoucherType(item);
                     setLedgerValues({});
+                    setLedgerPctEditing({});
                     const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === item);
                     const classes = vt?.VOUCHERCLASSLIST ?? [];
                     const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
@@ -3940,6 +3971,18 @@ export default function OrderEntry() {
                 }}
               />
               <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
+              <TouchableOpacity
+                onPress={() => {
+                  setItemDropdownOpen(false);
+                  setItemSearch('');
+                  setScannedExactMatches(null);
+                  handleScanClick();
+                }}
+                style={{ padding: 8, marginLeft: 4 }}
+                accessibilityLabel="Scan QR code"
+              >
+                <OrderEntryQRIcon width={20} height={21} color="#0E172B" />
+              </TouchableOpacity>
             </View>
             <FlatList
               data={itemListForDropdown}
@@ -4348,6 +4391,7 @@ export default function OrderEntry() {
           setSelectedVoucherType('');
           setSelectedClass('');
           setLedgerValues({});
+          setLedgerPctEditing({});
           setVoucherTypeDropdownOpen(false);
           setClassDropdownOpen(false);
           setClearAllConfirmVisible(false);
@@ -4389,6 +4433,7 @@ export default function OrderEntry() {
         }}
         title="Do you want to add more items?"
         confirmLabel="Yes"
+        cancelLabel="No"
         variant="info"
       />
     </View >

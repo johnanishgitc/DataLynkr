@@ -7,17 +7,22 @@ import {
     StyleSheet,
     ActivityIndicator,
     Animated,
+    Modal,
+    TextInput,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar } from '../components';
 import { PeriodSelection } from '../components/PeriodSelection';
 import { apiService, isUnauthorizedError } from '../api';
+import { getStockItemNamesFromDataManagementCache } from '../cache';
 import type { MonthData, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
+import { sharedStyles } from './ledger';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -119,10 +124,15 @@ function OutwardIcon({ size = 16 }: { size?: number }) {
 export default function StockItemMonthly() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
+    const insets = useSafeAreaInsets();
 
     const stockitemParam: string = route.params?.stockitem ?? '';
     const breadcrumb: string[] = route.params?.breadcrumb ?? [];
 
+    const [selectedStockItem, setSelectedStockItem] = useState(stockitemParam);
+    const [stockItemNames, setStockItemNames] = useState<string[]>([]);
+    const [stockItemDropdownOpen, setStockItemDropdownOpen] = useState(false);
+    const [stockItemSearch, setStockItemSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [opening, setOpening] = useState<StockQtyValue | null>(null);
@@ -156,7 +166,30 @@ export default function StockItemMonthly() {
         };
     }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
 
+    useEffect(() => {
+        let cancel = false;
+        (async () => {
+            const names = await getStockItemNamesFromDataManagementCache();
+            if (!cancel) setStockItemNames(names);
+        })();
+        return () => { cancel = true; };
+    }, []);
+
+    useEffect(() => {
+        if (stockitemParam) setSelectedStockItem(stockitemParam);
+    }, [stockitemParam]);
+
+    const filteredStockItems = useMemo(() => {
+        if (!stockItemSearch.trim()) return stockItemNames;
+        const q = stockItemSearch.trim().toLowerCase();
+        return stockItemNames.filter((n) => n.toLowerCase().includes(q));
+    }, [stockItemNames, stockItemSearch]);
+
     const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }) => {
+        if (!selectedStockItem.trim()) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setError('');
         try {
@@ -175,7 +208,7 @@ export default function StockItemMonthly() {
                 guid: g,
                 fromdate: range.fromdate,
                 todate: range.todate,
-                stockitem: stockitemParam,
+                stockitem: selectedStockItem,
             });
             setOpening(res.data?.opening ?? null);
             setMonths(res.data?.month ?? []);
@@ -185,7 +218,7 @@ export default function StockItemMonthly() {
         } finally {
             setLoading(false);
         }
-    }, [stockitemParam]);
+    }, [selectedStockItem]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
@@ -202,7 +235,7 @@ export default function StockItemMonthly() {
     const onMonthPress = (m: MonthData) => {
         // Navigate to vouchers for this month's date range
         nav.push('StockItemVouchers', {
-            stockitem: stockitemParam,
+            stockitem: selectedStockItem,
             fromdate: m.fromdate,
             todate: m.todate,
             breadcrumb: [...breadcrumb, `${m.month}'${m.year.slice(-2)}`],
@@ -276,14 +309,21 @@ export default function StockItemMonthly() {
                 compact
             />
 
-            {/* Item name + date range */}
+            {/* Stock item dropdown (before period) + period selector */}
             <View style={s.filterSection}>
-                <View style={s.primaryRow}>
+                <TouchableOpacity
+                    style={s.primaryRow}
+                    onPress={() => setStockItemDropdownOpen(true)}
+                    activeOpacity={0.7}
+                >
                     <Icon name="magnify" size={18} color={colors.stock_text_dark} />
                     <View style={s.primaryFieldWrap}>
-                        <Text style={s.primaryText} numberOfLines={1}>{stockitemParam}</Text>
+                        <Text style={s.primaryText} numberOfLines={1}>
+                            {selectedStockItem || strings.select_stock_item}
+                        </Text>
                     </View>
-                </View>
+                    <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
+                </TouchableOpacity>
                 <TouchableOpacity style={s.dateRow} onPress={() => setPeriodOpen(true)} activeOpacity={0.7}>
                     <Icon name="calendar-month-outline" size={16} color={colors.stock_text_dark} />
                     <Text style={s.dateText}>
@@ -348,6 +388,71 @@ export default function StockItemMonthly() {
                 toDate={yyyymmddToMs(dateRange.todate)}
                 onApply={onPeriodApply}
             />
+
+            {/* Stock item dropdown – same design as Stock Summary (items/groups) */}
+            <Modal
+                visible={stockItemDropdownOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+            >
+                <TouchableOpacity
+                    style={sharedStyles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+                >
+                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                        <View style={sharedStyles.modalHeaderRow}>
+                            <Text style={sharedStyles.modalHeaderTitle}>{strings.select_stock_item}</Text>
+                            <TouchableOpacity
+                                onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+                                style={sharedStyles.modalHeaderClose}
+                            >
+                                <Icon name="close" size={24} color="#fff" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={sharedStyles.modalSearchRow}>
+                            <TextInput
+                                style={sharedStyles.modalSearchInput}
+                                placeholder="Search stock items…"
+                                placeholderTextColor={colors.text_secondary}
+                                value={stockItemSearch}
+                                onChangeText={setStockItemSearch}
+                            />
+                            <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
+                        </View>
+                        {stockItemNames.length === 0 ? (
+                            <View style={s.dropdownLoading}>
+                                <ActivityIndicator size="small" color={colors.primary_blue} />
+                                <Text style={s.dropdownLoadingText}>{strings.loading}</Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={filteredStockItems}
+                                keyExtractor={(i) => i}
+                                style={sharedStyles.modalList}
+                                keyboardShouldPersistTaps="handled"
+                                keyboardDismissMode="on-drag"
+                                ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No stock items found. Use Data Management to download stock items.</Text>}
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
+                                        onPress={() => {
+                                            setSelectedStockItem(item);
+                                            setStockItemDropdownOpen(false);
+                                            setStockItemSearch('');
+                                            fetchData();
+                                        }}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </View>
     );
 }
@@ -393,6 +498,9 @@ const s = StyleSheet.create({
         fontWeight: '600',
         color: colors.stock_text_dark,
     },
+
+    dropdownLoading: { padding: 24, alignItems: 'center' },
+    dropdownLoadingText: { marginTop: 8, color: colors.text_secondary },
 
     // Legend row (Inwards / Outwards icons)
     legendRow: {

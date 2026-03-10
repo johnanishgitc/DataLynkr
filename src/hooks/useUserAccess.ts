@@ -39,6 +39,10 @@ export type PlaceOrderPermissions = {
     allow_vchtype: boolean;
     show_ordduedate: boolean;
     show_creditdayslimit: boolean;
+    /** When true, hide/disable file attachments in order entry and item detail (from permission_key "disable_attachemnt"). */
+    disable_attachment: boolean;
+    /** When true, show batch & godown fields on item details (from permission_key "enbale_batchGodown"). */
+    enable_batchGodown: boolean;
 };
 
 /** Fallback when permissions are not available (e.g. OrderEntryItemDetail using params from OrderEntry). All restricted. */
@@ -56,6 +60,8 @@ export const DEFAULT_PLACE_ORDER_PERMISSIONS: PlaceOrderPermissions = {
     allow_vchtype: false,
     show_ordduedate: false,
     show_creditdayslimit: false,
+    disable_attachment: false,
+    enable_batchGodown: false,
 };
 
 /**
@@ -77,6 +83,8 @@ const LOADING_PERMISSIONS: PlaceOrderPermissions = {
     allow_vchtype: true,
     show_ordduedate: true,
     show_creditdayslimit: true,
+    disable_attachment: false,
+    enable_batchGodown: false,
 };
 
 /** Module-level enabled flags (from the top-level `modules` array). */
@@ -193,6 +201,7 @@ export function useUserAccess(): UseUserAccessReturn {
 
                     // Permissions are strictly driven by the API response.
                     // If a key is absent, it is false – no owner fallback.
+                    // API sends permission_key "disable_attachemnt" (typo) – when granted true, hide attachments.
                     const resolved: PlaceOrderPermissions = {
                         show_rateamt_Column: permMap.show_rateamt_Column ?? false,
                         edit_rate: permMap.edit_rate ?? false,
@@ -207,6 +216,8 @@ export function useUserAccess(): UseUserAccessReturn {
                         allow_vchtype: permMap.allow_vchtype ?? false,
                         show_ordduedate: permMap.show_ordduedate ?? false,
                         show_creditdayslimit: permMap.show_creditdayslimit ?? false,
+                        disable_attachment: toBool(permMap.disable_attachemnt),
+                        enable_batchGodown: toBool(permMap.enbale_batchGodown),
                     };
 
                     if (!cancelled) setPermissions(resolved);

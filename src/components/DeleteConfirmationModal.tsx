@@ -18,6 +18,8 @@ export interface DeleteConfirmationModalProps {
     title?: string;
     /** Optional confirm button label. Default: "Yes" */
     confirmLabel?: string;
+    /** Optional cancel button label. Default: "Cancel" */
+    cancelLabel?: string;
     /** 'delete' = trash icon (default), 'warning' = warning icon, 'info' = info/cart icon */
     variant?: 'delete' | 'warning' | 'info';
 }
@@ -28,6 +30,7 @@ export function DeleteConfirmationModal({
     onConfirm,
     title = 'Are you sure you want to delete this?',
     confirmLabel = 'Yes',
+    cancelLabel = 'Cancel',
     variant = 'delete',
 }: DeleteConfirmationModalProps) {
     return (
@@ -78,7 +81,7 @@ export function DeleteConfirmationModal({
                                     onPress={onCancel}
                                     activeOpacity={0.8}
                                 >
-                                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                                    <Text style={styles.cancelBtnText}>{cancelLabel}</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     style={styles.confirmBtn}
