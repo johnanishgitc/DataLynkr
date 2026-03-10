@@ -240,6 +240,8 @@ export default function OrderEntry() {
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
   const [clearAllConfirmVisible, setClearAllConfirmVisible] = useState(false);
   const [leaveConfirmVisible, setLeaveConfirmVisible] = useState(false);
+  const [draftModeSwitchConfirmVisible, setDraftModeSwitchConfirmVisible] = useState(false);
+  const [addMoreItemsConfirmVisible, setAddMoreItemsConfirmVisible] = useState(false);
   const pendingLeaveActionRef = useRef<(() => void) | null>(null);
   const tabNameRef = useRef(ORDERS_TAB_NAME);
   const prevTabNameRef = useRef(ORDERS_TAB_NAME);
@@ -442,8 +444,8 @@ export default function OrderEntry() {
   }, [orderItems]);
 
   /** Format for single batch/child: "qty*rate(discount%)=₹amount". No "Qty:" prefix (used in expansion). Shows 0% when discount is 0. */
-  const formatBatchQtyRateLine = (opts: { qty: string | number; rate?: number | string; discount?: number; total: number }) => {
-    const qty = opts.qty;
+  const formatBatchQtyRateLine = (opts: { enteredQty?: string; qty: string | number; rate?: number | string; discount?: number; total: number }) => {
+    const qty = opts.enteredQty || opts.qty;
     const rate = opts.rate != null ? String(opts.rate) : '-';
     const disc = opts.discount != null && !Number.isNaN(Number(opts.discount))
       ? `(${Number(opts.discount)}%)`
@@ -454,10 +456,10 @@ export default function OrderEntry() {
 
   /** Parent line: always "Qty: qty*rate(discount%)=amount" (amount bold). For multiple children uses totalQty, totalAmt, and first item's rate/discount. */
   const formatParentQtyLine = (
-    opts: { totalQty: number; totalAmt: number; singleItem?: { qty: string | number; rate?: number | string; discount?: number; total: number }; discount?: number; firstRate?: number | string; firstDiscount?: number }
+    opts: { totalQty: number; totalAmt: number; singleItem?: { enteredQty?: string; qty: string | number; rate?: number | string; discount?: number; total: number }; discount?: number; firstRate?: number | string; firstDiscount?: number }
   ) => {
     const amountStr = permissions.show_rateamt_Column ? `₹${Number(opts.totalAmt).toFixed(2)}` : '';
-    const qty = opts.singleItem ? opts.singleItem.qty : opts.totalQty;
+    const qty = opts.singleItem ? (opts.singleItem.enteredQty || opts.singleItem.qty) : opts.totalQty;
     if (!permissions.show_rateamt_Column && !permissions.show_disc_Column) {
       return { left: `Qty: ${qty}`, right: null, amountStr };
     }
@@ -574,7 +576,13 @@ export default function OrderEntry() {
     }
   }, []);
 
-  // Fetch voucher types when Voucher Type dropdown is opened
+  // Pre-fetch voucher types (and class data) in background as soon as Order Entry screen is opened
+  useEffect(() => {
+    if (voucherTypesList.length > 0) return;
+    fetchVoucherTypesAsync();
+  }, [fetchVoucherTypesAsync]);
+
+  // Fetch voucher types when Voucher Type dropdown is opened (if not already loaded)
   useEffect(() => {
     let cancel = false;
     if (!voucherTypeDropdownOpen || voucherTypesList.length > 0) return;
@@ -682,7 +690,13 @@ export default function OrderEntry() {
       attachmentLinks: undefined,
       attachmentUris: undefined,
     } as any);
-    setTimeout(() => setItemDropdownOpen(true), 250);
+    // Only when first item is added (no replace): ask "Do you want to add more items?"; otherwise auto-open items dropdown
+    const isFirstItemAdd = addedLength === 1 && !hasReplace;
+    if (isFirstItemAdd) {
+      setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
+    } else {
+      setTimeout(() => setItemDropdownOpen(true), 250);
+    }
   }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
@@ -1475,8 +1489,8 @@ export default function OrderEntry() {
         ]
         : orderItems.map((oi) => {
           const baseUnit = (oi.stockItem?.BASEUNITS ?? '').toString().trim();
-          const rateUnit = (oi.stockItem?.STDPRICEUNIT ?? oi.stockItem?.LASTPRICEUNIT ?? '').toString().trim();
-          const qtyStr = baseUnit ? `${oi.qty} ${baseUnit}` : String(oi.qty);
+          const rateUnit = (oi.rateUnit || oi.stockItem?.STDPRICEUNIT || oi.stockItem?.LASTPRICEUNIT || '').toString().trim();
+          const qtyStr = oi.enteredQty || (baseUnit ? `${oi.qty} ${baseUnit}` : String(oi.qty));
           const rateStr = rateUnit ? `${oi.rate}/${rateUnit}` : String(oi.rate);
           const oiAny = oi as Record<string, unknown>;
           const isAlloc = isItemToBeAllocated(oi.name ?? '');
@@ -1764,11 +1778,15 @@ export default function OrderEntry() {
     action?.();
   }, [clearOrderEntryState]);
 
-  /** When toggling draft mode on or off, clear the order entry screen so the user gets a fresh form. */
+  /** When toggling draft mode on or off, clear the order entry screen so the user gets a fresh form. If switching to Quick Order with items in cart, show confirmation. */
   const handleDraftModeChange = useCallback((value: boolean) => {
+    if (value && orderItems.length > 0) {
+      setDraftModeSwitchConfirmVisible(true);
+      return;
+    }
     clearOrderEntryState();
     setIsDraftMode(value);
-  }, [clearOrderEntryState]);
+  }, [clearOrderEntryState, orderItems.length]);
 
   /** When user switches to Order Entry from another tab, clear the form. When user switches away to another tab, clear immediately (including customer/voucher even if no items). Do not clear when returning from OrderEntryItemDetail with Add to Cart (addedItems) or Update Cart (replace params). */
   useFocusEffect(
@@ -1818,6 +1836,7 @@ export default function OrderEntry() {
           item: oi,
           selectedLedger: selectedLedger ?? undefined,
           editOrderItem: { ...oi },
+          rateUnit: oi.rateUnit,
           isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
           viewOnly: route.params?.viewOnly,
           attachmentLinks: oi.attachmentLinks ?? [],
@@ -2412,7 +2431,7 @@ export default function OrderEntry() {
                                           totalQty: group.totalQty,
                                           totalAmt: group.totalAmt,
                                           singleItem: single
-                                            ? { qty: single.qty, rate: single.rate, discount: (single as AddedOrderItemWithStock)?.discount, total: single.total ?? 0 }
+                                            ? { enteredQty: (single as AddedOrderItemWithStock)?.enteredQty, qty: single.qty, rate: single.rate, discount: (single as AddedOrderItemWithStock)?.discount, total: single.total ?? 0 }
                                             : undefined,
                                           firstRate: first?.rate,
                                           firstDiscount: first?.discount,
@@ -2485,6 +2504,7 @@ export default function OrderEntry() {
                                             id: oi.id,
                                             name: oi.name,
                                             qty: oi.qty,
+                                            enteredQty: oi.enteredQty,
                                             rate: oi.rate,
                                             discount: oi.discount,
                                             total: oi.total,
@@ -2496,6 +2516,7 @@ export default function OrderEntry() {
                                             godown: oi.godown,
                                             batch: oi.batch,
                                             description: oi.description,
+                                            rateUnit: oi.rateUnit,
                                             attachmentLinks: oi.attachmentLinks,
                                             attachmentUris: oi.attachmentUris,
                                           })),
@@ -2578,7 +2599,7 @@ export default function OrderEntry() {
                                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                                           <View pointerEvents="none" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
                                             <Text style={[styles.orderItemExpandedQty, { fontWeight: '700' }]}>
-                                              <Text style={{ color: '#6a7282' }}>Qty: </Text><Text style={{ color: '#000' }}>{oi.qty}</Text>
+                                              <Text style={{ color: '#6a7282' }}>Qty: </Text><Text style={{ color: '#000' }}>{oi.enteredQty || oi.qty}</Text>
                                             </Text>
                                             {oi.dueDate != null && String(oi.dueDate).trim() !== '' ? (
                                               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -2635,6 +2656,7 @@ export default function OrderEntry() {
                                                       id: child.id,
                                                       name: child.name,
                                                       qty: child.qty,
+                                                      enteredQty: child.enteredQty,
                                                       rate: child.rate,
                                                       discount: child.discount,
                                                       total: child.total,
@@ -2646,10 +2668,12 @@ export default function OrderEntry() {
                                                       godown: child.godown,
                                                       batch: child.batch,
                                                       description: child.description,
+                                                      rateUnit: child.rateUnit,
                                                       attachmentLinks: child.attachmentLinks,
                                                       attachmentUris: child.attachmentUris,
                                                     })),
                                                     editOrderItem: { ...oi },
+                                                    rateUnit: oi.rateUnit,
                                                     isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
                                                     viewOnly: route.params?.viewOnly,
                                                     attachmentLinks: oi.attachmentLinks ?? [],
@@ -4343,6 +4367,29 @@ export default function OrderEntry() {
         title={'Are you sure?\n\nIf you switch tabs or go back, the items in Cart will be cleared.'}
         confirmLabel="OK"
         variant="warning"
+      />
+      <DeleteConfirmationModal
+        visible={draftModeSwitchConfirmVisible}
+        onCancel={() => setDraftModeSwitchConfirmVisible(false)}
+        onConfirm={() => {
+          setDraftModeSwitchConfirmVisible(false);
+          clearOrderEntryState();
+          setIsDraftMode(true);
+        }}
+        title={'Are you sure? Switching to Quick Order will clear the items in your cart.'}
+        confirmLabel="OK"
+        variant="warning"
+      />
+      <DeleteConfirmationModal
+        visible={addMoreItemsConfirmVisible}
+        onCancel={() => setAddMoreItemsConfirmVisible(false)}
+        onConfirm={() => {
+          setAddMoreItemsConfirmVisible(false);
+          setTimeout(() => setItemDropdownOpen(true), 0);
+        }}
+        title="Do you want to add more items?"
+        confirmLabel="Yes"
+        variant="info"
       />
     </View >
   );

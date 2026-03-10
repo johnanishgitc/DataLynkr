@@ -312,7 +312,7 @@ export default function VoucherDetailView() {
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const programmaticScrollRef = useRef(false); // true while scroll is from item expand/collapse – don't drive footer
   const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed (accounting + tab bar)
-  /** Order/Invoice: translateY – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down (useNativeDriver: true) */
+  /** Order/Invoice: translateY – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down. All footer anims use useNativeDriver: true to avoid native/JS conflict. */
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
   const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
@@ -341,14 +341,14 @@ export default function VoucherDetailView() {
             Animated.timing(collapseProgress, {
               toValue: 1,
               duration: 300,
-              useNativeDriver: false,
+              useNativeDriver: true,
             }),
           ]).start();
         } else {
           Animated.timing(collapseProgress, {
             toValue: 1,
             duration: 300,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start();
         }
       }
@@ -366,14 +366,14 @@ export default function VoucherDetailView() {
             Animated.timing(collapseProgress, {
               toValue: 0,
               duration: 300,
-              useNativeDriver: false,
+              useNativeDriver: true,
             }),
           ]).start();
         } else {
           Animated.timing(collapseProgress, {
             toValue: 0,
             duration: 300,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start();
         }
       }
@@ -409,29 +409,26 @@ export default function VoucherDetailView() {
             Animated.timing(collapseProgress, {
               toValue: 0,
               duration: 300,
-              useNativeDriver: false,
+              useNativeDriver: true,
             }),
           ]).start();
         } else {
           Animated.timing(collapseProgress, {
             toValue: 0,
             duration: 300,
-            useNativeDriver: false,
+            useNativeDriver: true,
           }).start();
         }
       }
     }, [isAccountingView, footerTranslateY, collapseProgress, setScrollDirection])
   );
 
-  // Accounting: footer position via bottom; Order/Invoice: fixed bottom + translateY (like LedgerVoucher)
+  // Accounting: footer via translateY (native driver); Order/Invoice: fixed bottom + translateY (like LedgerVoucher)
   const FOOTER_OFFSET_DOWN = 6; // px – item total, ledger details, grand total sit 4px lower
-  const footerContentBottom = isAccountingView
-    ? collapseProgress.interpolate({
-      inputRange: [0, 1],
-      outputRange: [TAB_BAR_OFFSET, 0],
-    })
-    : TAB_BAR_OFFSET - FOOTER_OFFSET_DOWN;
-  const footerTransform = !isAccountingView ? [{ translateY: footerTranslateY }] : [];
+  const footerBottomStyle = isAccountingView ? 0 : TAB_BAR_OFFSET - FOOTER_OFFSET_DOWN;
+  const footerTransform = isAccountingView
+    ? [{ translateY: collapseProgress.interpolate({ inputRange: [0, 1], outputRange: [-TAB_BAR_OFFSET, 0] }) }]
+    : [{ translateY: footerTranslateY }];
 
   const closeMenu = () => setMenuVisible(false);
 
@@ -933,8 +930,8 @@ export default function VoucherDetailView() {
               <Animated.View
                 style={[
                   styles.voucherDetailFooterFixed,
-                  { bottom: footerContentBottom },
-                  footerTransform.length > 0 && { transform: footerTransform },
+                  { bottom: footerBottomStyle },
+                  { transform: footerTransform },
                 ]}
               >
                 <VoucherDetailsFooter

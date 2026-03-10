@@ -18,8 +18,8 @@ export interface DeleteConfirmationModalProps {
     title?: string;
     /** Optional confirm button label. Default: "Yes" */
     confirmLabel?: string;
-    /** 'delete' = trash icon (default), 'warning' = warning icon */
-    variant?: 'delete' | 'warning';
+    /** 'delete' = trash icon (default), 'warning' = warning icon, 'info' = info/cart icon */
+    variant?: 'delete' | 'warning' | 'info';
 }
 
 export function DeleteConfirmationModal({
@@ -56,9 +56,15 @@ export function DeleteConfirmationModal({
 
                         <View style={styles.body}>
                             <View style={styles.graphicContainer}>
-                                <View style={[styles.graphicBackground, variant === 'warning' && styles.graphicBackgroundWarning]}>
+                                <View style={[
+                                styles.graphicBackground,
+                                variant === 'warning' && styles.graphicBackgroundWarning,
+                                variant === 'info' && styles.graphicBackgroundInfo,
+                            ]}>
                                     {variant === 'warning' ? (
                                         <Icon name="alert-circle-outline" size={40} color="#fff" />
+                                    ) : variant === 'info' ? (
+                                        <Icon name="cart-plus" size={40} color="#fff" />
                                     ) : (
                                         <DeletePopupIcon />
                                     )}
@@ -146,6 +152,9 @@ const styles = StyleSheet.create({
     },
     graphicBackgroundWarning: {
         backgroundColor: '#f59e0b',
+    },
+    graphicBackgroundInfo: {
+        backgroundColor: '#1f3a89',
     },
     title: {
         fontFamily: 'Roboto',

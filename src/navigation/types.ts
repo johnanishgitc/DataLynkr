@@ -50,7 +50,9 @@ export type AddedOrderItem = {
   id?: number;
   name: string;
   qty: string | number;
+  enteredQty?: string;
   rate: string | number;
+  rateUnit?: string;
   total: number;
   unit: string;
   discount?: number;
@@ -148,7 +150,7 @@ export type ApprovalsStackParamList = {
 };
 
 export type SummaryStackParamList = {
-  StockSummary: undefined;
+  StockSummary: { primary?: boolean; fromdate?: string; todate?: string; godown?: string } | undefined;
   StockGroupSummary: { stockitem: string; breadcrumb: string[]; fromdate?: string; todate?: string; godown?: string };
   StockItemMonthly: { stockitem: string; breadcrumb: string[]; fromdate?: string; todate?: string; godown?: string };
   StockItemVouchers: {

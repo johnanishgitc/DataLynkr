@@ -7,6 +7,8 @@ import {
   FlatList,
   TextInput,
   ActivityIndicator,
+  StatusBar,
+  Alert,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -15,7 +17,7 @@ import type { RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { LedgerStackParamList } from '../navigation/types';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
-import { getLedgerListNamesFromDataManagementCacheIfPresent } from '../cache';
+import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { apiService } from '../api';
 import type { LedgerReportData, BankUpiResponse } from '../api';
 import { ExportMenu, PeriodSelection, AppSidebar, BankUpiDetailsModal } from '../components';
@@ -25,11 +27,14 @@ import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
+import { requestStoragePermissionForRootExport } from '../utils/permissions';
 import { formatDate } from '../utils/dateUtils';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
 import * as XLSX from 'xlsx';
 import RNFS from 'react-native-fs';
+import FileViewer from 'react-native-file-viewer';
+import Share from 'react-native-share';
 
 // Import individual report components
 import {
@@ -45,8 +50,15 @@ import {
   sharedStyles,
   buildHtml,
   buildRows,
+  buildBillWiseHtml,
+  buildBillWiseRows,
+  buildSalesOrderOutstandingHtml,
+  buildSalesOrderOutstandingRows,
+  buildClearedOrdersHtml,
+  buildClearedOrdersRows,
+  buildPastOrdersHtml,
+  buildPastOrdersRows,
 } from './ledger';
-import { Alert } from 'react-native';
 
 type Route = RouteProp<LedgerStackParamList, 'LedgerEntries'>;
 
@@ -71,6 +83,7 @@ export default function LedgerEntries() {
 
   // For export functionality - we need to track data from child components
   const [exportData, setExportData] = useState<LedgerReportData | null>(null);
+  const [salesExportData, setSalesExportData] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [company, setCompany] = useState('');
   const [bankUpiVisible, setBankUpiVisible] = useState(false);
@@ -174,22 +187,33 @@ export default function LedgerEntries() {
     return REPORT_OPTIONS.filter((n) => n.toLowerCase().includes(q));
   }, [reportSearch]);
 
-  // Load ledger names from Data Management customers cache (may trigger background fetch if empty)
-  useEffect(() => {
-    let cancel = false;
-    setCustomersLoading(true);
-    (async () => {
-      try {
-        const names = await getLedgerListNamesFromDataManagementCacheIfPresent();
-        if (!cancel) setLedgerNames(names);
-      } catch {
-        if (!cancel) setLedgerNames([]);
-      } finally {
-        if (!cancel) setCustomersLoading(false);
-      }
-    })();
-    return () => { cancel = true; };
-  }, []);
+  // Set status bar to blue when Ledger Reports screen is focused (e.g. after navigating from Order Success)
+  useFocusEffect(
+    React.useCallback(() => {
+      StatusBar.setBackgroundColor(colors.primary_blue);
+      StatusBar.setBarStyle('light-content');
+    }, [])
+  );
+
+  // Re-read customers from Data Management cache every time the screen gets focus;
+  // auto-fetches from API and saves to Data Management if cache is empty
+  useFocusEffect(
+    React.useCallback(() => {
+      let cancel = false;
+      setCustomersLoading(true);
+      (async () => {
+        try {
+          const names = await getLedgerListNamesFromDataManagementCache();
+          if (!cancel) setLedgerNames(names);
+        } catch {
+          if (!cancel) setLedgerNames([]);
+        } finally {
+          if (!cancel) setCustomersLoading(false);
+        }
+      })();
+      return () => { cancel = true; };
+    }, [])
+  );
 
   // Auto-open report name or customer dropdown based on context
   useFocusEffect(
@@ -232,22 +256,106 @@ export default function LedgerEntries() {
   const onPeriodSelectionOpen = () => setPeriodSelectionOpen(true);
   const onExportOpen = () => setExportVisible(true);
 
+  /** Ensures DataLynkr/{connectionName} exists and returns its path. Tries storage root first (same level as Download); falls back to Download/Documents if creation fails. */
+  const getExportDir = useCallback(async (): Promise<string> => {
+    await requestStoragePermissionForRootExport();
+    const downloadsOrDocs = RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath;
+    const storageRoot = downloadsOrDocs.replace(/\/[^/]+\/?$/, '');
+    const dataLynkrDir = `${storageRoot}/DataLynkr`;
+    const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_') || 'Default';
+    const connectionName = company.trim() ? safe(company.trim()) : 'Default';
+    const exportDir = `${dataLynkrDir}/${connectionName}`;
+    try {
+      if (!(await RNFS.exists(dataLynkrDir))) {
+        await RNFS.mkdir(dataLynkrDir);
+      }
+      if (!(await RNFS.exists(exportDir))) {
+        await RNFS.mkdir(exportDir);
+      }
+      return exportDir;
+    } catch {
+      const fallbackBase = downloadsOrDocs;
+      const fallbackDataLynkr = `${fallbackBase}/DataLynkr`;
+      const fallbackDir = `${fallbackDataLynkr}/${connectionName}`;
+      if (!(await RNFS.exists(fallbackDataLynkr))) {
+        await RNFS.mkdir(fallbackDataLynkr);
+      }
+      if (!(await RNFS.exists(fallbackDir))) {
+        await RNFS.mkdir(fallbackDir);
+      }
+      return fallbackDir;
+    }
+  }, [company]);
+
   // Export handlers
   const onPdf = async () => {
-    if (!exportData) {
+    const isBillWise = report_name === 'Bill Wise Outstandings';
+    const isSalesOutstanding = report_name === 'Sales Order Ledger Outstandings';
+    const isCleared = report_name === 'Cleared Orders';
+    const isPast = report_name === 'Past Orders';
+    const isSalesType = isSalesOutstanding || isCleared || isPast;
+
+    if (!isSalesType && !exportData) {
+      Alert.alert(strings.error, 'No data available to export');
+      return;
+    }
+    if (isSalesType && !salesExportData) {
       Alert.alert(strings.error, 'No data available to export');
       return;
     }
     try {
-      const html = buildHtml(exportData, ledger_name, report_name);
+      let html: string;
+      if (isSalesOutstanding) {
+        html = buildSalesOrderOutstandingHtml(salesExportData, ledger_name, company, dateRangeStr);
+      } else if (isCleared) {
+        html = buildClearedOrdersHtml(salesExportData, ledger_name, company, dateRangeStr);
+      } else if (isPast) {
+        html = buildPastOrdersHtml(salesExportData, ledger_name, company, dateRangeStr);
+      } else if (isBillWise) {
+        html = buildBillWiseHtml(exportData!, ledger_name, report_name, company, dateRangeStr);
+      } else {
+        html = buildHtml(exportData!, ledger_name, report_name, company, dateRangeStr);
+      }
+
+      const exportDir = await getExportDir();
+      const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
+      const datePart = `${formatDate(from_date).replace(/\//g, '-')}_${formatDate(to_date).replace(/\//g, '-')}`;
+      const fileName = `${safe(report_name)}_${safe(ledger_name)}_${datePart}`;
       const res = await RNHTMLtoPDF.convert({
         html,
-        fileName: `ledger_${ledger_name.replace(/[^a-z0-9]/gi, '_')}`,
+        fileName,
         width: 800,
         height: 1024,
       });
-      const path = (res as { filePath?: string })?.filePath;
-      Alert.alert(strings.ok, path ? `PDF saved: ${path}` : 'PDF created.');
+      const tempPath = (res as { filePath?: string })?.filePath;
+      if (!tempPath) throw new Error('Could not generate PDF');
+
+      const path = `${exportDir}/${fileName}.pdf`;
+
+      // Move from internal storage to export directory
+      if (await RNFS.exists(path)) {
+        await RNFS.unlink(path);
+      }
+      await RNFS.copyFile(tempPath, path);
+
+      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+      Alert.alert(
+        strings.ok,
+        'PDF saved successfully.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Open PDF',
+            onPress: () => FileViewer.open(path, { showOpenWithDialog: true })
+              .catch((e: Error) => Alert.alert('Error Opening File', e.message || 'No suitable app found to open this file.'))
+          },
+          {
+            text: 'Share',
+            onPress: () => Share.open({ url: fileUrl, type: 'application/pdf', title: 'Share PDF' })
+              .catch(() => {})
+          }
+        ]
+      );
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'PDF export failed';
       Alert.alert(strings.error, msg);
@@ -255,19 +363,68 @@ export default function LedgerEntries() {
   };
 
   const onExcel = async () => {
-    if (!exportData) {
+    const isBillWise = report_name === 'Bill Wise Outstandings';
+    const isSalesOutstanding = report_name === 'Sales Order Ledger Outstandings';
+    const isCleared = report_name === 'Cleared Orders';
+    const isPast = report_name === 'Past Orders';
+    const isSalesType = isSalesOutstanding || isCleared || isPast;
+
+    if (!isSalesType && !exportData) {
+      Alert.alert(strings.error, 'No data available to export');
+      return;
+    }
+    if (isSalesType && !salesExportData) {
       Alert.alert(strings.error, 'No data available to export');
       return;
     }
     try {
-      const sheet = XLSX.utils.aoa_to_sheet(buildRows(exportData));
+      let sheetData: (string | number)[][];
+      if (isSalesOutstanding) {
+        sheetData = buildSalesOrderOutstandingRows(salesExportData);
+      } else if (isCleared) {
+        sheetData = buildClearedOrdersRows(salesExportData);
+      } else if (isPast) {
+        sheetData = buildPastOrdersRows(salesExportData);
+      } else if (isBillWise) {
+        sheetData = buildBillWiseRows(exportData!);
+      } else {
+        sheetData = buildRows(exportData!);
+      }
+
+      const exportDir = await getExportDir();
+      const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
+      const datePart = `${formatDate(from_date).replace(/\//g, '-')}_${formatDate(to_date).replace(/\//g, '-')}`;
+      const name = `${safe(report_name)}_${safe(ledger_name)}_${datePart}.xlsx`;
+      const path = `${exportDir}/${name}`;
+
+      const sheet = XLSX.utils.aoa_to_sheet(sheetData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, sheet, 'Ledger');
       const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-      const name = `ledger_${ledger_name.replace(/[^a-z0-9]/gi, '_')}.xlsx`;
-      const path = (RNFS.DocumentDirectoryPath || RNFS.CachesDirectoryPath) + '/' + name;
+
+      if (await RNFS.exists(path)) {
+        await RNFS.unlink(path);
+      }
       await RNFS.writeFile(path, wbout, 'base64');
-      Alert.alert(strings.ok, `Excel saved: ${path}`);
+
+      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+      Alert.alert(
+        strings.ok,
+        'Excel saved successfully.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Open Excel',
+            onPress: () => FileViewer.open(path, { showOpenWithDialog: true })
+              .catch((e: Error) => Alert.alert('Error Opening File', e.message || 'No suitable app found to open this file.'))
+          },
+          {
+            text: 'Share',
+            onPress: () => Share.open({ url: fileUrl, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', title: 'Share Excel' })
+              .catch(() => {})
+          }
+        ]
+      );
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Excel export failed';
       Alert.alert(strings.error, msg);
@@ -275,12 +432,33 @@ export default function LedgerEntries() {
   };
 
   const onPrint = async () => {
-    if (!exportData) {
+    const isBillWise = report_name === 'Bill Wise Outstandings';
+    const isSalesOutstanding = report_name === 'Sales Order Ledger Outstandings';
+    const isCleared = report_name === 'Cleared Orders';
+    const isPast = report_name === 'Past Orders';
+    const isSalesType = isSalesOutstanding || isCleared || isPast;
+
+    if (!isSalesType && !exportData) {
+      Alert.alert(strings.error, 'No data available to export');
+      return;
+    }
+    if (isSalesType && !salesExportData) {
       Alert.alert(strings.error, 'No data available to export');
       return;
     }
     try {
-      const html = buildHtml(exportData, ledger_name, report_name);
+      let html: string;
+      if (isSalesOutstanding) {
+        html = buildSalesOrderOutstandingHtml(salesExportData, ledger_name, company, dateRangeStr);
+      } else if (isCleared) {
+        html = buildClearedOrdersHtml(salesExportData, ledger_name, company, dateRangeStr);
+      } else if (isPast) {
+        html = buildPastOrdersHtml(salesExportData, ledger_name, company, dateRangeStr);
+      } else if (isBillWise) {
+        html = buildBillWiseHtml(exportData!, ledger_name, report_name, company, dateRangeStr);
+      } else {
+        html = buildHtml(exportData!, ledger_name, report_name, company, dateRangeStr);
+      }
       await RNPrint.print({ html });
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Print failed';
@@ -301,6 +479,8 @@ export default function LedgerEntries() {
     onExportOpen,
     onNavigateHome,
     onBankPress: openBankUpi,
+    setExportData,
+    setSalesExportData,
   };
 
   // Render the appropriate component based on report_name

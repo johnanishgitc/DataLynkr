@@ -124,17 +124,16 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         [setScrollDirection],
     );
 
-    // Date range – default to current financial year start-to-today
+    // Date range – default to last 1 week (today minus 7 days → today)
     const now = new Date();
-    const fyStart = now.getMonth() >= 3
-        ? new Date(now.getFullYear(), 3, 1)
-        : new Date(now.getFullYear() - 1, 3, 1);
+    const oneWeekAgo = new Date(now);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
     // Set hours to 0 to avoid jitter
-    fyStart.setHours(0, 0, 0, 0);
+    oneWeekAgo.setHours(0, 0, 0, 0);
     now.setHours(0, 0, 0, 0);
 
-    const [fromDate, setFromDate] = useState(fyStart.getTime());
+    const [fromDate, setFromDate] = useState(oneWeekAgo.getTime());
     const [toDate, setToDate] = useState(now.getTime());
     const [showPeriodPicker, setShowPeriodPicker] = useState(false);
 
