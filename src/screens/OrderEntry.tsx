@@ -258,6 +258,8 @@ export default function OrderEntry() {
   const [ledgerDetailsExpanded, setLedgerDetailsExpanded] = useState(false);
   /** Per-ledger amount strings for METHODTYPE "As User Defined Value" (key = ledger NAME). */
   const [ledgerValues, setLedgerValues] = useState<Record<string, string>>({});
+  /** Raw percentage string while editing (key = ledger NAME). When set, % input shows this; on blur we clear so formatted "X.00%" shows. */
+  const [ledgerPctEditing, setLedgerPctEditing] = useState<Record<string, string>>({});
   const [editDetailsModalVisible, setEditDetailsModalVisible] = useState(false);
   const [editDetailsOrderNo, setEditDetailsOrderNo] = useState('');
   const [editDetailsOrderDate, setEditDetailsOrderDate] = useState<Date>(() => new Date());
@@ -635,6 +637,7 @@ export default function OrderEntry() {
         setSelectedVoucherType('');
         setSelectedClass('');
         setLedgerValues({});
+        setLedgerPctEditing({});
         setCustomerDropdownOpen(false);
         setVoucherTypeDropdownOpen(false);
         setClassDropdownOpen(false);
@@ -690,13 +693,8 @@ export default function OrderEntry() {
       attachmentLinks: undefined,
       attachmentUris: undefined,
     } as any);
-    // Only when first item is added (no replace): ask "Do you want to add more items?"; otherwise auto-open items dropdown
-    const isFirstItemAdd = addedLength === 1 && !hasReplace;
-    if (isFirstItemAdd) {
-      setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
-    } else {
-      setTimeout(() => setItemDropdownOpen(true), 250);
-    }
+    // Show "Do you want to add more items?" after Add to Cart or Update Cart
+    setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
   }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
@@ -1586,6 +1584,7 @@ export default function OrderEntry() {
         setSelectedVoucherType('');
         setSelectedClass('');
         setLedgerValues({});
+        setLedgerPctEditing({});
         setVoucherTypeDropdownOpen(false);
         setClassDropdownOpen(false);
         if (isDraftMode) {
@@ -1698,6 +1697,7 @@ export default function OrderEntry() {
     setSelectedVoucherType('');
     setSelectedClass('');
     setLedgerValues({});
+    setLedgerPctEditing({});
     setLatestOrder(null);
     setBatchNo('');
     setCreditLimitInfo(null);
@@ -2760,11 +2760,28 @@ export default function OrderEntry() {
                               <TextInput
                                 style={styles.ledgerDetailsInputSmall}
                                 value={
-                                  calculatedLedgerAmounts.subtotal > 0 && amount > 0
-                                    ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
-                                    : ''
+                                  ledgerPctEditing[name] !== undefined
+                                    ? ledgerPctEditing[name]
+                                    : calculatedLedgerAmounts.subtotal > 0 && amount > 0
+                                      ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
+                                      : ''
                                 }
+                                onFocus={() => {
+                                  const currentPct =
+                                    calculatedLedgerAmounts.subtotal > 0 && amount > 0
+                                      ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
+                                      : '';
+                                  setLedgerPctEditing((prev) => ({ ...prev, [name]: currentPct }));
+                                }}
+                                onBlur={() => {
+                                  setLedgerPctEditing((prev) => {
+                                    const next = { ...prev };
+                                    delete next[name];
+                                    return next;
+                                  });
+                                }}
                                 onChangeText={(pctStr) => {
+                                  setLedgerPctEditing((prev) => ({ ...prev, [name]: pctStr }));
                                   const pct = parseFloat(pctStr);
                                   if (!Number.isNaN(pct) && calculatedLedgerAmounts.subtotal > 0) {
                                     const amt = (calculatedLedgerAmounts.subtotal * pct) / 100;
@@ -2795,9 +2812,9 @@ export default function OrderEntry() {
                           </>
                         ) : (
                           <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
-                            <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
-                              {methodType === 'As Total Amount Rounding' ? ''
-                                : (() => {
+                            {methodType !== 'As Total Amount Rounding' ? (
+                              <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
+                                {(() => {
                                   const formatPct = (n: number) => {
                                     if (!Number.isFinite(n)) return '0';
                                     if (n === Math.round(n)) return String(Math.round(n));
@@ -2812,8 +2829,13 @@ export default function OrderEntry() {
                                   }
                                   return configRate === 0 ? '0%' : `${formatPct(configRate)}%`;
                                 })()}
+                              </Text>
+                            ) : null}
+                            <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>
+                              {methodType === 'As Total Amount Rounding'
+                                ? (amount < 0 ? `-₹${Math.abs(amount).toFixed(2)}` : ` ₹${amount.toFixed(2)}`)
+                                : `₹${amount.toFixed(2)}`}
                             </Text>
-                            <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>₹{amount.toFixed(2)}</Text>
                           </View>
                         )}
                       </View>
@@ -3764,6 +3786,7 @@ export default function OrderEntry() {
                       const name = (first.NAME ?? '').trim();
                       setSelectedVoucherType(name);
                       setLedgerValues({});
+                      setLedgerPctEditing({});
                       const classes = first.VOUCHERCLASSLIST ?? [];
                       const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
                       const hasClasses = classNames.length > 0;
@@ -3818,6 +3841,7 @@ export default function OrderEntry() {
                   onPress={() => {
                     setSelectedVoucherType(item);
                     setLedgerValues({});
+                    setLedgerPctEditing({});
                     const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === item);
                     const classes = vt?.VOUCHERCLASSLIST ?? [];
                     const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
@@ -4348,6 +4372,7 @@ export default function OrderEntry() {
           setSelectedVoucherType('');
           setSelectedClass('');
           setLedgerValues({});
+          setLedgerPctEditing({});
           setVoucherTypeDropdownOpen(false);
           setClassDropdownOpen(false);
           setClearAllConfirmVisible(false);

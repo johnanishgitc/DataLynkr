@@ -7,6 +7,8 @@ import {
     StyleSheet,
     ActivityIndicator,
     Animated,
+    Modal,
+    TextInput,
 } from 'react-native';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -15,6 +17,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar } from '../components';
 import { PeriodSelection } from '../components/PeriodSelection';
 import { apiService, isUnauthorizedError } from '../api';
+import { getStockItemNamesFromDataManagementCache } from '../cache';
 import type { StockVoucherEntry, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { useScroll } from '../store/ScrollContext';
@@ -169,6 +172,10 @@ export default function StockItemVouchers() {
     const paramFromdate: string | undefined = route.params?.fromdate;
     const paramTodate: string | undefined = route.params?.todate;
 
+    const [selectedStockItem, setSelectedStockItem] = useState(stockitemParam);
+    const [stockItemNames, setStockItemNames] = useState<string[]>([]);
+    const [stockItemDropdownOpen, setStockItemDropdownOpen] = useState(false);
+    const [stockItemSearch, setStockItemSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [opening, setOpening] = useState<StockQtyValue | null>(null);
@@ -211,7 +218,30 @@ export default function StockItemVouchers() {
         };
     }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
 
+    useEffect(() => {
+        let cancel = false;
+        (async () => {
+            const names = await getStockItemNamesFromDataManagementCache();
+            if (!cancel) setStockItemNames(names);
+        })();
+        return () => { cancel = true; };
+    }, []);
+
+    useEffect(() => {
+        if (stockitemParam) setSelectedStockItem(stockitemParam);
+    }, [stockitemParam]);
+
+    const filteredStockItems = useMemo(() => {
+        if (!stockItemSearch.trim()) return stockItemNames;
+        const q = stockItemSearch.trim().toLowerCase();
+        return stockItemNames.filter((n) => n.toLowerCase().includes(q));
+    }, [stockItemNames, stockItemSearch]);
+
     const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }) => {
+        if (!selectedStockItem.trim()) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setError('');
         try {
@@ -233,7 +263,7 @@ export default function StockItemVouchers() {
                 guid: g,
                 fromdate: fd,
                 todate: td,
-                stockitem: stockitemParam,
+                stockitem: selectedStockItem,
             });
             setOpening(res.data?.opening ?? null);
             setVouchers(res.data?.vouchers ?? []);
@@ -243,7 +273,7 @@ export default function StockItemVouchers() {
         } finally {
             setLoading(false);
         }
-    }, [stockitemParam, paramFromdate, paramTodate]);
+    }, [selectedStockItem, paramFromdate, paramTodate]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
@@ -369,14 +399,21 @@ export default function StockItemVouchers() {
                 compact
             />
 
-            {/* Item name + date range */}
+            {/* Stock item dropdown (before period) + period selector */}
             <View style={s.filterSection}>
-                <View style={s.primaryRow}>
+                <TouchableOpacity
+                    style={s.primaryRow}
+                    onPress={() => setStockItemDropdownOpen(true)}
+                    activeOpacity={0.7}
+                >
                     <Icon name="magnify" size={18} color={colors.stock_text_dark} />
                     <View style={s.primaryFieldWrap}>
-                        <Text style={s.primaryText} numberOfLines={1}>{stockitemParam}</Text>
+                        <Text style={s.primaryText} numberOfLines={1}>
+                            {selectedStockItem || strings.select_stock_item}
+                        </Text>
                     </View>
-                </View>
+                    <Icon name="chevron-down" size={20} color={colors.stock_text_dark} />
+                </TouchableOpacity>
                 <TouchableOpacity style={s.dateRow} onPress={() => setPeriodOpen(true)} activeOpacity={0.7}>
                     <Icon name="calendar-month-outline" size={16} color={colors.stock_text_dark} />
                     <Text style={s.dateText}>
@@ -426,7 +463,7 @@ export default function StockItemVouchers() {
                 <AnimatedFlatList
                     data={listData}
                     keyExtractor={(item, idx) => String(idx)}
-                    renderItem={renderItem}
+                    renderItem={(info) => renderItem({ item: info.item as ListItem })}
                     contentContainerStyle={[s.listContent, { paddingBottom: FOOTER_HEIGHT + 49 + 24 }]}
                     showsVerticalScrollIndicator={false}
                     onScroll={onScroll}
@@ -454,6 +491,55 @@ export default function StockItemVouchers() {
                 toDate={yyyymmddToMs(dateRange.todate)}
                 onApply={onPeriodApply}
             />
+
+            {/* Stock item dropdown – options from Data Management */}
+            <Modal visible={stockItemDropdownOpen} transparent animationType="fade">
+                <TouchableOpacity
+                    style={s.stockItemModalOverlay}
+                    activeOpacity={1}
+                    onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+                >
+                    <View style={s.stockItemModalContent} onStartShouldSetResponder={() => true}>
+                        <Text style={s.stockItemModalTitle}>{strings.select_stock_item}</Text>
+                        <TextInput
+                            style={s.stockItemModalSearch}
+                            placeholder="Search…"
+                            placeholderTextColor={colors.text_disabled}
+                            value={stockItemSearch}
+                            onChangeText={setStockItemSearch}
+                        />
+                        <FlatList
+                            data={filteredStockItems}
+                            keyExtractor={(i) => i}
+                            style={s.stockItemModalList}
+                            ListEmptyComponent={
+                                <Text style={s.stockItemModalEmpty}>
+                                    {stockItemNames.length === 0 ? 'Loading…' : 'No stock items found. Use Data Management to download stock items.'}
+                                </Text>
+                            }
+                            renderItem={({ item }) => (
+                                <TouchableOpacity
+                                    style={s.stockItemModalRow}
+                                    onPress={() => {
+                                        setSelectedStockItem(item);
+                                        setStockItemDropdownOpen(false);
+                                        setStockItemSearch('');
+                                        fetchData();
+                                    }}
+                                >
+                                    <Text style={s.stockItemModalRowText} numberOfLines={2}>{item}</Text>
+                                </TouchableOpacity>
+                            )}
+                        />
+                        <TouchableOpacity
+                            style={s.stockItemModalCancel}
+                            onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
+                        >
+                            <Text style={s.stockItemModalCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </View>
     );
 }
@@ -499,6 +585,58 @@ const s = StyleSheet.create({
         fontWeight: '600',
         color: colors.stock_text_dark,
     },
+
+    stockItemModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    stockItemModalContent: {
+        backgroundColor: colors.bg_light_blue,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        paddingTop: 16,
+        paddingHorizontal: 16,
+        maxHeight: '70%',
+    },
+    stockItemModalTitle: {
+        fontFamily: 'Roboto',
+        fontSize: 16,
+        fontWeight: '600',
+        color: colors.stock_text_dark,
+        marginBottom: 10,
+    },
+    stockItemModalSearch: {
+        backgroundColor: colors.white,
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        fontSize: 15,
+        color: colors.stock_text_dark,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: colors.stock_border,
+    },
+    stockItemModalList: { maxHeight: 320 },
+    stockItemModalEmpty: {
+        padding: 16,
+        textAlign: 'center',
+        color: colors.text_secondary,
+        fontSize: 14,
+    },
+    stockItemModalRow: {
+        paddingVertical: 12,
+        paddingHorizontal: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.stock_border,
+    },
+    stockItemModalRowText: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: colors.stock_text_dark,
+    },
+    stockItemModalCancel: { padding: 16, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.stock_border },
+    stockItemModalCancelText: { fontFamily: 'Roboto', fontSize: 16, color: colors.primary_blue },
 
     legendRow: {
         flexDirection: 'row',

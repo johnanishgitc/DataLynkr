@@ -187,6 +187,7 @@ export const strings = {
   stock_group_summary: 'Stock Group Summary',
   stock_item_monthly_summary: 'Stock Item Monthly Summary',
   stock_item_vouchers: 'Stock Item Vouchers',
+  select_stock_item: 'Select Stock Item',
   particulars_and_qty: 'Particulars & Qty',
   rate: 'Rate',
   value: 'Value',

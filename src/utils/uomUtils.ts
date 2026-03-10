@@ -514,9 +514,15 @@ export function getDefaultRateUOM(unitConfig: UnitConfig | null): string {
 /**
  * Rate UOM options for the current item (for dropdown/segments).
  * Returns array of { value, label } e.g. [{ value: 'base', label: 'box' }, { value: 'additional', label: 'nos' }].
+ * When unitConfig is null, returns a single option; pass fallbackBaseLabel (e.g. item's unit) to avoid hardcoded "1".
  */
-export function getRateUOMOptions(unitConfig: UnitConfig | null, unitsArray: StockItemUnit[]): { value: string; label: string }[] {
-  if (!unitConfig) return [{ value: 'base', label: '1' }];
+export function getRateUOMOptions(
+  unitConfig: UnitConfig | null,
+  unitsArray: StockItemUnit[],
+  fallbackBaseLabel?: string
+): { value: string; label: string }[] {
+  const fallback = fallbackBaseLabel?.trim() || '1';
+  if (!unitConfig) return [{ value: 'base', label: fallback }];
   const base = unitConfig.BASEUNITS;
   const addl = unitConfig.ADDITIONALUNITS;
   const baseIsCompound = unitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes';
@@ -527,7 +533,7 @@ export function getRateUOMOptions(unitConfig: UnitConfig | null, unitsArray: Sto
     options.push({ value: 'component-main', label: unitConfig.BASEUNITCOMP_BASEUNIT || base });
     options.push({ value: 'component-sub', label: unitConfig.BASEUNITCOMP_ADDLUNIT || 'sub' });
   } else {
-    options.push({ value: 'base', label: base || '1' });
+    options.push({ value: 'base', label: base || fallback });
   }
   if (addl) {
     if (addlIsCompound) {
@@ -537,7 +543,7 @@ export function getRateUOMOptions(unitConfig: UnitConfig | null, unitsArray: Sto
       options.push({ value: 'additional', label: addl });
     }
   }
-  return options.length ? options : [{ value: 'base', label: base || '1' }];
+  return options.length ? options : [{ value: 'base', label: base || fallback }];
 }
 
 /**
