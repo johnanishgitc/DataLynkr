@@ -12,7 +12,6 @@ import {
   Alert,
   Modal,
   TouchableOpacity,
-  Share,
   useWindowDimensions,
   Animated,
   LayoutAnimation,
@@ -57,8 +56,11 @@ import {
   VoucherDetailsFooter,
 } from '../components/VoucherDetailsContent';
 import type { BankDetailRow } from '../components/VoucherDetailsContent';
-import { getTallylocId, getCompany, getGuid } from '../store/storage';
+import { getTallylocId, getCompany, getGuid, getUserName } from '../store/storage';
 import apiService from '../api/client';
+import RNFS from 'react-native-fs';
+import FileViewer from 'react-native-file-viewer';
+import Share, { Social } from 'react-native-share';
 import { strings } from '../constants/strings';
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetailView'>;
@@ -81,6 +83,9 @@ export default function VoucherDetailView() {
   const [htmlContent, setHtmlContent] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
   const [connectionErrorVisible, setConnectionErrorVisible] = useState(false);
+  /** Share dropdown: Download / WhatsApp / Mail (Tally PDF) */
+  const [shareMenuVisible, setShareMenuVisible] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   /** In-app attachment preview for "ITEM TO BE ALLOCATED" (same UX as Order Entry cart view attachment) */
   const [attachmentPreviewItems, setAttachmentPreviewItems] = useState<string[] | null>(null);
   const fetchDone = useRef(false);
@@ -483,20 +488,296 @@ export default function VoucherDetailView() {
     }
   };
 
-  const handleShare = async () => {
+  const closeShareMenu = () => setShareMenuVisible(false);
+
+  /** Base URL for shared voucher links (encrptyid appended by server response). */
+  const SHARED_VOUCHER_BASE = 'https://datalynkr.com/Development/shared-voucher/';
+
+  /** Base64 (standard) then URI-encoded for #data= fragment to match server expectations. */
+  const toDataFragmentPayload = (obj: object): string => {
+    const json = JSON.stringify(obj);
+    let b64: string;
     try {
-      const message = [
-        `Voucher: ${type} #${num}`,
-        `Party: ${displayLedger}`,
-        `Date: ${date}`,
-        `Amount: ₹${fmtNum(amount)} ${drCr}`,
-      ].join('\n');
-      await Share.share({
-        message,
-        title: 'Voucher Details',
+      b64 = require('buffer').Buffer.from(json, 'utf8').toString('base64');
+    } catch {
+      b64 = globalThis.btoa(unescape(encodeURIComponent(json)));
+    }
+    return encodeURIComponent(b64);
+  };
+
+  const randomHex32 = (): string => {
+    const hex = '0123456789abcdef';
+    let s = '';
+    for (let i = 0; i < 32; i++) s += hex[Math.floor(Math.random() * 16)];
+    return s;
+  };
+
+  /** "2026-04-09 05:41:36" -> "09-Apr-26 at 05:41:36" */
+  const formatExpiryDisplay = (expirydate: string): string => {
+    const m = expirydate.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2}:\d{2})/);
+    if (!m) return expirydate;
+    const [, y, mo, d, time] = m;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const mi = parseInt(mo, 10) - 1;
+    const yy = y.slice(2);
+    return `${d}-${months[mi]}-${yy} at ${time}`;
+  };
+
+  /**
+   * POST api/tallydata_share/create with encrptyurl; returns share message with short link + expiry.
+   */
+  const buildShareTextWithLink = useCallback(async (): Promise<string | null> => {
+    const masterId = getMasterId(v);
+    if (!masterId) return null;
+    const [t, c, g, userName] = await Promise.all([
+      getTallylocId(),
+      getCompany(),
+      getGuid(),
+      getUserName(),
+    ]);
+    if (!t || !c || !g) return null;
+    const shareId = randomHex32();
+    const VOUCHERS: Record<string, unknown> = {
+      ...(v as Record<string, unknown>),
+      MASTERID: /^\d+$/.test(masterId) ? parseInt(masterId, 10) : masterId,
+      VOUCHERTYPE: type,
+      VOUCHERNUMBER: num,
+      DATE: date,
+      PARTICULARS: (v.PARTICULARS ?? v.particulars ?? type) as string,
+      PARTYLEDGERNAME: displayLedger,
+    };
+    if (entries.length > 0) VOUCHERS.ALLLEDGERENTRIES = entries;
+    if (invAlloc.length > 0) VOUCHERS.ALLINVENTORYENTRIES = invAlloc;
+    const payload = {
+      voucherData: { VOUCHERS },
+      shareId,
+      generatedAt: new Date().toISOString(),
+    };
+    const dataParam = toDataFragmentPayload(payload);
+    const encrptyurl = `${SHARED_VOUCHER_BASE}${shareId}#data=${dataParam}`;
+    let res: { data?: { encrptyid?: string; expirydate?: string } };
+    try {
+      res = await apiService.createTallydataShare({
+        tallyloc_id: t,
+        company: c,
+        guid: g,
+        encrptyurl,
       });
     } catch {
-      // User cancelled or share failed
+      return null;
+    }
+    const encrptyid = res?.data?.encrptyid;
+    const expirydate = res?.data?.expirydate;
+    if (!encrptyid) return null;
+    const link = `${SHARED_VOUCHER_BASE}${encrptyid}`;
+    const name = (userName && userName.trim()) || 'Someone';
+    const totalLine = `₹${fmtNum(amount)}`;
+    const expiryLine = expirydate
+      ? `\n\nThis link will expire on ${formatExpiryDisplay(expirydate)}`
+      : '';
+    return [
+      `${name} has shared ${num} through DataLynkr.`,
+      '',
+      'Details:',
+      `Voucher Type: ${type}`,
+      `Date: ${date}`,
+      `Party: ${displayLedger}`,
+      `Total: ${totalLine}`,
+      '',
+      `View full details: ${link}`,
+      expiryLine,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }, [v, type, num, date, displayLedger, amount, entries, invAlloc]);
+
+  /**
+   * Request PDF from api/tally/pdf/request, poll until ready, write to cache file.
+   * Returns file path without file:// prefix, or null on failure.
+   */
+  const fetchVoucherPdfToFile = useCallback(async (): Promise<string | null> => {
+    const masterId = getMasterId(v);
+    if (!masterId) {
+      Alert.alert('', 'Voucher ID not available.');
+      return null;
+    }
+    const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+    if (!t || !c || !g) {
+      Alert.alert('', 'Session data missing. Please sign in again.');
+      return null;
+    }
+    const reqRes = await apiService.requestTallyPdf({
+      tallyloc_id: t,
+      company: c,
+      guid: g,
+      master_id: String(masterId),
+    });
+    const requestId = reqRes?.data?.request_id;
+    if (!requestId) {
+      Alert.alert('', reqRes?.data?.message || 'Could not request PDF.');
+      return null;
+    }
+    const maxAttempts = 90;
+    const delayMs = 1500;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      const statusRes = await apiService.getTallyPdfStatus(requestId);
+      const status = statusRes?.data?.status;
+      if (status === 'ready' && statusRes?.data?.pdf_base64) {
+        const base64 = statusRes.data.pdf_base64;
+        const safeName = `voucher_${masterId}_${Date.now()}.pdf`;
+        const path = `${RNFS.CachesDirectoryPath}/${safeName}`;
+        if (await RNFS.exists(path)) await RNFS.unlink(path);
+        await RNFS.writeFile(path, base64, 'base64');
+        return path;
+      }
+      if (status && status !== 'pending') {
+        Alert.alert('', `PDF generation status: ${status}`);
+        return null;
+      }
+    }
+    Alert.alert('', 'PDF generation timed out. Try again.');
+    return null;
+  }, [v]);
+
+  const openShareMenu = () => setShareMenuVisible(true);
+
+  const onShareDownload = async () => {
+    closeShareMenu();
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const path = await fetchVoucherPdfToFile();
+      if (!path) return;
+      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+      Alert.alert(
+        strings.ok,
+        'PDF is ready.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Open',
+            onPress: () =>
+              FileViewer.open(path, { showOpenWithDialog: true }).catch((e: Error) =>
+                Alert.alert('Error', e?.message || 'Could not open PDF.')
+              ),
+          },
+          {
+            text: 'Share',
+            onPress: () =>
+              Share.open({ url: fileUrl, type: 'application/pdf', title: 'Voucher PDF' }).catch(() => {}),
+          },
+        ]
+      );
+    } catch (e) {
+      if (isUnauthorizedError(e)) return;
+      const msg =
+        e && typeof e === 'object' && 'message' in e
+          ? String((e as { message: string }).message)
+          : 'Could not download PDF.';
+      Alert.alert('', msg);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const onShareWhatsApp = async () => {
+    closeShareMenu();
+    Alert.alert('WhatsApp', 'Share PDF or share link?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Share PDF',
+        onPress: async () => {
+          if (pdfLoading) return;
+          setPdfLoading(true);
+          try {
+            const path = await fetchVoucherPdfToFile();
+            if (!path) return;
+            const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+            try {
+              await Share.shareSingle({
+                social: Social.Whatsapp,
+                url: fileUrl,
+                type: 'application/pdf',
+                filename: 'voucher.pdf',
+              });
+            } catch {
+              await Share.open({
+                url: fileUrl,
+                type: 'application/pdf',
+                title: 'Voucher PDF',
+              }).catch(() => {});
+            }
+          } catch (e) {
+            if (!isUnauthorizedError(e)) Alert.alert('', 'Could not share PDF to WhatsApp.');
+          } finally {
+            setPdfLoading(false);
+          }
+        },
+      },
+      {
+        text: 'Share link',
+        onPress: async () => {
+          if (pdfLoading) return;
+          setPdfLoading(true);
+          try {
+            const shareText = await buildShareTextWithLink();
+            const message = shareText || `Voucher ${type} #${num}`;
+            try {
+              await Share.shareSingle({
+                social: Social.Whatsapp,
+                message,
+              });
+            } catch {
+              await Share.open({ message, title: 'Voucher details' }).catch(() => {});
+            }
+          } catch (e) {
+            if (!isUnauthorizedError(e)) Alert.alert('', 'Could not share link to WhatsApp.');
+          } finally {
+            setPdfLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const onShareMail = async () => {
+    closeShareMenu();
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const path = await fetchVoucherPdfToFile();
+      if (!path) return;
+      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+      const shareText = await buildShareTextWithLink();
+      const subject = `Voucher ${type} #${num}`;
+      const message = shareText || subject;
+      try {
+        await Share.shareSingle({
+          social: Social.Email,
+          url: fileUrl,
+          type: 'application/pdf',
+          filename: 'voucher.pdf',
+          email: '',
+          subject,
+          message,
+        });
+      } catch {
+        await Share.open({
+          url: fileUrl,
+          type: 'application/pdf',
+          title: 'Voucher PDF',
+          subject,
+          message,
+        }).catch(() => {});
+      }
+    } catch (e) {
+      if (!isUnauthorizedError(e)) Alert.alert('', 'Could not open mail.');
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -544,7 +825,7 @@ export default function VoucherDetailView() {
         leftIcon="back"
         onLeftPress={handleBack}
         rightIcons="share-kebab"
-        onSharePress={handleShare}
+        onSharePress={openShareMenu}
         onRightIconsPress={() => setMenuVisible(true)}
         compact
       />
@@ -576,6 +857,50 @@ export default function VoucherDetailView() {
               activeOpacity={0.8}
             >
               <Text style={styles.connectionErrorButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Share dropdown: Download, WhatsApp, Mail (Tally PDF) */}
+      <Modal
+        visible={shareMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeShareMenu}
+      >
+        <View style={styles.menuWrapper}>
+          <TouchableOpacity
+            style={styles.menuOverlay}
+            activeOpacity={1}
+            onPress={closeShareMenu}
+          />
+          <View style={[styles.menuDropdown, { top: dropdownTop }]}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={onShareDownload}
+              activeOpacity={0.7}
+              disabled={pdfLoading}
+            >
+              <Text style={styles.menuItemText}>
+                {pdfLoading ? 'Preparing PDF…' : 'Download'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={onShareWhatsApp}
+              activeOpacity={0.7}
+              disabled={pdfLoading}
+            >
+              <Text style={styles.menuItemText}>WhatsApp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={onShareMail}
+              activeOpacity={0.7}
+              disabled={pdfLoading}
+            >
+              <Text style={styles.menuItemText}>Mail</Text>
             </TouchableOpacity>
           </View>
         </View>

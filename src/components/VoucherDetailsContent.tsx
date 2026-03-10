@@ -42,6 +42,16 @@ export function amt(x: unknown): string {
   return String(x);
 }
 
+/** Format discount for display: show as negative (e.g. 500 → -500). Zero stays 0. */
+export function formatDiscountDisplay(x: unknown): string {
+  if (x == null) return '0';
+  const s = String(x).replace(/,/g, '').trim();
+  const n = parseFloat(s);
+  if (isNaN(n)) return String(x);
+  if (n === 0) return '0';
+  return String(-Math.abs(n));
+}
+
 function parseQtyOrRate(val: unknown): number {
   if (val == null) return 0;
   const s = String(val).replace(/,/g, '').trim();
@@ -699,7 +709,7 @@ export function InventoryRow({
   const rateVal = raw.rate ?? item.RATE;
   const rate = rateVal != null ? amt(rateVal) : '—';
   const discountVal = item.DISCOUNT ?? raw.discount;
-  const discount = discountVal != null ? amt(discountVal) : '0';
+  const discount = discountVal != null ? formatDiscountDisplay(discountVal) : '0';
   const popupOpen = qtyPopupBody != null || ratePopup != null;
   return (
     <View style={[
@@ -884,7 +894,7 @@ export function ExpandableInventoryRow({
           <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Discount: </Text>
           <Text style={styles.invRowMetaValDiscount}>
             {item.DISCOUNT ?? itemRaw.discount != null
-              ? amt(itemRaw.discount)
+              ? formatDiscountDisplay(itemRaw.discount)
               : '0'}
           </Text>
         </View>
@@ -944,6 +954,11 @@ export function ExpandableInventoryRow({
             const hasGodown = sub.godown !== '' && sub.godown !== '—';
             const hasBatch = sub.batch !== '' && sub.batch !== '—';
             const isLastRow = idx === subAllocs.length - 1;
+            // Expiry line: prefer EXPIRYDATE, else due date as fallback
+            const expiryForLine = hasExpiry ? sub.expiryDate : hasDue ? sub.dueDate : null;
+            const hasExpiryLine = expiryForLine != null && expiryForLine !== '';
+            const hasLine2 = hasBatch || hasGodown;
+            const hasLine3 = hasMfg || hasExpiryLine;
             return (
               <View
                 key={idx}
@@ -953,70 +968,94 @@ export function ExpandableInventoryRow({
                   popupSource === idx && styles.invSubAllocRowHighlight,
                 ]}
               >
+                {/* Line 1: Qty and Amount only (no repeated item name) */}
                 <View style={styles.invSubAllocHead}>
-                  <Text style={styles.invSubAllocName} numberOfLines={2}>
-                    {sub.name}
-                  </Text>
+                  <View style={styles.invSubAllocDetailLine}>
+                    {hasQty ? (
+                      <>
+                        <Text style={styles.invSubAllocDetailLabel}>Qty</Text>
+                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setQtyPopupBody(`Actual Qty: ${sub.actualQty ?? '—'}\nBilled Qty: ${sub.billedQty ?? '—'}`);
+                            setPopupSource(idx);
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.invSubAllocDetailVal, styles.invSubAllocQtyLink]}>{sub.qty}</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <Text style={styles.invSubAllocDetailLabel}>Qty : —</Text>
+                    )}
+                  </View>
                   <Text style={styles.invSubAllocAmt}>₹{fmtNum(sub.amount)}</Text>
                 </View>
-                <View style={styles.invSubAllocMeta}>
-                  <View style={styles.invSubAllocDetailRow}>
-                    <View style={styles.invSubAllocDetailLeft}>
-                      {hasQty && (
-                        <View style={styles.invSubAllocDetailLine}>
-                          <Text style={styles.invSubAllocDetailLabel}>Qty</Text>
-                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setQtyPopupBody(`Actual Qty: ${sub.actualQty ?? '—'}\nBilled Qty: ${sub.billedQty ?? '—'}`);
-                              setPopupSource(idx);
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.invSubAllocDetailVal, styles.invSubAllocQtyLink]}>{sub.qty}</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                      {hasGodown && (
-                        <View style={styles.invSubAllocDetailLine}>
-                          <Text style={styles.invSubAllocDetailLabel}>Godown</Text>
-                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                          <Text style={styles.invSubAllocDetailVal}>{sub.godown}</Text>
-                        </View>
-                      )}
-                      {hasMfg && (
-                        <View style={styles.invSubAllocDetailLine}>
-                          <Text style={styles.invSubAllocDetailLabel}>Mfg date</Text>
-                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                          <Text style={styles.invSubAllocDetailVal}>{sub.mfgDate}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={styles.invSubAllocDetailRight}>
-                      {hasDue && (
-                        <View style={styles.invSubAllocDetailLine}>
-                          <Text style={styles.invSubAllocDetailLabel}>Due date</Text>
-                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                          <Text style={styles.invSubAllocDetailVal}>{sub.dueDate}</Text>
-                        </View>
-                      )}
-                      {hasBatch && (
-                        <View style={styles.invSubAllocDetailLine}>
-                          <Text style={styles.invSubAllocDetailLabel}>Batch#</Text>
-                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                          <Text style={styles.invSubAllocDetailVal}>{sub.batch}</Text>
-                        </View>
-                      )}
-                      {hasExpiry && (
-                        <View style={styles.invSubAllocDetailLine}>
-                          <Text style={styles.invSubAllocDetailLabel}>Expiry date</Text>
-                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                          <Text style={styles.invSubAllocDetailVal}>{sub.expiryDate}</Text>
-                        </View>
-                      )}
-                    </View>
+                {/* Line 2: Batch and Godown on one line (space-between when both) */}
+                {hasLine2 && (
+                  <View
+                    style={[
+                      styles.invSubAllocDetailRow,
+                      styles.invSubAllocMeta,
+                      !hasBatch || !hasGodown ? { justifyContent: 'flex-start' } : null,
+                    ]}
+                  >
+                    {hasBatch && (
+                      <View style={[styles.invSubAllocDetailLine, { marginBottom: 0, flexShrink: 1 }]}>
+                        <Text style={styles.invSubAllocDetailLabel}>Batch#</Text>
+                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                        <Text style={styles.invSubAllocDetailVal} numberOfLines={2}>{sub.batch}</Text>
+                      </View>
+                    )}
+                    {hasGodown && (
+                      <View
+                        style={[
+                          styles.invSubAllocDetailLine,
+                          { marginBottom: 0, flexShrink: 1 },
+                          hasBatch && { marginLeft: 12 },
+                          hasBatch && { alignSelf: 'flex-end' },
+                        ]}
+                      >
+                        <Text style={styles.invSubAllocDetailLabel}>Godown</Text>
+                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                        <Text style={styles.invSubAllocDetailVal} numberOfLines={2}>{sub.godown}</Text>
+                      </View>
+                    )}
                   </View>
-                </View>
+                )}
+                {/* Line 3: Mfg and Expiry on one line */}
+                {hasLine3 && (
+                  <View
+                    style={[
+                      styles.invSubAllocDetailRow,
+                      styles.invSubAllocMeta,
+                      { marginTop: hasLine2 ? 4 : 0 },
+                      (!hasMfg || !hasExpiryLine) ? { justifyContent: 'flex-start' } : null,
+                    ]}
+                  >
+                    {hasMfg && (
+                      <View style={[styles.invSubAllocDetailLine, { marginBottom: 0, flexShrink: 1 }]}>
+                        <Text style={styles.invSubAllocDetailLabel}>Mfg</Text>
+                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                        <Text style={styles.invSubAllocDetailVal}>{sub.mfgDate}</Text>
+                      </View>
+                    )}
+                    {hasExpiryLine && (
+                      <View
+                        style={[
+                          styles.invSubAllocDetailLine,
+                          { marginBottom: 0, flexShrink: 1 },
+                          hasMfg && { marginLeft: 12 },
+                          hasMfg && { alignSelf: 'flex-end' },
+                        ]}
+                      >
+                        <Text style={styles.invSubAllocDetailLabel}>Expiry</Text>
+                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                        <Text style={styles.invSubAllocDetailVal}>{expiryForLine}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
               </View>
             );
           })}
@@ -1078,7 +1117,7 @@ export function AllocationRow({
         </View>
         <View style={[styles.invRowMetaItem, invoiceOrder && styles.invRowMetaItemInvoiceOrder]}>
           <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Discount: </Text>
-          <Text style={styles.invRowMetaValDiscount}>{item.discount}</Text>
+          <Text style={styles.invRowMetaValDiscount}>{formatDiscountDisplay(item.discount)}</Text>
         </View>
       </View>
     </View>
@@ -1128,21 +1167,29 @@ export function LedgerDetailsExpandable({
       {expanded && (
         <View style={styles.ledgerDetailsExpand}>
           {rows.length > 0 ? (
-            rows.map((row, i) => (
-              <View key={i} style={styles.ledgerDetailsRow}>
-                <Text style={styles.ledgerDetailsRowLabel} numberOfLines={1}>
-                  {row.label}
-                </Text>
-                <View style={styles.ledgerDetailsRowRight}>
-                  {row.percentage ? (
-                    <Text style={styles.ledgerDetailsRowPct}>{row.percentage}</Text>
-                  ) : null}
-                  <Text style={styles.ledgerDetailsRowVal}>
-                    {row.amount != null ? `₹${fmtNum(row.amount)}` : '—'}
+            rows.map((row, i) => {
+              const isDiscountLedger = (row.label ?? '').toLowerCase().includes('discount');
+              const displayAmount = row.amount != null
+                ? (isDiscountLedger ? -Math.abs(row.amount) : row.amount)
+                : null;
+              return (
+                <View key={i} style={styles.ledgerDetailsRow}>
+                  <Text style={styles.ledgerDetailsRowLabel} numberOfLines={1}>
+                    {row.label}
                   </Text>
+                  <View style={styles.ledgerDetailsRowRight}>
+                    {row.percentage ? (
+                      <Text style={styles.ledgerDetailsRowPct}>{row.percentage}</Text>
+                    ) : null}
+                    <Text style={styles.ledgerDetailsRowVal}>
+                      {displayAmount != null
+                        ? (displayAmount < 0 ? `-₹${fmtNum(Math.abs(displayAmount))}` : `₹${fmtNum(displayAmount)}`)
+                        : '—'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           ) : (
             <Text style={styles.ledgerDetailsEmpty}>{emptyMessage}</Text>
           )}

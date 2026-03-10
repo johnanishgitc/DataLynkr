@@ -130,7 +130,7 @@ export async function requestStoragePermissionForRootExport(): Promise<boolean> 
     return new Promise((resolve) => {
       Alert.alert(
         'Storage access',
-        'To save exports to the DataLynkr folder (same level as Download), allow "All files" or "Files and media" access for DataLynkr.',
+        'Please allow storage permissions to download.',
         [
           { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
           {

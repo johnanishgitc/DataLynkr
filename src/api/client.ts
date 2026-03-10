@@ -325,6 +325,49 @@ export const apiService = {
       params: { ...params, _t: Date.now() },
       headers: { 'Cache-Control': 'no-cache, no-store', Pragma: 'no-cache' },
     }),
+
+  /**
+   * Request Tally voucher PDF generation. Poll getTallyPdfStatus(request_id) until status is "ready"
+   * and pdf_base64 is present.
+   */
+  requestTallyPdf: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    master_id: string;
+  }) =>
+    getApi().post<{
+      success?: boolean;
+      request_id?: string;
+      status?: string;
+      message?: string;
+      callback_url?: string;
+    }>('api/tally/pdf/request', body),
+
+  /** Poll PDF generation status; when status === 'ready', response includes pdf_base64. */
+  getTallyPdfStatus: (requestId: string) =>
+    getApi().get<{
+      request_id?: string;
+      status?: string;
+      transaction_id?: string;
+      created_at?: string;
+      ready_at?: string;
+      pdf_base64?: string;
+    }>(`api/tally/pdf/status/${requestId}`, {
+      params: { _t: Date.now() },
+    }),
+
+  /**
+   * Create short share link for voucher. Client builds encrptyurl (shared-voucher/{shareId}#data=...);
+   * server returns encrptyid for public URL and expirydate.
+   */
+  createTallydataShare: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    encrptyurl: string;
+  }) =>
+    getApi().post<{ encrptyid?: string; expirydate?: string }>('api/tallydata_share/create', body),
 };
 
 export default apiService;
