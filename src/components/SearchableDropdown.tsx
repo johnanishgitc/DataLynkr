@@ -32,8 +32,9 @@ export default function SearchableDropdown({
 
   const filtered = useMemo(() => {
     if (!searchable || !q.trim()) return items;
-    const t = q.trim().toLowerCase();
-    return items.filter((i) => i.toLowerCase().includes(t));
+    const normalize = (s: string) => s.toLowerCase().replace(/[-\s]/g, '');
+    const t = normalize(q.trim());
+    return items.filter((i) => normalize(i).includes(t));
   }, [items, q, searchable]);
 
   return (

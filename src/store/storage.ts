@@ -144,6 +144,10 @@ export async function getGuid(): Promise<string> {
   return (await storage.getItem(K.guid)) ?? '';
 }
 
+export async function getStatename(): Promise<string> {
+  return (await storage.getItem(K.statename)) ?? '';
+}
+
 /** Books from date (YYYYMMDD) for cache date ranges. */
 export async function getBooksfrom(): Promise<string> {
   return (await storage.getItem(K.booksfrom)) ?? '';

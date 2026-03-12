@@ -105,6 +105,22 @@ function fmtRate(r?: number): string {
     return r.toFixed(2);
 }
 
+/** Return true if the item has at least one of qty, rate or value in any section (opening/inward/outward/closing). */
+function itemHasAnyQtyRateOrValue(item: StockSummaryItem): boolean {
+    const check = (s: StockSummaryItem['opening'] | undefined) => {
+        if (!s) return false;
+        const qtyStr = s.qty != null ? String(s.qty).trim() : '';
+        const hasQty = qtyStr !== '' && !Number.isNaN(parseFloat(qtyStr)) && parseFloat(qtyStr) !== 0;
+        const hasRate = s.rate != null && !Number.isNaN(Number(s.rate)) && Number(s.rate) !== 0;
+        const hasValue = s.value != null && !Number.isNaN(Number(s.value)) && Number(s.value) !== 0;
+        const amt = (s as { amt?: string }).amt;
+        const amtNum = amt != null && amt.trim() !== '' ? parseFloat(String(amt).replace(/^\(-\)?/, '').replace(/,/g, '')) : NaN;
+        const hasAmt = !Number.isNaN(amtNum) && amtNum !== 0;
+        return hasQty || hasRate || hasValue || hasAmt;
+    };
+    return check(item.opening) || check(item.inward) || check(item.outward) || check(item.closing);
+}
+
 /* ── Component ───────────────────────────────────────────── */
 
 export default function StockSummary() {
@@ -215,13 +231,7 @@ export default function StockSummary() {
             const range = overrideRange ?? computeDateRange(bf);
             setDateRange(range);
             const godownToUse = overrideGodown !== undefined ? overrideGodown : godownRef.current;
-
-            // Do not call API until a godown is selected
-            if (!godownToUse || !godownToUse.trim()) {
-                setItems([]);
-                setLoading(false);
-                return;
-            }
+            const godownTrimmed = typeof godownToUse === 'string' ? godownToUse.trim() : '';
 
             const payload: any = {
                 tallyloc_id: t,
@@ -229,8 +239,9 @@ export default function StockSummary() {
                 guid: g,
                 fromdate: range.fromdate,
                 todate: range.todate,
-                godown: godownToUse.trim(),
             };
+            // Only send godown when a specific godown is selected (not "All Godowns")
+            if (godownTrimmed) payload.godown = godownTrimmed;
             if (stockitemParam) payload.stockitem = stockitemParam;
 
             const res = await apiService.getStockSummary(payload);
@@ -335,6 +346,12 @@ export default function StockSummary() {
         return [...primary, ...rest];
     }, [itemsAndGroups, primarySearch]);
 
+    /** Only show items/groups that have at least one of qty, rate or value. */
+    const filteredItems = useMemo(
+        () => items.filter(itemHasAnyQtyRateOrValue),
+        [items]
+    );
+
     const onPrimarySelect = useCallback(
         (entry: StockListEntry) => {
             setPrimaryDropdownOpen(false);
@@ -438,7 +455,7 @@ export default function StockSummary() {
                     <Icon name="warehouse" size={16} color={colors.stock_text_dark} />
                     <View style={s.godownFieldWrap}>
                         <Text style={s.godownText} numberOfLines={1}>
-                            {godown || 'Select Godown'}
+                            {godown ? godown : 'All Godowns'}
                         </Text>
                     </View>
                     <Icon name="chevron-down" size={18} color={colors.stock_text_dark} />
@@ -478,13 +495,13 @@ export default function StockSummary() {
                 <View style={s.centered}>
                     <Text style={s.errorText}>{error}</Text>
                 </View>
-            ) : items.length === 0 ? (
+            ) : filteredItems.length === 0 ? (
                 <View style={s.centered}>
                     <Text style={s.errorText}>{strings.no_data}</Text>
                 </View>
             ) : (
                 <AnimatedFlatList
-                    data={items}
+                    data={filteredItems}
                     keyExtractor={(item) => item.masterid}
                     renderItem={renderRow}
                     contentContainerStyle={s.listContent}
@@ -546,8 +563,8 @@ export default function StockSummary() {
                             </View>
                         ) : (
                             <FlatList
-                                data={godownOptions.map((n) => ({ name: n, label: n }))}
-                                keyExtractor={(item) => item.name}
+                                data={[{ name: '', label: 'All Godowns' }, ...godownOptions.map((n) => ({ name: n, label: n }))]}
+                                keyExtractor={(item) => item.name || '__all__'}
                                 style={sharedStyles.modalList}
                                 keyboardShouldPersistTaps="handled"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No godown options</Text>}

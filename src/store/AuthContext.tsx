@@ -10,7 +10,6 @@ import {
   getUserName,
   getUserEmail,
 } from './storage';
-import { refreshAllDataManagementData } from '../cache';
 
 type AuthState = {
   isLoggedIn: boolean;
@@ -67,8 +66,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (userName != null) await setUserName(userName);
       if (userEmail != null) await setUserEmail(userEmail);
       await refresh();
-      // Reload customers, stock items, and stock groups in Data Management in background
-      refreshAllDataManagementData().catch(() => {});
     },
     [refresh]
   );

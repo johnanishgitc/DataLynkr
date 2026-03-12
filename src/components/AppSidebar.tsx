@@ -220,11 +220,9 @@ export function AppSidebar({
     [onClose]);
 
   useEffect(() => {
-    if (visible) {
-      SystemNavigationBar.setNavigationColor('#1f3a89', 'light');
-    } else {
-      SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
-    }
+    // Keep navigation bar transparent app-wide (matches theme)
+    const transparent = '#00000000';
+    SystemNavigationBar.setNavigationColor(transparent, visible ? 'light' : 'dark');
   }, [visible]);
 
   useEffect(() => {
@@ -433,7 +431,7 @@ export function AppSidebar({
             />
 
             {/* Logout button at bottom */}
-            <View style={[styles.bottomContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={[styles.bottomContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
               <TouchableOpacity style={styles.logoutBtn} onPress={doLogout} activeOpacity={0.7}>
                 <View style={styles.logoutContent}>
                   <Icon name="logout" size={24} color="#d1d5dc" style={{ transform: [{ rotateY: '180deg' }] }} />
@@ -631,7 +629,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
   },
   bottomContainer: {
-    paddingTop: 16,
+    paddingTop: 8,
+    paddingHorizontal: 12,
+    marginBottom: 10,
   },
   logoutBtn: {
     flexDirection: 'row',
@@ -640,7 +640,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#d1d5dc',
     borderRadius: 4,
-    padding: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
   logoutContent: {
     flexDirection: 'row',

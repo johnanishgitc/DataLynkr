@@ -352,7 +352,16 @@ export default function StockItemVouchers() {
 
         const v = item.data;
         return (
-            <View style={s.voucherBlock}>
+            <TouchableOpacity
+                style={s.voucherBlock}
+                onPress={() => {
+                    (nav.navigate as (name: string, params: object) => void)('VoucherDetailView', {
+                        voucher: { ...v, masterid: v.masterid },
+                        ledger_name: v.particulars ?? '',
+                    });
+                }}
+                activeOpacity={0.7}
+            >
                 {/* Date + Particulars header */}
                 <View style={s.voucherHeader}>
                     <Text style={s.voucherDate}>{v.date}</Text>
@@ -384,7 +393,7 @@ export default function StockItemVouchers() {
                         </View>
                     </View>
                 </View>
-            </View>
+            </TouchableOpacity>
         );
     };
 

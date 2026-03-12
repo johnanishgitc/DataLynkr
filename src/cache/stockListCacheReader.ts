@@ -161,10 +161,8 @@ export async function getStockItemsAndGroupsFromDataManagementCache(): Promise<S
     if (hasGroups && hasItems) return entries;
 
     const { ensureStockItemsInDataManagement, ensureStockGroupsInDataManagement } = await import('./dataManagementAutoSync');
-    const toEnsure: Promise<void>[] = [];
-    if (!hasItems) toEnsure.push(ensureStockItemsInDataManagement());
-    if (!hasGroups) toEnsure.push(ensureStockGroupsInDataManagement());
-    if (toEnsure.length > 0) await Promise.all(toEnsure);
+    if (!hasItems) await ensureStockItemsInDataManagement();
+    if (!hasGroups) await ensureStockGroupsInDataManagement();
 
     return await getStockItemsAndGroupsFromDataManagementCacheInternal();
   } catch (e) {
@@ -185,18 +183,18 @@ async function getStockItemsAndGroupsFromDataManagementCacheInternal(): Promise<
   const groupsKey = getStockGroupsCacheKey(email, guid, tallylocId);
   const itemsKey = getStockItemsCacheKey(email, guid, tallylocId);
 
-  const rawResults = await Promise.all([
-    database.executeSql(
-      `SELECT names_json, data FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ? LIMIT 1`,
-      [groupsKey]
-    ),
-    database.executeSql(
-      `SELECT names_json, data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
-      [itemsKey]
-    ),
-  ]);
-  const groupsResultSet = (rawResults[0] as [unknown])[0] as { rows: { length: number; item: (i: number) => { names_json?: string | null; data?: string } } };
-  const itemsResultSet = (rawResults[1] as [unknown])[0] as { rows: { length: number; item: (i: number) => { names_json?: string | null; data?: string } } };
+  const groupsResult = await database.executeSql(
+    `SELECT names_json, data FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [groupsKey]
+  );
+
+  const itemsResult = await database.executeSql(
+    `SELECT names_json, data FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [itemsKey]
+  );
+
+  const groupsResultSet = (groupsResult as [unknown])[0] as { rows: { length: number; item: (i: number) => { names_json?: string | null; data?: string } } };
+  const itemsResultSet = (itemsResult as [unknown])[0] as { rows: { length: number; item: (i: number) => { names_json?: string | null; data?: string } } };
   const groupsRows = groupsResultSet?.rows ?? { length: 0, item: () => ({}) };
   const itemsRows = itemsResultSet?.rows ?? { length: 0, item: () => ({}) };
 

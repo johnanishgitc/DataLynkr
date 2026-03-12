@@ -1066,7 +1066,7 @@ export const sharedStyles = StyleSheet.create({
   topTxtDisabled: { flex: 1, fontSize: 13, fontWeight: '500', color: colors.text_secondary },
   topTxtDate: { fontSize: 13, fontWeight: '600', color: '#131313' },
   container: { flex: 1, backgroundColor: colors.white, zIndex: 0 },
-  containerContent: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 110 },
+  containerContent: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 130 },
   // Card styles
   card: {
     backgroundColor: colors.white,
@@ -1325,10 +1325,10 @@ export const sharedStyles = StyleSheet.create({
     fontWeight: '500',
     color: '#6a7282',
   },
-  // Footer styles
+  // Footer styles — bottom offset must clear app tab bar (content + safe area)
   footer: {
     position: 'absolute',
-    bottom: 49,
+    bottom: 96,
     left: 0,
     right: 0,
     borderTopWidth: 1,

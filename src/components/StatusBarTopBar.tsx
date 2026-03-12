@@ -167,6 +167,7 @@ export function StatusBarTopBar({
           >
             <Icon name="share-variant" size={22} color={colors.white} />
           </TouchableOpacity>
+          {/* Bell icon commented out – re-enable when requested
           <TouchableOpacity
             onPress={onBellPress ?? (() => {})}
             style={styles.shareBtn}
@@ -175,6 +176,7 @@ export function StatusBarTopBar({
           >
             <Icon name="bell" size={22} color={colors.white} />
           </TouchableOpacity>
+          */}
         </View>
       );
     }
@@ -191,8 +193,8 @@ export function StatusBarTopBar({
           <LedgerIcon color={colors.white} size={22} />
         ) : isShareBell ? (
           <>
-            <Icon name="share-variant" size={22} color={colors.white} style={styles.rightIcon} />
-            <Icon name="bell" size={22} color={colors.white} />
+            {/* Bell commented out – share only; rightIcon margin kept for consistency if bell is re-enabled */}
+            <Icon name="share-variant" size={22} color={colors.white} />
           </>
         ) : (
           <>

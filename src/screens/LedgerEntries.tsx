@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   StatusBar,
   Alert,
+  Platform,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -34,7 +35,8 @@ import RNPrint from 'react-native-print';
 import * as XLSX from 'xlsx';
 import RNFS from 'react-native-fs';
 import FileViewer from 'react-native-file-viewer';
-import Share from 'react-native-share';
+import Share, { Social } from 'react-native-share';
+import { SharePopup, type ShareOptionId } from '../components/SharePopup';
 
 // Import individual report components
 import {
@@ -91,6 +93,10 @@ export default function LedgerEntries() {
   const [bankUpiData, setBankUpiData] = useState<BankUpiResponse | null>(null);
   const [bankUpiLoading, setBankUpiLoading] = useState(false);
   const [bankUpiError, setBankUpiError] = useState<string | null>(null);
+  const [sharePopupVisible, setSharePopupVisible] = useState(false);
+  const [shareExportLoading, setShareExportLoading] = useState(false);
+  const [shareExportType, setShareExportType] = useState<'pdf' | 'excel' | null>(null);
+  const [sharingFileInfo, setSharingFileInfo] = useState<{ path: string; type: string; title: string } | null>(null);
   const customerInputRef = useRef<TextInput>(null);
   const reportInputRef = useRef<TextInput>(null);
   const hasShownReportDropdownRef = useRef(false);
@@ -304,6 +310,9 @@ export default function LedgerEntries() {
       Alert.alert(strings.error, 'No data available to export');
       return;
     }
+    setExportVisible(false);
+    setShareExportLoading(true);
+    setShareExportType('pdf');
     try {
       let html: string;
       if (isSalesOutstanding) {
@@ -345,27 +354,18 @@ export default function LedgerEntries() {
       }
       await RNFS.copyFile(tempPath, path);
 
-      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
-      Alert.alert(
-        strings.ok,
-        'PDF saved successfully.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Open PDF',
-            onPress: () => FileViewer.open(path, { showOpenWithDialog: true })
-              .catch((e: Error) => Alert.alert('Error Opening File', e.message || 'No suitable app found to open this file.'))
-          },
-          {
-            text: 'Share',
-            onPress: () => Share.open({ url: fileUrl, type: 'application/pdf', title: 'Share PDF' })
-              .catch(() => { })
-          }
-        ]
-      );
+      setSharingFileInfo({
+        path,
+        type: 'application/pdf',
+        title: 'Share PDF',
+      });
+      setSharePopupVisible(true);
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'PDF export failed';
       Alert.alert(strings.error, msg);
+    } finally {
+      setShareExportLoading(false);
+      setShareExportType(null);
     }
   };
 
@@ -384,6 +384,9 @@ export default function LedgerEntries() {
       Alert.alert(strings.error, 'No data available to export');
       return;
     }
+    setExportVisible(false);
+    setShareExportLoading(true);
+    setShareExportType('excel');
     try {
       let sheetData: (string | number)[][];
       if (isSalesOutstanding) {
@@ -414,27 +417,18 @@ export default function LedgerEntries() {
       }
       await RNFS.writeFile(path, wbout, 'base64');
 
-      const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
-      Alert.alert(
-        strings.ok,
-        'Excel saved successfully.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Open Excel',
-            onPress: () => FileViewer.open(path, { showOpenWithDialog: true })
-              .catch((e: Error) => Alert.alert('Error Opening File', e.message || 'No suitable app found to open this file.'))
-          },
-          {
-            text: 'Share',
-            onPress: () => Share.open({ url: fileUrl, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', title: 'Share Excel' })
-              .catch(() => { })
-          }
-        ]
-      );
+      setSharingFileInfo({
+        path,
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        title: 'Share Excel',
+      });
+      setSharePopupVisible(true);
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Excel export failed';
       Alert.alert(strings.error, msg);
+    } finally {
+      setShareExportLoading(false);
+      setShareExportType(null);
     }
   };
 
@@ -470,6 +464,69 @@ export default function LedgerEntries() {
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Print failed';
       Alert.alert(strings.error, msg);
+    }
+  };
+
+  const handleShareOption = async (optionId: ShareOptionId) => {
+    setSharePopupVisible(false);
+    if (!sharingFileInfo) return;
+    const { path, type, title } = sharingFileInfo;
+    const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+
+    try {
+      let urlToShare = fileUrl;
+      if (Platform.OS === 'android') {
+        const baseName = path.split('/').pop() || (type.includes('pdf') ? 'export.pdf' : 'export.xlsx');
+        const cachePath = `${RNFS.CachesDirectoryPath}/${baseName}`;
+        if (await RNFS.exists(cachePath)) await RNFS.unlink(cachePath);
+        await RNFS.copyFile(path, cachePath);
+        urlToShare = `file://${cachePath}`;
+      }
+
+      if (optionId === 'whatsapp') {
+        try {
+          await Share.shareSingle({
+            social: Social.Whatsapp,
+            url: urlToShare,
+            type: type,
+            filename: urlToShare.split('/').pop(),
+          });
+        } catch {
+          await Share.open({
+            url: urlToShare,
+            type: type,
+            title,
+          }).catch(() => { });
+        }
+      } else if (optionId === 'mail') {
+        try {
+          await Share.shareSingle({
+            social: Social.Email,
+            url: urlToShare,
+            type: type,
+            filename: urlToShare.split('/').pop(),
+            subject: title,
+          });
+        } catch {
+          await Share.open({
+            url: urlToShare,
+            type: type,
+            title,
+            subject: title,
+          }).catch(() => { });
+        }
+      } else {
+        await Share.open({
+          url: urlToShare,
+          type: type,
+          title,
+        }).catch(() => { });
+      }
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : '';
+      if (!msg || !msg.includes('User did not share')) {
+        Alert.alert(strings.error, msg || 'Share failed');
+      }
     }
   };
 
@@ -564,7 +621,7 @@ export default function LedgerEntries() {
               }
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={sharedStyles.modalOpt}
+                  style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
                   onPress={() => {
                     (nav as unknown as { setParams: (p: object) => void }).setParams({
                       ledger_name: item,
@@ -672,6 +729,22 @@ export default function LedgerEntries() {
         onPrint={onPrint}
       />
 
+      <Modal
+        visible={shareExportLoading}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 12, paddingVertical: 24, paddingHorizontal: 32, alignItems: 'center', minWidth: 200 }}>
+            <ActivityIndicator size="large" color={colors.primary_blue} />
+            <Text style={{ marginTop: 16, fontSize: 15, color: colors.text_primary }}>
+              {shareExportType === 'pdf' ? 'Generating PDF…' : shareExportType === 'excel' ? 'Generating Excel…' : 'Preparing…'}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
       <BankUpiDetailsModal
         visible={bankUpiVisible}
         onClose={closeBankUpi}
@@ -689,6 +762,12 @@ export default function LedgerEntries() {
         onItemPress={onSidebarItemPress}
         onConnectionsPress={goToAdminDashboard}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
+      />
+
+      <SharePopup
+        visible={sharePopupVisible}
+        onClose={() => setSharePopupVisible(false)}
+        onOptionClick={handleShareOption}
       />
     </View>
   );

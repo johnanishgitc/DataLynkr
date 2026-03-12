@@ -76,7 +76,7 @@ export default function BillWiseOutstanding({
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
 
-  const topContainerHeight = 120; // 4 rows including User
+  const topContainerHeight = 90; // 3 rows (report, customer, date)
   const headerHeight = insets.top + 47 + topContainerHeight + 40; // +40 for table header
   const footerHeight = 80;
   const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
@@ -306,14 +306,6 @@ export default function BillWiseOutstanding({
             </Text>
             <Icon name="chevron-down" size={20} color={colors.text_primary} />
           </TouchableOpacity>
-
-          {/* User row - disabled */}
-          <View style={[sharedStyles.topRow, sharedStyles.topRowBorder]}>
-            <Icon name="account" size={18} color={colors.text_secondary} />
-            <Text style={sharedStyles.topTxtDisabled} numberOfLines={1}>
-              User
-            </Text>
-          </View>
 
           <TouchableOpacity
             style={[sharedStyles.topRow, sharedStyles.topRowDate]}

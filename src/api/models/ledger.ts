@@ -4,6 +4,7 @@ export interface LedgerListRequest {
   tallyloc_id: number;
   company: string;
   guid: string;
+  lastaltid?: number | null;
 }
 
 export interface LedgerItem {

@@ -244,13 +244,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const handleDetailNavigation = () => {
         if (!selectedVoucher) return;
         setShowDetailModal(false);
-        // Navigate to Ledger tab's VoucherDetailView so tab bar stays visible
-        (navigation as any).navigate('LedgerTab', {
-            screen: 'VoucherDetailView',
-            params: {
-                voucher: voucherDetail || selectedVoucher,
-                ledger_name: voucherDetail?.partyledgername ?? selectedVoucher?.SUBMITTER,
-            },
+        // Navigate within Approvals stack so back from voucher details returns to Approvals
+        (navigation as any).navigate('VoucherDetailView', {
+            voucher: voucherDetail || selectedVoucher,
+            ledger_name: voucherDetail?.partyledgername ?? selectedVoucher?.SUBMITTER,
         });
     };
 

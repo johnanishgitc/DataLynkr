@@ -48,7 +48,7 @@ import { StockBreakdownModal, DeleteConfirmationModal } from '../components';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
-import { getTallylocId, getCompany, getGuid } from '../store/storage';
+import { getTallylocId, getCompany, getGuid, getStatename } from '../store/storage';
 import { apiService, isUnauthorizedError } from '../api';
 import type {
   LedgerListResponse,
@@ -176,7 +176,7 @@ export default function OrderEntry() {
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderEntry'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
-  const { permissions, moduleAccess } = useModuleAccess();
+  const { permissions, moduleAccess, transConfig } = useModuleAccess();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
@@ -185,6 +185,7 @@ export default function OrderEntry() {
   const [cartAttachmentPreview, setCartAttachmentPreview] = useState<{ items: string[] } | null>(null);
   const [draftAttachmentDeleteIdx, setDraftAttachmentDeleteIdx] = useState<number | null>(null);
   const [company, setCompany] = useState('');
+  const [companyStateName, setCompanyStateName] = useState('');
   const [selectedItem, setSelectedItem] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [ledgerItems, setLedgerItems] = useState<LedgerItem[]>([]);
@@ -693,23 +694,28 @@ export default function OrderEntry() {
       attachmentLinks: undefined,
       attachmentUris: undefined,
     } as any);
-    // Show "Do you want to add more items?" after Add to Cart or Update Cart
-    setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
+    // Show "Do you want to add more items?" only after Add to Cart; not after Update Cart (edit in cart → Update Batch → Update Cart)
+    if (!hasReplace) {
+      setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
+    }
   }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
 
   useFocusEffect(
     React.useCallback(() => {
       const onBack = () => {
-        if (orderItems.length > 0) {
-          pendingLeaveActionRef.current = () => navigation.goBack();
-          setLeaveConfirmVisible(true);
+        if (sidebarOpen) {
+          Alert.alert('Exit App', 'Are you sure you want to exit?', [
+            { text: strings.cancel || 'Cancel', style: 'cancel' },
+            { text: 'Exit', style: 'destructive', onPress: () => BackHandler.exitApp() },
+          ]);
           return true;
         }
-        return false;
+        setSidebarOpen(true);
+        return true;
       };
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
       return () => sub.remove();
-    }, [orderItems.length, navigation])
+    }, [sidebarOpen])
   );
 
   // Track tab name so we can clear when user switches to Order Entry from another tab.
@@ -727,6 +733,7 @@ export default function OrderEntry() {
 
   useEffect(() => {
     getCompany().then(setCompany);
+    getStatename().then(setCompanyStateName);
   }, []);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -859,10 +866,13 @@ export default function OrderEntry() {
 
   const filteredStockItems = useMemo(() => {
     if (!itemSearch.trim()) return stockItemsList;
-    const q = itemSearch.trim().toLowerCase();
+    // Ignore these chars in search: space, hyphen, dot, comma, ?, ;, { }, =, +, *, &, /, ~
+    const normalize = (s: string) =>
+      s.toLowerCase().replace(/[\s\-.,?;{}=\+*&\/~]/g, '');
+    const q = normalize(itemSearch.trim());
     return stockItemsList.filter((item) => {
-      const name = (item.NAME ?? '').trim().toLowerCase();
-      const alias = (item.ALIAS ?? '').trim().toLowerCase();
+      const name = normalize(item.NAME ?? '');
+      const alias = normalize(item.ALIAS ?? '');
       return name.includes(q) || alias.includes(q);
     });
   }, [stockItemsList, itemSearch]);
@@ -995,6 +1005,7 @@ export default function OrderEntry() {
     if (exactMatches.length === 1 && exactMatches[0].NAME) {
       // Unique match: select and go to item details
       const item = exactMatches[0];
+      const defaultQty = Number.isFinite(Number(transConfig.defaultQty)) ? Number(transConfig.defaultQty) : 0;
       setSelectedItem(item.NAME ?? '');
       setItemSearch('');
       setItemDropdownOpen(false);
@@ -1002,9 +1013,9 @@ export default function OrderEntry() {
       navigation.navigate('OrderEntryItemDetail', {
         item: {
           name: item.NAME ?? '',
-          qty: 1,
+          qty: defaultQty,
           rate: computeRateForItem(item, selectedLedger),
-          total: Number(computeRateForItem(item, selectedLedger)),
+          total: defaultQty * Number(computeRateForItem(item, selectedLedger)),
           unit: item.BASEUNITS ?? '',
           stockItem: item
         },
@@ -1012,6 +1023,7 @@ export default function OrderEntry() {
         isBatchWiseOn: isBatchWiseOnFromItem(item),
         viewOnly: route.params?.viewOnly,
         permissions,
+        defaultQty,
       });
     } else if (exactMatches.length > 1) {
       // Multiple matches: show all in dropdown
@@ -1237,7 +1249,7 @@ export default function OrderEntry() {
       return { subtotal, ledgerAmounts, gstOnOtherLedgers, grandTotal: subtotal, totalRounding };
     }
 
-    const companyState = ('').trim().toLowerCase();
+    const companyState = companyStateName.trim().toLowerCase();
     const customerStateRaw = ledgerField(selectedLedger, 'STATENAME', 'state', 'State');
     const customerState = (customerStateRaw === '-' ? '' : customerStateRaw).trim().toLowerCase();
     const isSameState = companyState === customerState || (!companyState && !customerState);
@@ -1268,7 +1280,16 @@ export default function OrderEntry() {
       if ((le.METHODTYPE ?? '').trim() !== 'As Flat Rate') continue;
       const name = (le.NAME ?? '').trim();
       if (!name) continue;
-      const amt = ledgerNum(le, 'CLASSRATE');
+      const rawAmt = ledgerNum(le, 'CLASSRATE');
+      const roundType = (le.ROUNDTYPE ?? 'Normal Rounding').trim();
+      let amt: number;
+      if (roundType === 'Upward Rounding') {
+        amt = Math.ceil(rawAmt);
+      } else if (roundType === 'Downward Rounding') {
+        amt = Math.floor(rawAmt);
+      } else {
+        amt = Math.round(rawAmt);
+      }
       ledgerAmounts[name] = amt;
       totalFlatRate += amt;
     }
@@ -1342,13 +1363,14 @@ export default function OrderEntry() {
         ledgerAmounts[name] = 0;
         continue;
       }
-      // Rate is percentage: RATEOFTAXCALCULATION (e.g. CGST/SGST split) or CLASSRATE (e.g. IGST: 5 = 5%)
       const rateFilter = ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE');
       let sum = 0;
+      let anyItemHasTax = false;
       for (let i = 0; i < orderItems.length; i++) {
         const itemGstPercent = orderItems[i].tax ?? 0;
         const taxable = itemTaxableAmounts[i] ?? 0;
         if (itemGstPercent <= 0) continue;
+        anyItemHasTax = true;
         const effectiveRate = duty === 'IGST' ? itemGstPercent : itemGstPercent / 2;
         if (rateFilter > 0) {
           const match = Math.abs((duty === 'IGST' ? itemGstPercent : itemGstPercent / 2) - rateFilter) <= 0.01;
@@ -1356,8 +1378,8 @@ export default function OrderEntry() {
         }
         sum += (taxable * effectiveRate) / 100;
       }
-      // When percentage is present but per-item calculation is 0 (e.g. items have no tax set), use ledger rate on total taxable base
-      if (sum === 0 && rateFilter > 0 && totalTaxableForGst > 0) {
+      // Fallback: only when NO items have any tax percentage set at all (not when items have tax but didn't match this rate filter)
+      if (sum === 0 && !anyItemHasTax && rateFilter > 0 && totalTaxableForGst > 0) {
         sum = (totalTaxableForGst * rateFilter) / 100;
       }
       ledgerAmounts[name] = sum;
@@ -1435,7 +1457,7 @@ export default function OrderEntry() {
     }
 
     return { subtotal, ledgerAmounts, gstOnOtherLedgers, grandTotal: finalGrandTotal, totalRounding };
-  }, [orderItems, selectedClassLedgers, ledgerValues, selectedLedger]);
+  }, [orderItems, selectedClassLedgers, ledgerValues, selectedLedger, companyStateName]);
 
   const handlePlaceOrder = useCallback(async () => {
     if (!selectedCustomer.trim()) {
@@ -1502,7 +1524,7 @@ export default function OrderEntry() {
             description: oi.description ?? '',
             attachdescription: (oi.attachmentLinks?.length ? oi.attachmentLinks.join('|') : '') ?? '',
           };
-          if (oi.godown != null && String(oi.godown).trim() !== '') itemPayload.godownname = String(oi.godown).trim();
+          if (oi.godown != null && String(oi.godown).trim() !== '' && oi.godown !== 'Any') itemPayload.godownname = String(oi.godown).trim();
           if (oi.batch != null && String(oi.batch).trim() !== '') itemPayload.batchname = String(oi.batch).trim();
           const dueDate = oiAny.dueDate;
           if (dueDate != null && String(dueDate).trim() !== '') itemPayload.orderduedate = String(dueDate).trim();
@@ -1836,7 +1858,6 @@ export default function OrderEntry() {
           item: oi,
           selectedLedger: selectedLedger ?? undefined,
           editOrderItem: { ...oi },
-          rateUnit: oi.rateUnit,
           isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
           viewOnly: route.params?.viewOnly,
           attachmentLinks: oi.attachmentLinks ?? [],
@@ -2040,59 +2061,59 @@ export default function OrderEntry() {
                 </View>
 
                 {!permissions.disable_attachment && (
-                <View style={[styles.draftAttachmentsSection, !selectedCustomer && styles.draftAttachmentsSectionDisabled]}>
-                  <View style={styles.draftAttachmentsHeader}>
-                    {/* Placeholder for complex vector icon, using multiple icons to simulate */}
-                    <View style={styles.draftAttachmentIconContainer}>
-                      <Icon name="paperclip" size={20} color={selectedCustomer ? '#1f3a89' : '#9ca3af'} />
-                    </View>
-                    <Text style={[styles.draftAttachmentsTitle, !selectedCustomer && styles.draftAttachmentsTitleDisabled]}>Attachments</Text>
-                  </View>
-
-                  {attachmentLinks.length > 0 ? attachmentLinks.map((link, idx) => {
-                    const uri = attachmentUris[idx] || link;
-                    const onViewAttachment = () => {
-                      if (!uri) return;
-                      const lower = uri.toLowerCase();
-                      const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image');
-                      if (isImage) setPreviewAttachmentUri(uri);
-                      else Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
-                    };
-                    return (
-                      <View key={idx} style={styles.draftAttachmentRow}>
-                        <TouchableOpacity style={{ flex: 1 }} onPress={onViewAttachment} disabled={!selectedCustomer} activeOpacity={0.7}>
-                          <Text style={[styles.draftAttachmentName, !selectedCustomer && { color: '#9ca3af' }, { color: selectedCustomer ? '#1f3a89' : undefined, textDecorationLine: 'underline' }]} numberOfLines={1}>
-                            Attachment #{idx + 1}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity disabled={!selectedCustomer} onPress={() => setDraftAttachmentDeleteIdx(idx)} hitSlop={8} activeOpacity={0.7}>
-                          <Icon name="trash-can-outline" size={24} color="#dc2626" />
-                        </TouchableOpacity>
+                  <View style={[styles.draftAttachmentsSection, !selectedCustomer && styles.draftAttachmentsSectionDisabled]}>
+                    <View style={styles.draftAttachmentsHeader}>
+                      {/* Placeholder for complex vector icon, using multiple icons to simulate */}
+                      <View style={styles.draftAttachmentIconContainer}>
+                        <Icon name="paperclip" size={20} color={selectedCustomer ? '#1f3a89' : '#9ca3af'} />
                       </View>
-                    );
-                  }) : (
-                    !uploadingAttachments && <Text style={{ fontSize: 14, color: '#9ca3af', paddingVertical: 8 }}>No attachments yet</Text>
-                  )}
-                  {uploadingAttachments && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 8 }}>
-                      <ActivityIndicator size="small" color="#1f3a89" />
-                      <Text style={{ fontSize: 14, color: '#1f3a89', fontFamily: 'Roboto' }}>Uploading...</Text>
+                      <Text style={[styles.draftAttachmentsTitle, !selectedCustomer && styles.draftAttachmentsTitleDisabled]}>Attachments</Text>
                     </View>
-                  )}
-                </View>
+
+                    {attachmentLinks.length > 0 ? attachmentLinks.map((link, idx) => {
+                      const uri = attachmentUris[idx] || link;
+                      const onViewAttachment = () => {
+                        if (!uri) return;
+                        const lower = uri.toLowerCase();
+                        const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image');
+                        if (isImage) setPreviewAttachmentUri(uri);
+                        else Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'));
+                      };
+                      return (
+                        <View key={idx} style={styles.draftAttachmentRow}>
+                          <TouchableOpacity style={{ flex: 1 }} onPress={onViewAttachment} disabled={!selectedCustomer} activeOpacity={0.7}>
+                            <Text style={[styles.draftAttachmentName, !selectedCustomer && { color: '#9ca3af' }, { color: selectedCustomer ? '#1f3a89' : undefined, textDecorationLine: 'underline' }]} numberOfLines={1}>
+                              Attachment #{idx + 1}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity disabled={!selectedCustomer} onPress={() => setDraftAttachmentDeleteIdx(idx)} hitSlop={8} activeOpacity={0.7}>
+                            <Icon name="trash-can-outline" size={24} color="#dc2626" />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    }) : (
+                      !uploadingAttachments && <Text style={{ fontSize: 14, color: '#9ca3af', paddingVertical: 8 }}>No attachments yet</Text>
+                    )}
+                    {uploadingAttachments && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 8 }}>
+                        <ActivityIndicator size="small" color="#1f3a89" />
+                        <Text style={{ fontSize: 14, color: '#1f3a89', fontFamily: 'Roboto' }}>Uploading...</Text>
+                      </View>
+                    )}
+                  </View>
                 )}
               </ScrollView>
 
               {!isKeyboardVisible && (
-                <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom - 8, 2), borderTopWidth: 1, borderTopColor: '#ffffff', backgroundColor: '#fff' }]}>
+                <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 8, 32), borderTopWidth: 1, borderTopColor: '#ffffff', backgroundColor: '#fff' }]}>
                   {!permissions.disable_attachment && (
-                  <TouchableOpacity style={[styles.footerAttachDraft, !selectedCustomer && styles.footerAttachDraftDisabled]} onPress={handleAttachment} disabled={!selectedCustomer || uploadingAttachments}>
-                    {uploadingAttachments ? (
-                      <ActivityIndicator size="small" color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
-                    ) : (
-                      <OrderEntryPaperclipIcon width={21} height={22} color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
-                    )}
-                  </TouchableOpacity>
+                    <TouchableOpacity style={[styles.footerAttachDraft, !selectedCustomer && styles.footerAttachDraftDisabled]} onPress={handleAttachment} disabled={!selectedCustomer || uploadingAttachments}>
+                      {uploadingAttachments ? (
+                        <ActivityIndicator size="small" color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
+                      ) : (
+                        <OrderEntryPaperclipIcon width={21} height={22} color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
+                      )}
+                    </TouchableOpacity>
                   )}
                   <TouchableOpacity
                     style={styles.footerClearAllDraft}
@@ -2404,11 +2425,6 @@ export default function OrderEntry() {
                                 <View style={styles.orderItemTop}>
                                   <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     <Text style={[styles.orderItemName, { flexShrink: 1 }]} numberOfLines={1}>{group.name}</Text>
-                                    {(group as { isAllocItem?: boolean }).isAllocItem ? (
-                                      <Text style={[styles.orderItemQty, { flexShrink: 0 }]}>
-                                        Qty: {group.totalQty ?? group.items.reduce((s, i) => s + Number(i.qty || 0), 0)}
-                                      </Text>
-                                    ) : null}
                                   </View>
                                   {!isExpanded ? (
                                     <TouchableOpacity
@@ -2426,8 +2442,7 @@ export default function OrderEntry() {
                                       {(() => {
                                         const isAlloc = (group as { isAllocItem?: boolean }).isAllocItem;
                                         if (isAlloc) {
-                                          const qty = group.totalQty ?? group.items.reduce((s, i) => s + Number(i.qty || 0), 0);
-                                          return <Text style={styles.orderItemQty}>Qty: {qty}</Text>;
+                                          return null;
                                         }
                                         const single = group.items.length === 1 ? group.items[0] : undefined;
                                         const first = group.items[0] as AddedOrderItemWithStock | undefined;
@@ -2521,7 +2536,6 @@ export default function OrderEntry() {
                                             godown: oi.godown,
                                             batch: oi.batch,
                                             description: oi.description,
-                                            rateUnit: oi.rateUnit,
                                             attachmentLinks: oi.attachmentLinks,
                                             attachmentUris: oi.attachmentUris,
                                           })),
@@ -2561,7 +2575,7 @@ export default function OrderEntry() {
                                       <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
                                     </TouchableOpacity>
                                   ) : null}
-                                  {permissions.show_itemdesc ? (
+                                  {(permissions.show_itemdesc || (group as { isAllocItem?: boolean }).isAllocItem) ? (
                                     <TouchableOpacity
                                       style={styles.orderItemMenuItem}
                                       onPress={() => {
@@ -2603,9 +2617,11 @@ export default function OrderEntry() {
                                       >
                                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                                           <View pointerEvents="none" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
-                                            <Text style={[styles.orderItemExpandedQty, { fontWeight: '700' }]}>
-                                              <Text style={{ color: '#6a7282' }}>Qty: </Text><Text style={{ color: '#000' }}>{oi.enteredQty || oi.qty}</Text>
-                                            </Text>
+                                            {!(group as { isAllocItem?: boolean }).isAllocItem ? (
+                                              <Text style={[styles.orderItemExpandedQty, { fontWeight: '700' }]}>
+                                                <Text style={{ color: '#6a7282' }}>Qty: </Text><Text style={{ color: '#000' }}>{oi.enteredQty || oi.qty}</Text>
+                                              </Text>
+                                            ) : null}
                                             {oi.dueDate != null && String(oi.dueDate).trim() !== '' ? (
                                               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
                                                 <Text style={styles.orderItemExpandedDue}>
@@ -2699,7 +2715,7 @@ export default function OrderEntry() {
                                                 <Text style={styles.orderItemMenuItemText}>Edit Due Date</Text>
                                               </TouchableOpacity>
                                             ) : null}
-                                            {permissions.show_itemdesc ? (
+                                            {(permissions.show_itemdesc || (group as { isAllocItem?: boolean }).isAllocItem) ? (
                                               <TouchableOpacity style={styles.orderItemMenuItem} onPress={() => handleOrderItemEditDescription(oi)} activeOpacity={0.7}>
                                                 <Text style={styles.orderItemMenuItemText}>Edit description</Text>
                                               </TouchableOpacity>
@@ -2721,191 +2737,211 @@ export default function OrderEntry() {
               </View>
             </>
           )}
+
+
+          {/* LEDGER DETAILS - fixed above Grand Total, inside KAV so adjustResize lifts it above keyboard */}
+          {!isDraftMode && orderItems.length > 0 ? (
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? (insets.top || 0) : 0}
+            >
+              <View style={[styles.ledgerDetailsWrap, isKeyboardVisible && { paddingBottom: 280 }]}>
+                <TouchableOpacity
+                  style={styles.ledgerDetailsHeader}
+                  onPress={() => setLedgerDetailsExpanded((e) => !e)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.ledgerDetailsHeaderTitle}>LEDGER DETAILS</Text>
+                  <Icon
+                    name={ledgerDetailsExpanded ? 'chevron-down' : 'chevron-right'}
+                    size={22}
+                    color="#fff"
+                    style={styles.ledgerDetailsChevron}
+                  />
+                </TouchableOpacity>
+                {ledgerDetailsExpanded ? (
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    automaticallyAdjustKeyboardInsets={true}
+                    style={{ maxHeight: 240 }}
+                    contentContainerStyle={styles.ledgerDetailsContent}
+                  >
+                    <View style={styles.ledgerDetailsRow}>
+                      <Text style={styles.ledgerDetailsLabel}>Subtotal</Text>
+                      <Text style={styles.ledgerDetailsAmt}>₹{calculatedLedgerAmounts.subtotal.toFixed(2)}</Text>
+                    </View>
+                    {selectedClassLedgers.map((le, idx) => {
+                      const name = (le.NAME ?? '').trim() || 'Ledger';
+                      const methodType = (le.METHODTYPE ?? '').trim();
+                      const amount = calculatedLedgerAmounts.ledgerAmounts[name] ?? 0;
+                      const gstOnThis = calculatedLedgerAmounts.gstOnOtherLedgers[name] ?? 0;
+                      const isUserDefined = methodType === 'As User Defined Value';
+                      const showEditableInputs = isUserDefined;
+                      return (
+                        <View key={`${selectedClass}-${name}-${idx}`}>
+                          <View style={styles.ledgerDetailsRow}>
+                            <Text style={styles.ledgerDetailsLabel} numberOfLines={1}>{name}</Text>
+                            {showEditableInputs ? (
+                              <>
+                                <View style={styles.ledgerDetailsInputWrap}>
+                                  <TextInput
+                                    style={styles.ledgerDetailsInputSmall}
+                                    value={
+                                      ledgerPctEditing[name] !== undefined
+                                        ? ledgerPctEditing[name]
+                                        : calculatedLedgerAmounts.subtotal > 0 && amount !== 0
+                                          ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
+                                          : ''
+                                    }
+                                    onFocus={() => {
+                                      const currentPct =
+                                        calculatedLedgerAmounts.subtotal > 0 && amount !== 0
+                                          ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
+                                          : '';
+                                      setLedgerPctEditing((prev) => ({ ...prev, [name]: currentPct }));
+                                    }}
+                                    onBlur={() => {
+                                      setLedgerPctEditing((prev) => {
+                                        const next = { ...prev };
+                                        delete next[name];
+                                        return next;
+                                      });
+                                    }}
+                                    onChangeText={(pctStr) => {
+                                      setLedgerPctEditing((prev) => ({ ...prev, [name]: pctStr }));
+                                      const pct = parseFloat(pctStr);
+                                      if (!Number.isNaN(pct) && calculatedLedgerAmounts.subtotal > 0) {
+                                        const amt = (calculatedLedgerAmounts.subtotal * pct) / 100;
+                                        setLedgerValues((prev) => ({ ...prev, [name]: amt.toFixed(2) }));
+                                      }
+                                    }}
+                                    keyboardType="decimal-pad"
+                                    placeholder="0.00"
+                                  />
+                                  <Text style={styles.ledgerDetailsPctSuffix}>%</Text>
+                                </View>
+                                <View style={styles.ledgerDetailsInputWrap}>
+                                  <Text style={styles.ledgerDetailsRupee}>₹</Text>
+                                  <TextInput
+                                    style={styles.ledgerDetailsInputAmt}
+                                    value={
+                                      ledgerValues[name] !== undefined && ledgerValues[name] !== ''
+                                        ? ledgerValues[name]
+                                        : (amount !== 0 ? amount.toFixed(2) : '')
+                                    }
+                                    onChangeText={(txt) => setLedgerValues((prev) => ({ ...prev, [name]: txt }))}
+                                    keyboardType="decimal-pad"
+                                    placeholder="0.00"
+                                  />
+                                </View>
+                              </>
+                            ) : (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
+                                {methodType !== 'As Total Amount Rounding' ? (
+                                  <Text style={styles.ledgerDetailsPct}>
+                                    {(() => {
+                                      const formatPct = (n: number) => {
+                                        if (!Number.isFinite(n)) return '0';
+                                        if (n === Math.round(n)) return String(Math.round(n));
+                                        return n.toFixed(2).replace(/\.?0+$/, '');
+                                      };
+                                      if (methodType === 'As Flat Rate') {
+                                        if (calculatedLedgerAmounts.subtotal > 0 && amount !== 0) {
+                                          return `${formatPct((amount / calculatedLedgerAmounts.subtotal) * 100)}%`;
+                                        }
+                                        return '';
+                                      }
+                                      const configRate = methodType === 'GST'
+                                        ? (ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE'))
+                                        : ledgerNum(le, 'CLASSRATE');
+                                      if (configRate > 0) return `${formatPct(configRate)}%`;
+                                      if (configRate === 0 && methodType === 'GST') return '';
+                                      if (calculatedLedgerAmounts.subtotal > 0 && amount !== 0) {
+                                        return `${formatPct((amount / calculatedLedgerAmounts.subtotal) * 100)}%`;
+                                      }
+                                      return '';
+                                    })()}
+                                  </Text>
+                                ) : null}
+                                <Text style={styles.ledgerDetailsAmt}>
+                                  {methodType === 'As Total Amount Rounding'
+                                    ? (amount < 0 ? `-₹${Math.abs(amount).toFixed(2)}` : ` ₹${amount.toFixed(2)}`)
+                                    : `₹${amount.toFixed(2)}`}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          {gstOnThis > 0 ? (
+                            <View style={[styles.ledgerDetailsRow, { paddingLeft: 12, marginTop: -4 }]}>
+                              <Text style={[styles.ledgerDetailsLabel, { fontSize: 12, color: LABEL_GRAY }]}>
+                                GST on {name}:
+                              </Text>
+                              <Text style={[styles.ledgerDetailsAmt, { fontSize: 12, color: LABEL_GRAY }]}>
+                                ₹{gstOnThis.toFixed(2)}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                ) : null}
+              </View>
+            </KeyboardAvoidingView>
+          ) : null}
+          {/* Grand Total: inside KAV so it stays above keyboard */}
+          {!isDraftMode && orderItems.length > 0 && (
+            <View style={styles.grandTotalBar}>
+              <Text style={styles.grandTotalBarLabel}>Grand Total</Text>
+              <Text style={styles.grandTotalBarAmt}>₹{calculatedLedgerAmounts.grandTotal.toFixed(2)}</Text>
+            </View>
+          )}
+
+
         </View>
       </KeyboardAvoidingView>
 
-      {/* LEDGER DETAILS + Grand Total: fixed at bottom above footer (not scrolled up with content). */}
-      {!isDraftMode && orderItems.length > 0 ? (
-        <>
-          <View style={styles.ledgerDetailsWrap}>
-            <TouchableOpacity
-              style={styles.ledgerDetailsHeader}
-              onPress={() => setLedgerDetailsExpanded((e) => !e)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.ledgerDetailsHeaderTitle}>LEDGER DETAILS</Text>
-              <Icon
-                name={ledgerDetailsExpanded ? 'chevron-down' : 'chevron-right'}
-                size={22}
-                color="#fff"
-                style={styles.ledgerDetailsChevron}
-              />
-            </TouchableOpacity>
-            {ledgerDetailsExpanded ? (
-              <View style={styles.ledgerDetailsContent}>
-                <View style={styles.ledgerDetailsRow}>
-                  <Text style={styles.ledgerDetailsLabel}>Subtotal</Text>
-                  <Text style={styles.ledgerDetailsAmt}>₹{calculatedLedgerAmounts.subtotal.toFixed(2)}</Text>
-                </View>
-                {selectedClassLedgers.map((le, idx) => {
-                  const name = (le.NAME ?? '').trim() || 'Ledger';
-                  const methodType = (le.METHODTYPE ?? '').trim();
-                  const amount = calculatedLedgerAmounts.ledgerAmounts[name] ?? 0;
-                  const gstOnThis = calculatedLedgerAmounts.gstOnOtherLedgers[name] ?? 0;
-                  const isUserDefined = methodType === 'As User Defined Value';
-                  const isEditableDiscount = isEditableDiscountLedger(name);
-                  const showEditableInputs = isUserDefined || isEditableDiscount;
-                  return (
-                    <View key={`${selectedClass}-${name}-${idx}`}>
-                      <View style={styles.ledgerDetailsRow}>
-                        <Text style={styles.ledgerDetailsLabel} numberOfLines={1}>{name}</Text>
-                        {showEditableInputs ? (
-                          <>
-                            <View style={styles.ledgerDetailsInputWrap}>
-                              <TextInput
-                                style={styles.ledgerDetailsInputSmall}
-                                value={
-                                  ledgerPctEditing[name] !== undefined
-                                    ? ledgerPctEditing[name]
-                                    : calculatedLedgerAmounts.subtotal > 0 && amount > 0
-                                      ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
-                                      : ''
-                                }
-                                onFocus={() => {
-                                  const currentPct =
-                                    calculatedLedgerAmounts.subtotal > 0 && amount > 0
-                                      ? ((amount / calculatedLedgerAmounts.subtotal) * 100).toFixed(2)
-                                      : '';
-                                  setLedgerPctEditing((prev) => ({ ...prev, [name]: currentPct }));
-                                }}
-                                onBlur={() => {
-                                  setLedgerPctEditing((prev) => {
-                                    const next = { ...prev };
-                                    delete next[name];
-                                    return next;
-                                  });
-                                }}
-                                onChangeText={(pctStr) => {
-                                  setLedgerPctEditing((prev) => ({ ...prev, [name]: pctStr }));
-                                  const pct = parseFloat(pctStr);
-                                  if (!Number.isNaN(pct) && calculatedLedgerAmounts.subtotal > 0) {
-                                    const amt = (calculatedLedgerAmounts.subtotal * pct) / 100;
-                                    setLedgerValues((prev) => ({ ...prev, [name]: amt.toFixed(2) }));
-                                  }
-                                }}
-                                keyboardType="decimal-pad"
-                                placeholder="0.00"
-                              />
-                              <Text style={styles.ledgerDetailsPctSuffix}>%</Text>
-                            </View>
-                            <View style={styles.ledgerDetailsInputWrap}>
-                              <Text style={styles.ledgerDetailsRupee}>₹</Text>
-                              <TextInput
-                                style={styles.ledgerDetailsInputAmt}
-                                value={
-                                  ledgerValues[name] !== undefined && ledgerValues[name] !== ''
-                                    ? ledgerValues[name]
-                                    : isEditableDiscount
-                                      ? (amount > 0 ? amount.toFixed(2) : '')
-                                      : ''
-                                }
-                                onChangeText={(txt) => setLedgerValues((prev) => ({ ...prev, [name]: txt }))}
-                                keyboardType="decimal-pad"
-                                placeholder="0.00"
-                              />
-                            </View>
-                          </>
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
-                            {methodType !== 'As Total Amount Rounding' ? (
-                              <Text style={styles.ledgerDetailsPct} numberOfLines={1}>
-                                {(() => {
-                                  const formatPct = (n: number) => {
-                                    if (!Number.isFinite(n)) return '0';
-                                    if (n === Math.round(n)) return String(Math.round(n));
-                                    return n.toFixed(2).replace(/\.?0+$/, '');
-                                  };
-                                  const configRate = methodType === 'GST'
-                                    ? (ledgerNum(le, 'RATEOFTAXCALCULATION') || ledgerNum(le, 'CLASSRATE'))
-                                    : ledgerNum(le, 'CLASSRATE');
-                                  if (configRate > 0) return `${formatPct(configRate)}%`;
-                                  if (calculatedLedgerAmounts.subtotal > 0 && amount > 0) {
-                                    return `${formatPct((amount / calculatedLedgerAmounts.subtotal) * 100)}%`;
-                                  }
-                                  return configRate === 0 ? '0%' : `${formatPct(configRate)}%`;
-                                })()}
-                              </Text>
-                            ) : null}
-                            <Text style={styles.ledgerDetailsAmt} numberOfLines={1}>
-                              {methodType === 'As Total Amount Rounding'
-                                ? (amount < 0 ? `-₹${Math.abs(amount).toFixed(2)}` : ` ₹${amount.toFixed(2)}`)
-                                : `₹${amount.toFixed(2)}`}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      {gstOnThis > 0 ? (
-                        <View style={[styles.ledgerDetailsRow, { paddingLeft: 12, marginTop: -4 }]}>
-                          <Text style={[styles.ledgerDetailsLabel, { fontSize: 12, color: LABEL_GRAY }]}>
-                            GST on {name}:
-                          </Text>
-                          <Text style={[styles.ledgerDetailsAmt, { fontSize: 12, color: LABEL_GRAY }]}>
-                            ₹{gstOnThis.toFixed(2)}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-          <View style={styles.grandTotalBar}>
-            <Text style={styles.grandTotalBarLabel}>Grand Total</Text>
-            <Text style={styles.grandTotalBarAmt}>₹{calculatedLedgerAmounts.grandTotal.toFixed(2)}</Text>
-          </View>
-        </>
-      ) : null}
-
-      {/* Footer - OrdEnt1: bg white, gap-2.5 px-4. Attach #f1c74b w-10 rounded-[100px]. Add #0e172b, Place #39b57c, text 15px font-medium */}
-      {!isDraftMode && !isKeyboardVisible && (
-        <>
-          <View style={styles.footerSpacer} />
-          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom - 8, 2) }]}>
-            {!permissions.disable_attachment && (
-            <TouchableOpacity
-              style={[styles.footerAttach, attachmentsDisabledNonDraft && styles.footerAttachDisabled]}
-              onPress={handleAttachment}
-              disabled={attachmentsDisabledNonDraft || uploadingAttachments}
-              accessibilityLabel="Attach file"
-            >
-              {uploadingAttachments ? (
-                <ActivityIndicator size="small" color={!attachmentsDisabledNonDraft ? '#0E172B' : '#9ca3af'} />
-              ) : (
-                <OrderEntryPaperclipIcon width={21} height={22} color={!attachmentsDisabledNonDraft ? '#0E172B' : '#9ca3af'} />
+      {/* Footer */}
+      {
+        !isDraftMode && !isKeyboardVisible && (
+          <>
+            <View style={styles.footerSpacer} />
+            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 8, 32) }]}>
+              {!permissions.disable_attachment && (
+                <TouchableOpacity
+                  style={[styles.footerAttach, attachmentsDisabledNonDraft && styles.footerAttachDisabled]}
+                  onPress={handleAttachment}
+                  disabled={attachmentsDisabledNonDraft || uploadingAttachments}
+                  accessibilityLabel="Attach file"
+                >
+                  {uploadingAttachments ? (
+                    <ActivityIndicator size="small" color={!attachmentsDisabledNonDraft ? '#0E172B' : '#9ca3af'} />
+                  ) : (
+                    <OrderEntryPaperclipIcon width={21} height={22} color={!attachmentsDisabledNonDraft ? '#0E172B' : '#9ca3af'} />
+                  )}
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
-              <Text style={styles.footerBtnText}>{strings.add_details}</Text>
-            </TouchableOpacity>
-            {!route.params?.viewOnly && (
-              <TouchableOpacity
-                style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
-                onPress={handlePlaceOrder}
-                activeOpacity={0.8}
-                disabled={placeOrderLoading}
-              >
-                {placeOrderLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.footerBtnText}>{strings.place_order}</Text>
-                )}
+              <TouchableOpacity style={styles.footerAddDetails} onPress={handleAddDetails} activeOpacity={0.8}>
+                <Text style={styles.footerBtnText}>{strings.add_details}</Text>
               </TouchableOpacity>
-            )}
-          </View>
-        </>
-      )}
+              {!route.params?.viewOnly && (
+                <TouchableOpacity
+                  style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
+                  onPress={handlePlaceOrder}
+                  activeOpacity={0.8}
+                  disabled={placeOrderLoading}
+                >
+                  {placeOrderLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.footerBtnText}>{strings.place_order}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        )
+      }
 
       {/* Add Details – bottom-to-up slide (Figma 3067-64055, 3067-64383, 3067-63666) */}
       <Modal
@@ -3705,6 +3741,7 @@ export default function OrderEntry() {
         onClose={() => setStockBreakdownItem(null)}
         showGodown={permissions.show_godownbrkup}
         showCompany={permissions.show_multicobrkup}
+        showStockAsYesNo={permissions.show_ClsStck_yesno}
       />
 
       <AppSidebar
@@ -3781,14 +3818,17 @@ export default function OrderEntry() {
                     setCustomerSearch('');
                     // In quick (draft) mode: do not auto-select voucher type/class or open items dropdown
                     if (isDraftMode) return;
-                    // Auto-select first voucher type and class, then show items dropdown
+                    // Auto-select voucher type and class (prioritizing transConfig default)
                     let list = voucherTypesList;
                     if (list.length === 0) {
                       setVoucherTypeLoading(true);
                       list = await fetchVoucherTypesAsync();
                       setVoucherTypeLoading(false);
                     }
-                    const first = list[0];
+                    const defaultType = transConfig?.vouchertype?.trim();
+                    const defaultClass = transConfig?.class?.trim();
+                    const matchedVoucher = defaultType ? list.find((v) => (v.NAME ?? '').trim().toLowerCase() === defaultType.toLowerCase()) : undefined;
+                    const first = matchedVoucher || list[0];
                     if (first) {
                       const name = (first.NAME ?? '').trim();
                       setSelectedVoucherType(name);
@@ -3798,7 +3838,14 @@ export default function OrderEntry() {
                       const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
                       const hasClasses = classNames.length > 0;
                       setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
-                      setSelectedClass(hasClasses ? classNames[0] : '');
+
+                      let clsToSelect = hasClasses ? classNames[0] : '';
+                      if (hasClasses && defaultClass) {
+                        const matchedClass = classNames.find(c => c.toLowerCase() === defaultClass.toLowerCase());
+                        if (matchedClass) clsToSelect = matchedClass;
+                      }
+
+                      setSelectedClass(clsToSelect);
                       setItemDropdownOpen(true);
                     }
                   }}
@@ -4006,12 +4053,13 @@ export default function OrderEntry() {
                       setItemSearch('');
                       setItemDropdownOpen(false);
                       setScannedExactMatches(null);
+                      const defaultQty = Number.isFinite(Number(transConfig.defaultQty)) ? Number(transConfig.defaultQty) : 0;
                       navigation.navigate('OrderEntryItemDetail', {
                         item: {
                           name: item.NAME ?? '',
-                          qty: 1,
+                          qty: defaultQty,
                           rate: computeRateForItem(item, selectedLedger),
-                          total: Number(computeRateForItem(item, selectedLedger)),
+                          total: defaultQty * Number(computeRateForItem(item, selectedLedger)),
                           unit: item.BASEUNITS ?? '',
                           stockItem: item
                         },
@@ -4019,6 +4067,7 @@ export default function OrderEntry() {
                         isBatchWiseOn: isBatchWiseOnFromItem(item),
                         viewOnly: route.params?.viewOnly,
                         permissions,
+                        defaultQty,
                       });
                     }}
                     activeOpacity={0.7}
@@ -4031,7 +4080,7 @@ export default function OrderEntry() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
                           <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
                           <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
-                            ₹{deobfuscatePrice((item as any).STDPRICE ?? (item as any).stdprice ?? null)}
+                            ₹{computeRateForItem(item, selectedLedger)}
                           </Text>
                         </View>
                       )}
@@ -4724,7 +4773,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingVertical: 10,
     paddingHorizontal: 24,
-    minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -5131,7 +5179,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     fontSize: 14,
     color: TEXT_ROW,
-    width: 36,
+    minWidth: 45,
     textAlign: 'right',
     flexShrink: 0,
   },

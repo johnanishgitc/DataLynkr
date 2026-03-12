@@ -1,9 +1,10 @@
 import React, { createContext, useContext, ReactNode } from 'react';
-import { useUserAccess, type ModuleAccess, type PlaceOrderPermissions } from '../hooks/useUserAccess';
+import { useUserAccess, type ModuleAccess, type PlaceOrderPermissions, type PlaceOrderTransConfig } from '../hooks/useUserAccess';
 
 type ModuleAccessContextValue = {
     moduleAccess: ModuleAccess;
     permissions: PlaceOrderPermissions;
+    transConfig: PlaceOrderTransConfig;
     loading: boolean;
 };
 
@@ -11,9 +12,9 @@ const ModuleAccessContext = createContext<ModuleAccessContextValue | null>(null)
 
 /** Provides module-level access flags and place-order permissions to the whole tab tree. */
 export function ModuleAccessProvider({ children }: { children: ReactNode }) {
-    const { moduleAccess, permissions, loading } = useUserAccess();
+    const { moduleAccess, permissions, transConfig, loading } = useUserAccess();
     return (
-        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, loading }}>
+        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, transConfig, loading }}>
             {children}
         </ModuleAccessContext.Provider>
     );
@@ -36,6 +37,7 @@ export function useModuleAccess(): ModuleAccessContextValue {
                 disable_attachment: false,
                 enable_batchGodown: false,
             },
+            transConfig: {},
             loading: false,
         };
     }
