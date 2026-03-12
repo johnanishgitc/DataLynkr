@@ -45,6 +45,16 @@ export type PlaceOrderPermissions = {
     enable_batchGodown: boolean;
 };
 
+/**
+ * Transaction configuration for place_order from the API.
+ */
+export type PlaceOrderTransConfig = {
+    vouchertype?: string;
+    class?: string;
+    /** Default quantity for new items in OrderEntryItemDetail (from configuration/permissions, e.g. permission_key "def_qty"). */
+    defaultQty?: number;
+};
+
 /** Fallback when permissions are not available (e.g. OrderEntryItemDetail using params from OrderEntry). All restricted. */
 export const DEFAULT_PLACE_ORDER_PERMISSIONS: PlaceOrderPermissions = {
     show_rateamt_Column: false,
@@ -119,6 +129,7 @@ const MODULE_NAME_MAP: Record<string, string> = {
 type UseUserAccessReturn = {
     permissions: PlaceOrderPermissions;
     moduleAccess: ModuleAccess;
+    transConfig: PlaceOrderTransConfig;
     loading: boolean;
     refresh: () => void;
 };
@@ -130,6 +141,7 @@ type UseUserAccessReturn = {
 export function useUserAccess(): UseUserAccessReturn {
     const [permissions, setPermissions] = useState<PlaceOrderPermissions>(LOADING_PERMISSIONS);
     const [moduleAccess, setModuleAccess] = useState<ModuleAccess>(DEFAULT_MODULE_ACCESS);
+    const [transConfig, setTransConfig] = useState<PlaceOrderTransConfig>({});
     const [loading, setLoading] = useState(true);
     const [refreshKey, setRefreshKey] = useState(0);
 
@@ -170,6 +182,38 @@ export function useUserAccess(): UseUserAccessReturn {
                 const tallyLoc = data?.tally_location as Record<string, unknown> | undefined;
                 const isOwner = toBool(accessSummary?.is_owner ?? tallyLoc?.is_owner ?? data?.is_owner);
 
+                // --- trans_config extraction + default quantity from configuration (if present) ---
+                const transConfigArr = (data?.trans_config ?? []) as Array<Record<string, unknown>>;
+                let pOrderTransConfig: PlaceOrderTransConfig = {};
+                let defaultQty: number | undefined;
+
+                if (transConfigArr.length > 0) {
+                    const firstConfig = transConfigArr[0];
+
+                    // Existing vouchertype/class extraction from place_order[0]
+                    if (Array.isArray((firstConfig as any)?.place_order) && (firstConfig as any).place_order.length > 0) {
+                        const poConfigArr = (firstConfig as any).place_order as Array<Record<string, unknown>>;
+                        const poConfig = poConfigArr[0] ?? {};
+                        pOrderTransConfig = {
+                            vouchertype: poConfig?.vouchertype as string | undefined,
+                            class: poConfig?.class as string | undefined,
+                        };
+
+                        // Try to find a configuration entry with key/permission_key "def_qty" and a numeric permission_value/value.
+                        for (const cfg of poConfigArr) {
+                            const key = String((cfg as any).permission_key ?? (cfg as any).key ?? '').trim();
+                            if (key === 'def_qty') {
+                                const rawVal = (cfg as any).permission_value ?? (cfg as any).value;
+                                const num = rawVal != null ? Number(rawVal) : NaN;
+                                if (!Number.isNaN(num)) {
+                                    defaultQty = num;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // --- Module-level access ---
                 const modAccess: ModuleAccess = { ...DEFAULT_MODULE_ACCESS };
                 for (const mod of modules) {
@@ -196,6 +240,22 @@ export function useUserAccess(): UseUserAccessReturn {
                         const pName = String(p.permission_name ?? p.permission_key ?? '').trim();
                         if (pName) {
                             permMap[pName] = toBool(p.is_granted ?? p.granted);
+                        }
+
+                        // Also allow default quantity to be configured via a permission entry:
+                        // {
+                        //   "permission_key": "def_qty",
+                        //   "display_name": "Set Default Qty Value",
+                        //   "sort_order": "180",
+                        //   "granted": true,
+                        //   "permission_value": "3"
+                        // }
+                        if (pName === 'def_qty' && defaultQty === undefined) {
+                            const rawVal = (p as any).permission_value ?? (p as any).value;
+                            const num = rawVal != null ? Number(rawVal) : NaN;
+                            if (!Number.isNaN(num)) {
+                                defaultQty = num;
+                            }
                         }
                     }
 
@@ -225,6 +285,14 @@ export function useUserAccess(): UseUserAccessReturn {
                     // place_order module not found in response: lock everything down.
                     if (!cancelled) setPermissions({ ...LOADING_PERMISSIONS, show_ClsStck_yesno: false, show_itemdesc: false, show_itemshasqty: false });
                 }
+
+                // Finally, publish transaction configuration including default quantity (if any).
+                if (!cancelled) {
+                    setTransConfig({
+                        ...pOrderTransConfig,
+                        defaultQty,
+                    });
+                }
             } catch (err) {
                 console.warn('[useUserAccess] Failed to fetch permissions', err);
             } finally {
@@ -237,5 +305,5 @@ export function useUserAccess(): UseUserAccessReturn {
         };
     }, [refreshKey]);
 
-    return { permissions, moduleAccess, loading, refresh };
+    return { permissions, moduleAccess, transConfig, loading, refresh };
 }

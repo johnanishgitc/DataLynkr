@@ -160,6 +160,7 @@ function MainTabsInner() {
           tabBarIcon: ({ focused }) => <TabIcon name="ledger" focused={focused} />,
         }}
       />
+      {/* Approvals tab commented out – re-enable when requested
       <Tab.Screen
         name="ApprovalsTab"
         component={ApprovalsStack}
@@ -168,6 +169,7 @@ function MainTabsInner() {
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
         }}
       />
+      */}
       <Tab.Screen
         name="SummaryTab"
         component={SummaryStack}

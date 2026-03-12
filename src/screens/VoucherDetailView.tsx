@@ -61,6 +61,7 @@ import apiService from '../api/client';
 import RNFS from 'react-native-fs';
 import FileViewer from 'react-native-file-viewer';
 import Share, { Social } from 'react-native-share';
+import { SharePopup, type ShareOptionId } from '../components/SharePopup';
 import { strings } from '../constants/strings';
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetailView'>;
@@ -642,8 +643,18 @@ export default function VoucherDetailView() {
 
   const openShareMenu = () => setShareMenuVisible(true);
 
+  const handleShareOption = (optionId: ShareOptionId) => {
+    setShareMenuVisible(false);
+    if (optionId === 'download') {
+      onShareDownload();
+    } else if (optionId === 'whatsapp') {
+      onShareWhatsApp();
+    } else if (optionId === 'mail') {
+      onShareMail();
+    }
+  };
+
   const onShareDownload = async () => {
-    closeShareMenu();
     if (pdfLoading) return;
     setPdfLoading(true);
     try {
@@ -682,7 +693,7 @@ export default function VoucherDetailView() {
   };
 
   const onShareWhatsApp = async () => {
-    closeShareMenu();
+    if (pdfLoading) return;
     Alert.alert('WhatsApp', 'Share PDF or share link?', [
       {
         text: 'Cancel',
@@ -862,49 +873,13 @@ export default function VoucherDetailView() {
         </View>
       </Modal>
 
-      {/* Share dropdown: Download, WhatsApp, Mail (Tally PDF) */}
-      <Modal
+      {/* Share popup: WhatsApp, Mail, Download (same style as Order Success / Ledger share) */}
+      <SharePopup
         visible={shareMenuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeShareMenu}
-      >
-        <View style={styles.menuWrapper}>
-          <TouchableOpacity
-            style={styles.menuOverlay}
-            activeOpacity={1}
-            onPress={closeShareMenu}
-          />
-          <View style={[styles.menuDropdown, { top: dropdownTop }]}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={onShareDownload}
-              activeOpacity={0.7}
-              disabled={pdfLoading}
-            >
-              <Text style={styles.menuItemText}>
-                {pdfLoading ? 'Preparing PDF…' : 'Download'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={onShareWhatsApp}
-              activeOpacity={0.7}
-              disabled={pdfLoading}
-            >
-              <Text style={styles.menuItemText}>WhatsApp</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={onShareMail}
-              activeOpacity={0.7}
-              disabled={pdfLoading}
-            >
-              <Text style={styles.menuItemText}>Mail</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        onClose={closeShareMenu}
+        onOptionClick={handleShareOption}
+        variant="voucher"
+      />
 
       <Modal
         visible={menuVisible}

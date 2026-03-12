@@ -122,6 +122,7 @@ export default function OrderEntryItemDetail() {
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntryItemDetail'>>();
   const { setFooterCollapseValue } = useScroll();
   const item = route.params?.item;
+  const defaultQtyFromRoute = route.params?.defaultQty;
   const selectedLedger = route.params?.selectedLedger ?? null;
   const editOrderItem = route.params?.editOrderItem ?? null;
   const editOrderItems = route.params?.editOrderItems ?? null;
@@ -159,10 +160,12 @@ export default function OrderEntryItemDetail() {
   const fromPl = rateFromPriceLevel(item, selectedLedger);
   const defaultPer = itemPer(item, selectedLedger, fromPl);
 
+  const initialDefaultQty = Number.isFinite(Number(defaultQtyFromRoute)) ? Number(defaultQtyFromRoute) : 0;
+
   /** UOM: user-facing quantity string (e.g. "10 box", "2 LTR 500 ML"). When no UOM config, same as numeric qty. */
-  const [quantityInput, setQuantityInput] = useState('1');
+  const [quantityInput, setQuantityInput] = useState(String(initialDefaultQty));
   /** UOM: quantity in base units (for amount calc and line items). */
-  const [itemQuantity, setItemQuantity] = useState(1);
+  const [itemQuantity, setItemQuantity] = useState(initialDefaultQty);
   const [rate, setRate] = useState(defaultRate);
   const [per, setPer] = useState(defaultPer);
   const [discount, setDiscount] = useState(defaultDiscount);
@@ -172,7 +175,8 @@ export default function OrderEntryItemDetail() {
   const [value, setValue] = useState(() => {
     const r = typeof defaultRate === 'number' ? defaultRate : parseFloat(String(defaultRate)) || 0;
     const d = Math.max(0, Math.min(100, typeof defaultDiscount === 'number' ? defaultDiscount : parseFloat(String(defaultDiscount)) || 0));
-    const total = 1 * r * (1 - d / 100);
+    const qty = initialDefaultQty;
+    const total = qty * r * (1 - d / 100);
     return Number.isFinite(total) ? total.toFixed(2) : '0';
   });
   /** Units array from api/tally/stockitem (for UOM parsing and display). */
@@ -199,7 +203,7 @@ export default function OrderEntryItemDetail() {
   const [godown, setGodown] = useState('');
   const [batch, setBatch] = useState('');
   const [godownDropdownOpen, setGodownDropdownOpen] = useState(false);
-  const [godownOptions, setGodownOptions] = useState<string[]>([]);
+  const [godownOptions, setGodownOptions] = useState<{ NAME: string; CLOSINGSTOCK: number }[]>([]);
   const [batchDropdownOpen, setBatchDropdownOpen] = useState(false);
   const [batchDataList, setBatchDataList] = useState<BatchDataItem[]>([]);
   const [selectedBatchData, setSelectedBatchData] = useState<BatchDataItem | null>(null);
@@ -213,7 +217,8 @@ export default function OrderEntryItemDetail() {
   const godownBatchRowRef = useRef<View>(null);
   const perFieldRef = useRef<View>(null);
   const qtyInputRef = useRef<TextInput>(null);
-  const [dropdownAnchor, setDropdownAnchor] = useState({ top: 0, left: 16, width: 0 });
+  /** Set when user clicks Update Batch so that Update Cart uses line item data (form is cleared after Update Batch). */
+  const lastUpdateWasBatchRef = useRef(false);
   const [perDropdownOpen, setPerDropdownOpen] = useState(false);
   const [perDropdownAnchor, setPerDropdownAnchor] = useState({ top: 0, left: 16, width: 0 });
   /** After Add Item is clicked, rate is locked for subsequent adds on this screen (still editable when updating a line). */
@@ -290,8 +295,8 @@ export default function OrderEntryItemDetail() {
 
     if (!editOrderItem && !(editOrderItems != null && editOrderItems.length > 0)) {
       const baseUnit = config?.BASEUNITS ?? '';
-      setQuantityInput(baseUnit ? `1 ${baseUnit}` : '1');
-      setItemQuantity(1);
+      setQuantityInput(baseUnit ? `${initialDefaultQty} ${baseUnit}` : String(initialDefaultQty));
+      setItemQuantity(initialDefaultQty);
       setCustomConversion(null);
       setCustomAddlQty(null);
       setCompoundBaseQty(null);
@@ -474,22 +479,36 @@ export default function OrderEntryItemDetail() {
   }, [item?.stockItem?.MASTERID ?? item?.name ?? null, selectedLedger, editOrderItem, editOrderItems]);
 
   useEffect(() => {
+    if (!name?.trim()) return;
     let cancelled = false;
     (async () => {
       const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
       if (!t || !c || !g || cancelled) return;
       try {
-        const { data } = await apiService.getGodownList({ tallyloc_id: t, company: c, guid: g });
+        const { data } = await apiService.getGodownStock({ tallyloc_id: t, company: c, guid: g, item: name.trim() });
         if (cancelled) return;
-        const list = data?.godownData ?? [];
-        const names = list.map((row) => String(row?.GodownName ?? '').trim()).filter(Boolean);
-        setGodownOptions(names);
+        const list = (data?.godownStocks ?? []) as { NAME?: string; CLOSINGSTOCK?: number }[];
+        const rows = list
+          .map((row) => ({ NAME: String(row?.NAME ?? '').trim(), CLOSINGSTOCK: Number(row?.CLOSINGSTOCK ?? 0) }))
+          .filter((row) => row.NAME);
+        if (rows.length > 0) {
+          setGodownOptions(rows);
+          return;
+        }
+        // Fallback: use godown list when item-wise stock returns no godowns (so dropdown still appears)
+        const listRes = await apiService.getGodownList({ tallyloc_id: t, company: c, guid: g });
+        if (cancelled) return;
+        const godownData = listRes.data?.godownData ?? [];
+        const fallbackRows = godownData
+          .map((row) => ({ NAME: String(row?.GodownName ?? '').trim(), CLOSINGSTOCK: 0 }))
+          .filter((row) => row.NAME);
+        setGodownOptions(fallbackRows);
       } catch {
         if (!cancelled) setGodownOptions([]);
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [name]);
 
   const isEditMode = editOrderItem != null || (editOrderItems != null && editOrderItems.length > 0);
 
@@ -570,10 +589,8 @@ export default function OrderEntryItemDetail() {
   /** Batch dropdown shows all batches from api/tally/itemwise-batchwise-bal; godown is auto-filled on selection. */
   const batchOptionsForDropdown = batchDataList;
 
-  /** When ISBATCHWISEON is No: show godown+batch only if api/tally/godown-list returns multiple GodownNames; then batch is greyed out. */
-  const showGodownBatchWhenNotBatchWise = !isBatchWiseOn && godownOptions.length > 1;
-  /** Show godown & batch row only when permission enbale_batchGodown is granted. */
-  const showGodownBatchRow = perms.enable_batchGodown && (isBatchWiseOn || showGodownBatchWhenNotBatchWise);
+  /** Show godown & batch row when enable_batchGodown is granted, or when show_godownbrkup is on (so dropdowns appear for item details). */
+  const showGodownBatchRow = perms.enable_batchGodown || perms.show_godownbrkup;
 
   useEffect(() => {
     if (isBatchWiseOn) setGodownDropdownOpen(false);
@@ -629,9 +646,15 @@ export default function OrderEntryItemDetail() {
       return;
     }
     if (!isToBeAllocated) {
-      const hasZeroQty = lineItems.length === 0 || isSingleLineEdit
-        ? itemQuantity === 0
-        : lineItems.some((l) => l.qty <= 0);
+      const singleLineUseLineItem = isSingleLineEdit && lastUpdateWasBatchRef.current;
+      const hasZeroQty =
+        lineItems.length === 0
+          ? itemQuantity === 0
+          : singleLineUseLineItem
+            ? lineItems[0].qty <= 0
+            : isSingleLineEdit
+              ? itemQuantity === 0
+              : lineItems.some((l) => l.qty <= 0);
       if (hasZeroQty) {
         setQuantityWarningVisible(true);
         return;
@@ -681,7 +704,7 @@ export default function OrderEntryItemDetail() {
       dueDate: line.dueDate,
       mfgDate: line.mfgDate,
       expiryDate: line.expiryDate,
-      godown: line.godown,
+      godown: line.godown || undefined,
       batch: line.batch,
       description: description || undefined,
       stockItem: resolvedStockItem as AddedOrderItemWithStock['stockItem'],
@@ -689,12 +712,17 @@ export default function OrderEntryItemDetail() {
       attachmentUris: line.attachmentUris ?? [],
       rateUnit: line.rateUnit,
     });
+    // When single-line edit: use form if user went straight to Update Cart; use line item if they used Update Batch first (form was cleared).
+    const singleLineUseLineItem = isSingleLineEdit && lastUpdateWasBatchRef.current;
     const addedItems: AddedOrderItemWithStock[] =
-      isSingleLineEdit
-        ? [singleItemFromForm()]
-        : lineItems.length > 0
-          ? lineItems.map(toAddedItem)
-          : [singleItemFromForm()];
+      singleLineUseLineItem
+        ? [toAddedItem(lineItems[0])]
+        : isSingleLineEdit
+          ? [singleItemFromForm()]
+          : lineItems.length > 0
+            ? lineItems.map(toAddedItem)
+            : [singleItemFromForm()];
+    if (singleLineUseLineItem) lastUpdateWasBatchRef.current = false;
     // Collect all attachments from all items for order-level narration
     const allLinks: string[] = [];
     const allUris: string[] = [];
@@ -844,6 +872,7 @@ export default function OrderEntryItemDetail() {
     // Clear attachments after update
     setAttachmentLinks([]);
     setAttachmentUris([]);
+    lastUpdateWasBatchRef.current = true;
   }, [selectedLineId, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const handleRemoveLineItem = useCallback((id: number) => {
@@ -1077,6 +1106,8 @@ export default function OrderEntryItemDetail() {
               setSelectedLineId(null);
               setItemMenuLineId(null);
               setExpandedLineId(null);
+              setGodownDropdownOpen(false);
+              setBatchDropdownOpen(false);
             }}
             style={styles.scrollContentPressable}
           >
@@ -1343,22 +1374,20 @@ export default function OrderEntryItemDetail() {
                         {isBatchWiseOn ? (
                           <View style={[styles.godownInput, styles.godownInputDisabled]} pointerEvents="none">
                             <Text style={[styles.godownInputText, styles.godownInputDisabledText]} numberOfLines={1}>
-                              {godown || '-'}
+                              {godown === 'Any' ? 'Any' : (godown || '-')}
                             </Text>
                           </View>
                         ) : (
                           <TouchableOpacity
                             style={styles.godownInput}
                             onPress={() => {
-                              godownBatchRowRef.current?.measureInWindow((x, y, w, h) => {
-                                setDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                                setGodownDropdownOpen(true);
-                              });
+                              setBatchDropdownOpen(false);
+                              setGodownDropdownOpen((prev) => !prev);
                             }}
                             activeOpacity={0.7}
                           >
                             <Text style={[styles.godownInputText, !godown && styles.godownInputPlaceholder]} numberOfLines={1}>
-                              {godown || 'Select Godown'}
+                              {godown === 'Any' ? 'Any' : (godown || 'Select Godown')}
                             </Text>
                             <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
                           </TouchableOpacity>
@@ -1371,10 +1400,8 @@ export default function OrderEntryItemDetail() {
                             <TouchableOpacity
                               style={[styles.godownInput, styles.batchInputFlex]}
                               onPress={() => {
-                                godownBatchRowRef.current?.measureInWindow((x, y, w, h) => {
-                                  setDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                                  setBatchDropdownOpen(true);
-                                });
+                                setGodownDropdownOpen(false);
+                                setBatchDropdownOpen((prev) => !prev);
                               }}
                               activeOpacity={0.7}
                             >
@@ -1397,6 +1424,85 @@ export default function OrderEntryItemDetail() {
                             <Text style={[styles.godownInputText, styles.godownInputDisabledText]} numberOfLines={1}>
                               {batch || '-'}
                             </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {/* Inline dropdown: Godown list appears directly below the row */}
+                  {showGodownBatchRow && godownDropdownOpen ? (
+                    <View style={styles.inlineDropdownWrap}>
+                      <View style={styles.overlayDropdown}>
+                        <View style={styles.inlineBatchDropdownList}>
+                          <TouchableOpacity
+                            style={styles.inlineDropdownOpt}
+                            onPress={() => {
+                              setGodown('Any');
+                              setBatch('');
+                              setSelectedBatchData(null);
+                              setGodownDropdownOpen(false);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.inlineDropdownOptText, { flex: 1, marginRight: 8 }]} numberOfLines={1}>Any</Text>
+                          </TouchableOpacity>
+                          {godownOptions.length === 0 ? (
+                            <Text style={styles.inlineDropdownEmpty}>No godown options</Text>
+                          ) : (
+                            <>
+                              {godownOptions.map((opt) => (
+                                <TouchableOpacity
+                                  key={opt.NAME}
+                                  style={styles.inlineDropdownOpt}
+                                  onPress={() => {
+                                    setGodown(opt.NAME);
+                                    setBatch('');
+                                    setSelectedBatchData(null);
+                                    setGodownDropdownOpen(false);
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={[styles.inlineDropdownOptText, { flex: 1, marginRight: 8 }]} numberOfLines={1}>{opt.NAME}</Text>
+                                  <Text style={[styles.inlineDropdownOptText, { color: LABEL_GRAY, fontSize: 13 }]}>{opt.CLOSINGSTOCK}</Text>
+                                </TouchableOpacity>
+                              ))}
+                            </>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+                  {/* Inline dropdown: Batch list appears directly below the row */}
+                  {showGodownBatchRow && batchDropdownOpen && isBatchWiseOn ? (
+                    <View style={styles.inlineDropdownWrap}>
+                      <View style={styles.overlayDropdown}>
+                        {batchOptionsForDropdown.length === 0 ? (
+                          <Text style={styles.inlineDropdownEmpty}>No batch data</Text>
+                        ) : (
+                          <View style={styles.inlineBatchDropdownList}>
+                            {batchOptionsForDropdown.map((b, idx) => {
+                              const batchName = String(b.Batchname ?? '').trim() || '-';
+                              const godownName = String((b as Record<string, unknown>).Godown ?? b.godown ?? '').trim();
+                              const displayLabel = godownName ? `${batchName} (${godownName})` : batchName;
+                              return (
+                                <TouchableOpacity
+                                  key={`batch-opt-${idx}`}
+                                  style={styles.inlineDropdownOpt}
+                                  onPress={() => {
+                                    setSelectedBatchData(b);
+                                    setBatch(batchName);
+                                    setGodown(godownName);
+                                    setBatchDropdownOpen(false);
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={styles.inlineDropdownOptText} numberOfLines={1}>
+                                    {displayLabel}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
                           </View>
                         )}
                       </View>
@@ -1624,7 +1730,7 @@ export default function OrderEntryItemDetail() {
                             </Text>
                           </View>
                         )}
-                        {!isToBeAllocated && perms.show_ClsStck_Column ? (
+                        {!isToBeAllocated && (perms.show_ClsStck_Column || perms.show_ClsStck_yesno) ? (
                           <View style={styles.stockRow}>
                             <Text style={styles.lineItemStock}>Stock : </Text>
                             <TouchableOpacity onPress={() => setStockBreakdownItem(line.name)} activeOpacity={0.7} style={styles.stockLinkTouch}>
@@ -1656,7 +1762,7 @@ export default function OrderEntryItemDetail() {
                           {(line.godown || line.batch) ? (
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                               <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
-                                {line.godown ? `Godown : ${line.godown}` : ''}
+                                {line.godown === 'Any' ? 'Godown : Any' : (line.godown ? `Godown : ${line.godown}` : '')}
                               </Text>
                               <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#6a7282' }}>
                                 {line.batch ? `Batch : ${line.batch}` : ''}
@@ -1735,84 +1841,6 @@ export default function OrderEntryItemDetail() {
         </View>
       </Modal>
 
-      <Modal
-        visible={godownDropdownOpen || (batchDropdownOpen && isBatchWiseOn && showGodownBatchRow)}
-        transparent
-        animationType="fade"
-      >
-        <View style={styles.dropdownOverlayContainer}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={() => {
-              setGodownDropdownOpen(false);
-              setBatchDropdownOpen(false);
-            }}
-          />
-          {godownDropdownOpen ? (
-            <View style={[styles.dropdownOverlayContent, { top: dropdownAnchor.top, left: dropdownAnchor.left, width: dropdownAnchor.width || undefined, right: dropdownAnchor.width ? undefined : 16 }]}>
-              <View style={styles.overlayDropdown}>
-                {godownOptions.length === 0 ? (
-                  <Text style={styles.inlineDropdownEmpty}>No godown options</Text>
-                ) : (
-                  <View style={styles.inlineBatchDropdownList}>
-                    {godownOptions.map((opt) => (
-                      <TouchableOpacity
-                        key={opt}
-                        style={styles.inlineDropdownOpt}
-                        onPress={() => {
-                          setGodown(opt);
-                          setBatch('');
-                          setSelectedBatchData(null);
-                          setGodownDropdownOpen(false);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.inlineDropdownOptText} numberOfLines={1}>{opt}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-            </View>
-          ) : null}
-          {batchDropdownOpen && isBatchWiseOn && showGodownBatchRow && !godownDropdownOpen ? (
-            <View style={[styles.dropdownOverlayContent, { top: dropdownAnchor.top, left: dropdownAnchor.left, width: dropdownAnchor.width || undefined, right: dropdownAnchor.width ? undefined : 16 }]}>
-              <View style={styles.overlayDropdown}>
-                {batchOptionsForDropdown.length === 0 ? (
-                  <Text style={styles.inlineDropdownEmpty}>No batch data</Text>
-                ) : (
-                  <View style={styles.inlineBatchDropdownList}>
-                    {batchOptionsForDropdown.map((b, idx) => {
-                      const batchName = String(b.Batchname ?? '').trim() || '-';
-                      const godownName = String((b as Record<string, unknown>).Godown ?? b.godown ?? '').trim();
-                      const displayLabel = godownName ? `${batchName} (${godownName})` : batchName;
-                      return (
-                        <TouchableOpacity
-                          key={`batch-opt-${idx}`}
-                          style={styles.inlineDropdownOpt}
-                          onPress={() => {
-                            setSelectedBatchData(b);
-                            setBatch(batchName);
-                            setGodown(godownName);
-                            setBatchDropdownOpen(false);
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.inlineDropdownOptText} numberOfLines={1}>
-                            {displayLabel}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            </View>
-          ) : null}
-        </View>
-      </Modal>
-
       <Modal visible={perDropdownOpen} transparent animationType="fade">
         <View style={styles.dropdownOverlayContainer}>
           <TouchableOpacity
@@ -1862,6 +1890,8 @@ export default function OrderEntryItemDetail() {
         onClose={() => setStockBreakdownItem(null)}
         showGodown={perms.show_godownbrkup}
         showCompany={perms.show_multicobrkup}
+        initialGodownRows={stockBreakdownItem === name ? godownOptions : undefined}
+        showStockAsYesNo={perms.show_ClsStck_yesno}
       />
 
       <DeleteConfirmationModal
@@ -2313,6 +2343,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 2,
   },
+  inlineDropdownWrap: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
   inlineBatchDropdown: {
     marginTop: 4,
     backgroundColor: '#fff',
@@ -2348,6 +2382,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   inlineDropdownOptText: {
     fontFamily: 'Roboto',

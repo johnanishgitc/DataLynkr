@@ -4,6 +4,7 @@ export interface StockItemRequest {
   tallyloc_id: number;
   company: string;
   guid: string;
+  lastaltid?: number | null;
   [key: string]: unknown;
 }
 

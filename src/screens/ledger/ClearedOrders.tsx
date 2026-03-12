@@ -81,7 +81,7 @@ export default function ClearedOrders({
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
 
-  const topContainerHeight = 110; // 4 rows including User
+  const topContainerHeight = 82; // 3 rows (report, customer, date)
   const headerHeight = insets.top + 55 + topContainerHeight;
   const footerHeight = 60;
   const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
@@ -302,14 +302,6 @@ export default function ClearedOrders({
             </Text>
             <Icon name="magnify" size={20} color={colors.text_primary} />
           </TouchableOpacity>
-
-          {/* User row - disabled */}
-          <View style={[sharedStyles.topRow, sharedStyles.topRowBorder]}>
-            <Icon name="account" size={18} color={colors.text_secondary} />
-            <Text style={sharedStyles.topTxtDisabled} numberOfLines={1}>
-              User
-            </Text>
-          </View>
 
           <TouchableOpacity
             style={[sharedStyles.topRow, sharedStyles.topRowDate]}

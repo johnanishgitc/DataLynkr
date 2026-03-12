@@ -8,9 +8,10 @@ import {
   ActivityIndicator,
   Alert,
   StatusBar,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/types';
 import type { UserConnection } from '../api';
@@ -18,6 +19,7 @@ import { apiService, isUnauthorizedError } from '../api';
 import { RefreshIcon } from '../assets/connections';
 import { useAuth } from '../store';
 import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
+import { refreshAllDataManagementData } from '../cache';
 import { strings, connections_available } from '../constants/strings';
 const CONNECTIONS_TITLE = strings.connections;
 import { colors } from '../constants/colors';
@@ -53,6 +55,21 @@ export default function AdminDashboard() {
   const { logout } = useAuth();
   const [all, setAll] = useState<UserConnection[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        Alert.alert('Exit App', 'Are you sure you want to exit?', [
+          { text: strings.cancel || 'Cancel', style: 'cancel' },
+          { text: 'Exit', style: 'destructive', onPress: () => BackHandler.exitApp() },
+        ]);
+        return true;
+      };
+
+      BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
+    }, [])
+  );
 
   const fetchConn = useCallback(async () => {
     setLoading(true);
@@ -101,7 +118,9 @@ export default function AdminDashboard() {
       return;
     }
     saveCompanyInfo(toCompanyInfo(c)).then(() => {
-      nav.replace('MainTabs');
+      nav.navigate('MainTabs');
+      // Sync stock items, customers, and stock groups in background
+      refreshAllDataManagementData().catch(() => { });
     });
   };
 

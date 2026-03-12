@@ -63,7 +63,7 @@ export default function PastOrders({
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const { setScrollDirection } = useScroll();
 
-  const topContainerHeight = 110;
+  const topContainerHeight = 82; // 3 rows (report, customer, date)
   const headerHeight = insets.top + 47 + topContainerHeight;
   const footerHeight = 60;
   const SCROLL_UP_THRESHOLD = 10;
@@ -235,13 +235,6 @@ export default function PastOrders({
             </Text>
             <Icon name="magnify" size={20} color={colors.text_primary} />
           </TouchableOpacity>
-
-          <View style={[sharedStyles.topRow, sharedStyles.topRowBorder]}>
-            <Icon name="account" size={18} color={colors.text_secondary} />
-            <Text style={sharedStyles.topTxtDisabled} numberOfLines={1}>
-              User
-            </Text>
-          </View>
 
           <TouchableOpacity
             style={[sharedStyles.topRow, sharedStyles.topRowDate]}

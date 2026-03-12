@@ -502,12 +502,20 @@ export interface StockBreakdownModalProps {
   showGodown?: boolean;
   /** Show company-wise stock tab (default true) */
   showCompany?: boolean;
+  /** Pre-fetched godown rows from the godown dropdown (avoids a duplicate API call) */
+  initialGodownRows?: { NAME: string; CLOSINGSTOCK: number }[];
+  /** When true, show stock values as "Yes" (if > 0) or "No" instead of numeric (e.g. when show_ClsStck_yesno is enabled) */
+  showStockAsYesNo?: boolean;
 }
 
-export function StockBreakdownModal({ visible, item, onClose, showGodown = true, showCompany = true }: StockBreakdownModalProps) {
+export function StockBreakdownModal({ visible, item, onClose, showGodown = true, showCompany = true, initialGodownRows, showStockAsYesNo = false }: StockBreakdownModalProps) {
   // If only company is allowed, default to company view
   const [byCompany, setByCompany] = useState(!showGodown && showCompany);
-  const [godownData, setGodownData] = useState<{ totalGodowns?: number; rows: { name: string; closingStock: number }[] } | null>(null);
+  const [godownData, setGodownData] = useState<{ totalGodowns?: number; rows: { name: string; closingStock: number }[] } | null>(
+    initialGodownRows && initialGodownRows.length > 0
+      ? { totalGodowns: initialGodownRows.length, rows: initialGodownRows.map((r) => ({ name: r.NAME, closingStock: r.CLOSINGSTOCK })) }
+      : null
+  );
   const [companyData, setCompanyData] = useState<{ totalCompanies?: number; rows: { name: string; closingStock: number }[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -593,12 +601,17 @@ export function StockBreakdownModal({ visible, item, onClose, showGodown = true,
     // Default to company view if godown is not allowed
     const startWithCompany = !showGodown && showCompany;
     setByCompany(startWithCompany);
-    setGodownData(null);
+    // Pre-seed godown data from prop to avoid a duplicate API call
+    const preSeeded = initialGodownRows && initialGodownRows.length > 0
+      ? { totalGodowns: initialGodownRows.length, rows: initialGodownRows.map((r) => ({ name: r.NAME, closingStock: r.CLOSINGSTOCK })) }
+      : null;
+    setGodownData(preSeeded);
     setCompanyData(null);
     setError(null);
     if (startWithCompany) {
       fetchCompany();
-    } else {
+    } else if (!preSeeded) {
+      // Only fetch if we don't have pre-seeded data
       fetchGodown();
     }
   }, [visible, item]);
@@ -673,7 +686,9 @@ export function StockBreakdownModal({ visible, item, onClose, showGodown = true,
                       <Text style={styles.stockBreakdownRowName} numberOfLines={1}>
                         {row.name}
                       </Text>
-                      <Text style={styles.stockBreakdownRowStock}>{row.closingStock}</Text>
+                      <Text style={styles.stockBreakdownRowStock}>
+                        {showStockAsYesNo ? (row.closingStock > 0 ? 'Yes' : 'No') : row.closingStock}
+                      </Text>
                     </View>
                   ))}
                 </View>

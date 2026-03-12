@@ -90,6 +90,10 @@ export type OrdersStackParamList = {
     item?: AddedOrderItemWithStock;
     index?: number;
     selectedLedger?: LedgerItem;
+    /** Default quantity to pre-fill for new items; when omitted, defaults to 0. */
+    defaultQty?: number;
+    /** Rate UOM label passed when editing from cart (kept for backward compatibility). */
+    rateUnit?: string;
     /** When editing a single batch. */
     editOrderItem?: {
       id: number;
@@ -146,7 +150,14 @@ export type OrdersStackParamList = {
 };
 
 export type ApprovalsStackParamList = {
-  Approvals: undefined;
+  ApprovalsScreen: undefined;
+  /** Voucher detail within Approvals tab so back returns to Approvals (shared component with Ledger). */
+  VoucherDetailView: {
+    voucher: object;
+    ledger_name?: string;
+    returnToOrderEntryClear?: boolean;
+    returnToOrderEntryDraftMode?: boolean;
+  };
 };
 
 export type SummaryStackParamList = {
@@ -158,6 +169,12 @@ export type SummaryStackParamList = {
     fromdate: string;
     todate: string;
     breadcrumb: string[];
+  };
+  VoucherDetailView: {
+    voucher: object;
+    ledger_name?: string;
+    returnToOrderEntryClear?: boolean;
+    returnToOrderEntryDraftMode?: boolean;
   };
 };
 
