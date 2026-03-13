@@ -9,6 +9,7 @@ import {
     Animated,
     Modal,
     TextInput,
+    useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -121,10 +122,15 @@ function OutwardIcon({ size = 16 }: { size?: number }) {
 
 /* ── Component ───────────────────────────────────────────── */
 
+const TABLET_MODAL_MAX_HEIGHT = 1200;
+const TABLET_MODAL_LIST_MAX_HEIGHT = 1200;
+
 export default function StockItemMonthly() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
     const insets = useSafeAreaInsets();
+    const { width: windowWidth } = useWindowDimensions();
+    const isTablet = windowWidth >= 600;
 
     const stockitemParam: string = route.params?.stockitem ?? '';
     const breadcrumb: string[] = route.params?.breadcrumb ?? [];
@@ -401,7 +407,14 @@ export default function StockItemMonthly() {
                     activeOpacity={1}
                     onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
                 >
-                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                    <View
+                        style={[
+                            sharedStyles.modalContentFullWidth,
+                            { marginBottom: insets.bottom + 80 },
+                            isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
                         <View style={sharedStyles.modalHeaderRow}>
                             <Text style={sharedStyles.modalHeaderTitle}>{strings.select_stock_item}</Text>
                             <TouchableOpacity
@@ -430,7 +443,7 @@ export default function StockItemMonthly() {
                             <FlatList
                                 data={filteredStockItems}
                                 keyExtractor={(i) => i}
-                                style={sharedStyles.modalList}
+                                style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
                                 keyboardShouldPersistTaps="handled"
                                 keyboardDismissMode="on-drag"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No stock items found. Use Data Management to download stock items.</Text>}

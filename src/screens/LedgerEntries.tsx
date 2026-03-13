@@ -10,6 +10,7 @@ import {
   StatusBar,
   Alert,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -65,10 +66,15 @@ import {
 
 type Route = RouteProp<LedgerStackParamList, 'LedgerEntries'>;
 
+const TABLET_MODAL_MAX_HEIGHT = 1200;
+const TABLET_MODAL_LIST_MAX_HEIGHT = 1300;
+
 export default function LedgerEntries() {
   const route = useRoute<Route>();
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
   const routeParams = route.params || {};
   const ledger_name = routeParams.ledger_name || '';
   const report_name = routeParams.report_name || DEFAULT_REPORT;
@@ -579,7 +585,14 @@ export default function LedgerEntries() {
         }}
       >
         <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setCustomerDropdownOpen(false); setCustomerSearch(''); }}>
-          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+          <View
+            style={[
+              sharedStyles.modalContentFullWidth,
+              { marginBottom: insets.bottom + 80 },
+              isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={sharedStyles.modalHeaderRow}>
               <Text style={sharedStyles.modalHeaderTitle}>Select Customer</Text>
               <TouchableOpacity
@@ -606,7 +619,7 @@ export default function LedgerEntries() {
             <FlatList
               data={filteredCustomers}
               keyExtractor={(i) => i}
-              style={sharedStyles.modalList}
+              style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               ListEmptyComponent={

@@ -9,6 +9,7 @@ import {
     Modal,
     TextInput,
     Animated,
+    useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -123,9 +124,14 @@ function itemHasAnyQtyRateOrValue(item: StockSummaryItem): boolean {
 
 /* ── Component ───────────────────────────────────────────── */
 
+const TABLET_MODAL_MAX_HEIGHT = 1200;
+const TABLET_MODAL_LIST_MAX_HEIGHT = 1200;
+
 export default function StockSummary() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
+    const { width: windowWidth } = useWindowDimensions();
+    const isTablet = windowWidth >= 600;
 
     // If navigated as StockGroupSummary, we get stockitem & breadcrumb. primary = user chose "Primary" (top-level summary).
     const isGroupDrill = route.name === 'StockGroupSummary';
@@ -549,7 +555,14 @@ export default function StockSummary() {
                     activeOpacity={1}
                     onPress={() => setGodownDropdownOpen(false)}
                 >
-                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                    <View
+                        style={[
+                            sharedStyles.modalContentFullWidth,
+                            { marginBottom: insets.bottom + 80 },
+                            isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
                         <View style={sharedStyles.modalHeaderRow}>
                             <Text style={sharedStyles.modalHeaderTitle}>Select Godown</Text>
                             <TouchableOpacity onPress={() => setGodownDropdownOpen(false)} style={sharedStyles.modalHeaderClose}>
@@ -565,7 +578,7 @@ export default function StockSummary() {
                             <FlatList
                                 data={[{ name: '', label: 'All Godowns' }, ...godownOptions.map((n) => ({ name: n, label: n }))]}
                                 keyExtractor={(item) => item.name || '__all__'}
-                                style={sharedStyles.modalList}
+                                style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
                                 keyboardShouldPersistTaps="handled"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No godown options</Text>}
                                 renderItem={({ item }) => (
@@ -604,7 +617,14 @@ export default function StockSummary() {
                         setPrimarySearch('');
                     }}
                 >
-                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                    <View
+                        style={[
+                            sharedStyles.modalContentFullWidth,
+                            { marginBottom: insets.bottom + 80 },
+                            isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
                         <View style={sharedStyles.modalHeaderRow}>
                             <Text style={sharedStyles.modalHeaderTitle}>Select Item or Group</Text>
                             <TouchableOpacity
@@ -633,7 +653,7 @@ export default function StockSummary() {
                             <FlatList
                                 data={primaryDropdownList}
                                 keyExtractor={(item) => `${item.type}-${item.name}`}
-                                style={sharedStyles.modalList}
+                                style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
                                 keyboardShouldPersistTaps="handled"
                                 keyboardDismissMode="on-drag"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No items or groups found. Download from Data Management first.</Text>}

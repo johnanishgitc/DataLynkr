@@ -1336,6 +1336,11 @@ export const sharedStyles = StyleSheet.create({
     backgroundColor: '#1f3a89',
     zIndex: 999,
   },
+  /** Extra top margin for tablet so GRAND TOTAL sits a bit lower and doesn’t crowd the list; smaller bottom to remove gap above tab bar */
+  footerTablet: {
+    marginTop: 24,
+    bottom: 66,
+  },
   footerBar: {
     flexDirection: 'row',
     alignItems: 'center',

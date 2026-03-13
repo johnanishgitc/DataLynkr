@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -66,6 +67,8 @@ export default function LedgerVoucher({
 }: LedgerVoucherProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<LedgerReportData | null>(null);
@@ -321,6 +324,7 @@ export default function LedgerVoucher({
           <Animated.View
             style={[
               sharedStyles.footer,
+              isTablet && sharedStyles.footerTablet,
               { transform: [{ translateY: footerTranslateY }] },
             ]}
           >

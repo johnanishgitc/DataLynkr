@@ -23,6 +23,7 @@ import {
   BackHandler,
   Image,
   Linking,
+  useWindowDimensions,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match voucher details)
@@ -173,6 +174,10 @@ const INDIAN_STATES = [
 
 export default function OrderEntry() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
+  const TABLET_MODAL_MAX_HEIGHT = 1200;
+  const TABLET_MODAL_LIST_MAX_HEIGHT = 1200;
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderEntry'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
@@ -3668,7 +3673,14 @@ export default function OrderEntry() {
             setConsigneeCustomerSearch('');
           }}
         >
-          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+          <View
+            style={[
+              sharedStyles.modalContentFullWidth,
+              { marginBottom: insets.bottom + 80 },
+              isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={sharedStyles.modalHeaderRow}>
               <Text style={sharedStyles.modalHeaderTitle}>Select Consignee (Ship to)</Text>
               <TouchableOpacity
@@ -3691,7 +3703,7 @@ export default function OrderEntry() {
             <FlatList
               data={filteredConsigneeCustomers}
               keyExtractor={(i) => i}
-              style={sharedStyles.modalList}
+              style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               ListEmptyComponent={
@@ -3773,7 +3785,14 @@ export default function OrderEntry() {
             setCustomerSearch('');
           }}
         >
-          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+          <View
+            style={[
+              sharedStyles.modalContentFullWidth,
+              { marginBottom: insets.bottom + 80 },
+              isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={[isDraftMode ? styles.customerModalHeaderDraft : sharedStyles.modalHeaderRow]}>
               <Text style={[isDraftMode ? styles.customerModalHeaderTitleDraft : sharedStyles.modalHeaderTitle]}>Select Customer</Text>
               <TouchableOpacity onPress={() => { setCustomerDropdownOpen(false); setCustomerSearch(''); }} style={sharedStyles.modalHeaderClose}>
@@ -3794,7 +3813,7 @@ export default function OrderEntry() {
             <FlatList
               data={filteredCustomers}
               keyExtractor={(i) => i}
-              style={sharedStyles.modalList}
+              style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               ListEmptyComponent={
@@ -3991,7 +4010,14 @@ export default function OrderEntry() {
             setItemSearch('');
           }}
         >
-          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+          <View
+            style={[
+              sharedStyles.modalContentFullWidth,
+              { marginBottom: insets.bottom + 80 },
+              isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
             <View style={sharedStyles.modalHeaderRow}>
               <Text style={sharedStyles.modalHeaderTitle}>Select Item</Text>
               <TouchableOpacity
@@ -4034,7 +4060,7 @@ export default function OrderEntry() {
             <FlatList
               data={itemListForDropdown}
               keyExtractor={(item) => String(item.MASTERID ?? item.NAME ?? Math.random())}
-              style={sharedStyles.modalList}
+              style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
               contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"

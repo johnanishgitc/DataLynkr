@@ -9,6 +9,7 @@ import {
     Animated,
     Modal,
     TextInput,
+    useWindowDimensions,
 } from 'react-native';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -166,10 +167,15 @@ function OutwardIcon({ size = 16 }: { size?: number }) {
 
 /* ── Component ───────────────────────────────────────────── */
 
+const TABLET_MODAL_MAX_HEIGHT = 1200;
+const TABLET_MODAL_LIST_MAX_HEIGHT = 1200;
+
 export default function StockItemVouchers() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
     const insets = useSafeAreaInsets();
+    const { width: windowWidth } = useWindowDimensions();
+    const isTablet = windowWidth >= 600;
 
     const stockitemParam: string = route.params?.stockitem ?? '';
     const paramFromdate: string | undefined = route.params?.fromdate;
@@ -476,7 +482,10 @@ export default function StockItemVouchers() {
                     data={listData}
                     keyExtractor={(item, idx) => String(idx)}
                     renderItem={(info) => renderItem({ item: info.item as ListItem })}
-                    contentContainerStyle={[s.listContent, { paddingBottom: FOOTER_HEIGHT + 49 + 24 }]}
+                    contentContainerStyle={[
+                        s.listContent,
+                        { paddingBottom: FOOTER_HEIGHT + (isTablet ? 100 : 49) + 24 },
+                    ]}
                     showsVerticalScrollIndicator={false}
                     onScroll={onScroll}
                     scrollEventThrottle={16}
@@ -487,6 +496,7 @@ export default function StockItemVouchers() {
             <Animated.View
                 style={[
                     s.footerWrapper,
+                    isTablet && { bottom: 66 },
                     { height: FOOTER_HEIGHT, transform: [{ translateY: footerTranslateY }] },
                 ]}
             >
@@ -516,7 +526,14 @@ export default function StockItemVouchers() {
                     activeOpacity={1}
                     onPress={() => { setStockItemDropdownOpen(false); setStockItemSearch(''); }}
                 >
-                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                    <View
+                        style={[
+                            sharedStyles.modalContentFullWidth,
+                            { marginBottom: insets.bottom + 80 },
+                            isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
                         <View style={sharedStyles.modalHeaderRow}>
                             <Text style={sharedStyles.modalHeaderTitle}>{strings.select_stock_item}</Text>
                             <TouchableOpacity
@@ -545,7 +562,7 @@ export default function StockItemVouchers() {
                             <FlatList
                                 data={filteredStockItems}
                                 keyExtractor={(i) => i}
-                                style={sharedStyles.modalList}
+                                style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
                                 keyboardShouldPersistTaps="handled"
                                 keyboardDismissMode="on-drag"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No stock items found. Use Data Management to download stock items.</Text>}
