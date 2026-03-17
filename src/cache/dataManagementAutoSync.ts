@@ -13,6 +13,23 @@ import {
 } from './stockListCacheReader';
 import type { LedgerListResponse } from '../api/models/ledger';
 
+// --- Global Sync State Emitter ---
+export type SyncListener = (isSyncing: boolean) => void;
+const syncListeners = new Set<SyncListener>();
+let isGlobalDataManagementSyncing = false;
+
+export function subscribeToDataManagementSync(listener: SyncListener): () => void {
+  syncListeners.add(listener);
+  listener(isGlobalDataManagementSyncing); // Provide immediate state on subscribe
+  return () => syncListeners.delete(listener);
+}
+
+function notifySyncState(isSyncing: boolean): void {
+  isGlobalDataManagementSyncing = isSyncing;
+  syncListeners.forEach(l => l(isSyncing));
+}
+// ---------------------------------
+
 /**
  * If customers (ledger list) are missing in Data Management cache, fetch from API and save.
  * Call this when you're about to return empty customer data so the next read can get data.
@@ -158,6 +175,7 @@ function mergeItemsByMasterId(existing: unknown[], incoming: unknown[]): unknown
  * For stock groups: always calls the normal full-fetch API.
  */
 export async function refreshAllDataManagementData(): Promise<void> {
+  notifySyncState(true);
   try {
     const [email, tallylocId, company, guid] = await Promise.all([
       getUserEmail(),
@@ -260,6 +278,8 @@ export async function refreshAllDataManagementData(): Promise<void> {
     console.log('[dataManagementAutoSync] refreshAllDataManagementData complete');
   } catch (e) {
     console.warn('[dataManagementAutoSync] refreshAllDataManagementData failed:', e);
+  } finally {
+    notifySyncState(false);
   }
 }
 

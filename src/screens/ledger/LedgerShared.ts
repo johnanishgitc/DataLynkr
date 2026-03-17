@@ -1328,7 +1328,6 @@ export const sharedStyles = StyleSheet.create({
   // Footer styles — bottom offset must clear app tab bar (content + safe area)
   footer: {
     position: 'absolute',
-    bottom: 96,
     left: 0,
     right: 0,
     borderTopWidth: 1,
@@ -1338,8 +1337,6 @@ export const sharedStyles = StyleSheet.create({
   },
   /** Extra top margin for tablet so GRAND TOTAL sits a bit lower and doesn’t crowd the list; smaller bottom to remove gap above tab bar */
   footerTablet: {
-    marginTop: 24,
-    bottom: 66,
   },
   footerBar: {
     flexDirection: 'row',

@@ -84,8 +84,8 @@ android {
         applicationId "com.datalynkr"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 7
-        versionName "1.1.2"
+        versionCode 12
+        versionName "1.2.0"
     }
     
     buildFeatures {

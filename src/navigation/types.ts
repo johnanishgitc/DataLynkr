@@ -5,6 +5,7 @@ export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
   ForgotPassword: undefined;
+  ResetPassword: { email?: string; fromFirstLogin?: boolean; name?: string | null };
 };
 
 export type HomeStackParamList = {
@@ -82,6 +83,11 @@ export type OrdersStackParamList = {
     clearOrder?: boolean;
     /** When true with clearOrder, clear form and open in draft mode (e.g. from Order Success after placing draft order). */
     openInDraftMode?: boolean;
+    /** When navigating from Approvals \"Update Order\", carry the original voucher + MASTERID so Order Entry can prefill and send masterid in placeOrder payload. */
+    updateFromApproval?: {
+      masterId: string;
+      voucher: object;
+    };
     viewOnly?: boolean;
     attachmentLinks?: string[];
     attachmentUris?: string[];
@@ -136,6 +142,8 @@ export type OrdersStackParamList = {
     viewOnly?: boolean;
     /** Place-order access-control permissions passed from OrderEntry */
     permissions?: import('../hooks/useUserAccess').PlaceOrderPermissions;
+    /** Default godown from Edit details (applies to all items in item details). */
+    defaultGodown?: string;
   };
   OrderSuccess: {
     orderNo?: string;

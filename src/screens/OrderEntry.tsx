@@ -63,6 +63,7 @@ import type {
   OverdueBillItem,
   PlaceOrderRequest,
   PlaceOrderItemPayload,
+  AccountingLedgerItem,
 } from '../api';
 import {
   cacheManager,
@@ -126,6 +127,188 @@ function isItemToBeAllocated(name: string): boolean {
   return (name ?? '').trim().toLowerCase().includes('item to be allocated');
 }
 
+type AddDetailsFormShape = {
+  buyerBillTo: string;
+  buyerMailingName: string;
+  buyerAddress: string;
+  buyerState: string;
+  buyerCountry: string;
+  buyerPinCode: string;
+  buyerGstRegType: string;
+  buyerGstinUin: string;
+  buyerPlaceOfSupply: string;
+  contactPerson: string;
+  contactPhone: string;
+  contactEmail: string;
+  contactBillOfLandingLrRrNo: string;
+  contactDate: Date | null;
+  consigneeShipTo: string;
+  consigneeMailingName: string;
+  consigneeAddress: string;
+  consigneeState: string;
+  consigneeCountry: string;
+  consigneePinCode: string;
+  consigneeGstinUin: string;
+  orderModeTerms: string;
+  orderOtherRefs: string;
+  orderTermsOfDelivery: string;
+  dispatchThrough: string;
+  dispatchDestination: string;
+  dispatchCarrierName: string;
+  dispatchBillOfLandingLrRrNo: string;
+  dispatchDate: Date | null;
+  exportPlaceOfReceipt: string;
+  exportVesselFlightNo: string;
+  exportPortOfLoading: string;
+  exportPortOfDischarge: string;
+  exportCountryTo: string;
+  exportShippingBillNo: string;
+  exportPortCode: string;
+  exportDate: Date | null;
+};
+
+  /** Safely read first non-empty string value from a voucher-like object by trying multiple keys. */
+  function voucherField(voucher: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const val = voucher[k];
+    if (val != null && String(val).trim() !== '') {
+      return String(val).trim();
+    }
+  }
+  return '';
+}
+
+/** Map voucher data (from getVoucherData / approvals) into Order Entry prefill structures. */
+function voucherToOrderEntryPrefill(
+  voucher: Record<string, unknown>,
+  initialAddDetailsForm: AddDetailsFormShape
+): {
+  customerName: string;
+  voucherType: string;
+  addDetailsForm: AddDetailsFormShape;
+  items: Omit<OrderEntryOrderItem, 'id'>[];
+} {
+  const customerName =
+    voucherField(voucher, 'PARTYLEDGERNAME', 'PARTYNAME', 'partyname', 'partyledgername', 'BASICBUYERNAME', 'basicbuyername') ||
+    voucherField(voucher as any, 'SUBMITTER');
+
+  const voucherTypeRaw = voucherField(
+    voucher,
+    'VOUCHERTYPE',
+    'VCHTYPE',
+    'vouchertypename',
+    'VOUCHERTYPENAME',
+    'vouchertype',
+    'vchtype'
+  );
+  const voucherType = voucherTypeRaw || 'Sales Order';
+
+  const address =
+    voucherField(voucher, 'BASICBUYERADDRESS', 'basicbuyeraddress', 'ADDRESS', 'address') || '';
+  const stateName =
+    voucherField(voucher, 'STATENAME', 'statename', 'STATE', 'state') || '';
+  const country =
+    voucherField(voucher, 'COUNTRY', 'country') || '';
+  const pincode =
+    voucherField(voucher, 'PINCODE', 'pincode') || '';
+  const gstNo =
+    voucherField(voucher, 'GSTIN', 'gstin', 'GSTIN_UIN', 'gstin_uin', 'GSTREGISTRATIONNUMBER', 'gstregistrationnumber') || '';
+  const mailingName =
+    voucherField(voucher, 'PARTYMAILINGNAME', 'partyMailingName', 'MAILINGNAME', 'mailingname') || customerName;
+
+  const buyerBillTo = customerName;
+  const consigneeShipTo = voucherField(voucher, 'BASICBUYERNAME', 'basicbuyername') || customerName;
+
+  const baseForm: AddDetailsFormShape = {
+    buyerBillTo,
+    buyerMailingName: mailingName,
+    buyerAddress: address,
+    buyerState: stateName,
+    buyerCountry: country,
+    buyerPinCode: pincode,
+    buyerGstRegType: '',
+    buyerGstinUin: gstNo,
+    buyerPlaceOfSupply: stateName,
+    contactPerson: '',
+    contactPhone: '',
+    contactEmail: '',
+    contactBillOfLandingLrRrNo: '',
+    contactDate: null,
+    consigneeShipTo,
+    consigneeMailingName: mailingName,
+    consigneeAddress: address,
+    consigneeState: stateName,
+    consigneeCountry: country,
+    consigneePinCode: pincode,
+    consigneeGstinUin: gstNo,
+    orderModeTerms: '',
+    orderOtherRefs: '',
+    orderTermsOfDelivery: '',
+    dispatchThrough: '',
+    dispatchDestination: '',
+    dispatchCarrierName: '',
+    dispatchBillOfLandingLrRrNo: '',
+    dispatchDate: null,
+    exportPlaceOfReceipt: '',
+    exportVesselFlightNo: '',
+    exportPortOfLoading: '',
+    exportPortOfDischarge: '',
+    exportCountryTo: '',
+    exportShippingBillNo: '',
+    exportPortCode: '',
+    exportDate: null,
+  };
+
+  const invRaw =
+    (voucher as any).allinventoryentries ??
+    (voucher as any).ALLINVENTORYENTRIES ??
+    (voucher as any).INVENTORYALLOCATIONS ??
+    (voucher as any).inventoryallocations;
+  const invArray = Array.isArray(invRaw) ? invRaw : invRaw ? [invRaw] : [];
+
+  const items: Omit<OrderEntryOrderItem, 'id'>[] = invArray.map((row: any) => {
+    const name = row.stockitemname ?? row.STOCKITEMNAME ?? '';
+    const qty = row.actualqty ?? row.billedqty ?? row.BILLEDQTY ?? row.ACTUALQTY ?? '1';
+    const rate = row.rate ?? row.RATE ?? '0';
+    const discount = Number(row.discount ?? row.DISCOUNT ?? 0) || 0;
+    const amount = Number(row.amount ?? row.AMOUNT ?? 0) || 0;
+    const unit = String(row.baseunits ?? row.UNIT ?? '').trim() || '';
+    const tax = Number(row.tax ?? row.TAX ?? 0) || 0;
+    const godown = (row.godownname ?? row.GODOWNNAME ?? '') as string;
+    const batch = (row.batchname ?? row.BATCHNAME ?? '') as string;
+
+    const base: Omit<OrderEntryOrderItem, 'id'> = {
+      name: String(name || '').trim(),
+      qty: String(qty ?? '1'),
+      enteredQty: undefined,
+      rate: String(rate ?? '0'),
+      rateUnit: undefined,
+      total: amount,
+      unit,
+      discount,
+      stock: undefined,
+      tax,
+      dueDate: undefined,
+      mfgDate: undefined,
+      expiryDate: undefined,
+      godown,
+      batch,
+      description: '',
+      attachmentLinks: [],
+      attachmentUris: [],
+      stockItem: undefined,
+    };
+    return base;
+  });
+
+  return {
+    customerName: customerName || '',
+    voucherType,
+    addDetailsForm: baseForm,
+    items,
+  };
+}
+
 /** Read optional field from ledger (API may use different key casing). */
 function ledgerField(ledger: LedgerItem | null | undefined, ...keys: string[]): string {
   if (!ledger || typeof ledger !== 'object') return '-';
@@ -183,6 +366,10 @@ export default function OrderEntry() {
   const { setFooterCollapseValue } = useScroll();
   const { permissions, moduleAccess, transConfig } = useModuleAccess();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarOpenRef = useRef(sidebarOpen);
+  useEffect(() => {
+    sidebarOpenRef.current = sidebarOpen;
+  }, [sidebarOpen]);
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
@@ -262,6 +449,10 @@ export default function OrderEntry() {
   const [editingDescriptionOrderItemId, setEditingDescriptionOrderItemId] = useState<number | null>(null);
   const [editDescriptionDraft, setEditDescriptionDraft] = useState('');
   const [ledgerDetailsExpanded, setLedgerDetailsExpanded] = useState(false);
+  /** Measured height of ledger details content; used to only enable scroll when content exceeds screen range */
+  const [ledgerDetailsContentHeight, setLedgerDetailsContentHeight] = useState<number | null>(null);
+  /** Height of ledger + grand total block (for ScrollView padding so content scrolls above the overlay) */
+  const [ledgerBlockHeight, setLedgerBlockHeight] = useState(0);
   /** Per-ledger amount strings for METHODTYPE "As User Defined Value" (key = ledger NAME). */
   const [ledgerValues, setLedgerValues] = useState<Record<string, string>>({});
   /** Raw percentage string while editing (key = ledger NAME). When set, % input shows this; on blur we clear so formatted "X.00%" shows. */
@@ -271,6 +462,15 @@ export default function OrderEntry() {
   const [editDetailsOrderDate, setEditDetailsOrderDate] = useState<Date>(() => new Date());
   const [editDetailsBatchNo, setEditDetailsBatchNo] = useState('');
   const [editDetailsOrderDatePickerVisible, setEditDetailsOrderDatePickerVisible] = useState(false);
+  const [orderDefaultGodown, setOrderDefaultGodown] = useState('');
+  const [editDetailsGodown, setEditDetailsGodown] = useState('');
+  const [editDetailsGodownDropdownOpen, setEditDetailsGodownDropdownOpen] = useState(false);
+  const [editDetailsGodownList, setEditDetailsGodownList] = useState<{ GodownName?: string | null }[]>([]);
+  const [editDetailsGodownLoading, setEditDetailsGodownLoading] = useState(false);
+  const [editDetailsSalesLedgerDropdownOpen, setEditDetailsSalesLedgerDropdownOpen] = useState(false);
+  const [editDetailsSalesLedgerList, setEditDetailsSalesLedgerList] = useState<AccountingLedgerItem[]>([]);
+  const [editDetailsSalesLedgerLoading, setEditDetailsSalesLedgerLoading] = useState(false);
+  const [salesLedgerOverride, setSalesLedgerOverride] = useState('');
   const [addDetailsModalVisible, setAddDetailsModalVisible] = useState(false);
   const [clipPopupVisible, setClipPopupVisible] = useState(false);
   const [validationAlert, setValidationAlert] = useState<{ title: string; message: string } | null>(null);
@@ -279,7 +479,7 @@ export default function OrderEntry() {
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [uploadErrorPopup, setUploadErrorPopup] = useState<{ status: string; message: string } | null>(null);
   const [addDetailsTab, setAddDetailsTab] = useState<'buyer' | 'consignee' | 'order'>('buyer');
-  const [addDetailsForm, setAddDetailsForm] = useState({
+  const initialAddDetailsForm: AddDetailsFormShape = {
     buyerBillTo: '',
     buyerMailingName: '',
     buyerAddress: '',
@@ -317,16 +517,24 @@ export default function OrderEntry() {
     exportShippingBillNo: '',
     exportPortCode: '',
     exportDate: null as Date | null,
-  });
+  };
+  const [addDetailsForm, setAddDetailsForm] = useState<AddDetailsFormShape>(initialAddDetailsForm);
   const [addDetailsDateField, setAddDetailsDateField] = useState<'contact' | 'dispatch' | 'export' | null>(null);
   const [placeOfSupplyDropdownOpen, setPlaceOfSupplyDropdownOpen] = useState(false);
   const [consigneeCustomerDropdownOpen, setConsigneeCustomerDropdownOpen] = useState(false);
   const [consigneeCustomerSearch, setConsigneeCustomerSearch] = useState('');
   const [placeOrderLoading, setPlaceOrderLoading] = useState(false);
+  /** When editing an existing voucher from Approvals, store its MASTERID. */
+  const [editingMasterId, setEditingMasterId] = useState<string | null>(null);
+  const lastPrefilledMasterIdRef = useRef<string | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const addDetailsPagerRef = useRef<ScrollView>(null);
   const addDetailsTabOrder: ('buyer' | 'consignee' | 'order')[] = ['buyer', 'consignee', 'order'];
   const stockItemsFetchRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+
+  /** Credit days / limit control behaviour from configuration key "ctrl_creditdayslimit". */
+  const creditDaysLimitMode = transConfig.creditDaysLimitMode;
+  const isCreditLimitRestrictMode = creditDaysLimitMode === 'Restrict generation of transaction';
 
   const addDetailsPageWidth = Dimensions.get('window').width;
 
@@ -634,6 +842,81 @@ export default function OrderEntry() {
     React.useCallback(() => {
       const clearOrder = route.params?.clearOrder;
       const openInDraftMode = route.params?.openInDraftMode;
+      const updateFromApproval = route.params?.updateFromApproval;
+
+      if (updateFromApproval) {
+        // Always prefill when coming from Approvals, even if it's the same MASTERID again.
+        needsAutoOpenCustomerRef.current = false;
+        setEditingMasterId(updateFromApproval.masterId ?? null);
+
+        let cancelled = false;
+        (async () => {
+          try {
+            const [tallylocId, companyName, guid] = await Promise.all([
+              getTallylocId(),
+              getCompany(),
+              getGuid(),
+            ]);
+            if (!tallylocId || !companyName || !guid || cancelled) return;
+
+            const { data } = await apiService.getVoucherData({
+              tallyloc_id: tallylocId,
+              company: companyName,
+              guid,
+              masterid: updateFromApproval.masterId,
+            });
+
+            const body = (data as any) ?? {};
+            const voucherFromApi =
+              (Array.isArray(body.vouchers) && body.vouchers[0]) ||
+              (Array.isArray(body.data) && body.data[0]) ||
+              body.voucher ||
+              body.Voucher ||
+              body;
+
+            const sourceVoucher =
+              (voucherFromApi && typeof voucherFromApi === 'object'
+                ? voucherFromApi
+                : updateFromApproval.voucher) as Record<string, unknown>;
+
+            const { customerName, voucherType, addDetailsForm: mappedForm, items } =
+              voucherToOrderEntryPrefill(sourceVoucher, initialAddDetailsForm);
+
+            if (cancelled) return;
+
+            if (customerName) {
+              setSelectedCustomer(customerName);
+            }
+            if (voucherType) {
+              setSelectedVoucherType(voucherType);
+            }
+            setAddDetailsForm((prev) => ({
+              ...prev,
+              ...mappedForm,
+            }));
+            if (items.length > 0) {
+              setOrderItems(() => {
+                let nextId = orderItemsNextId.current;
+                const withIds = items.map((it) => {
+                  const res: OrderEntryOrderItem = { ...it, id: nextId };
+                  nextId += 1;
+                  return res;
+                });
+                orderItemsNextId.current = nextId;
+                return withIds;
+              });
+            }
+
+          } catch {
+            // If anything fails, leave Order Entry as-is rather than crashing.
+          }
+        })();
+
+        return () => {
+          cancelled = true;
+        };
+      }
+
       if (clearOrder) {
         setOrderItems([]);
         orderItemsNextId.current = 1;
@@ -658,7 +941,7 @@ export default function OrderEntry() {
         }, 250);
         return () => clearTimeout(openDropdownTimer);
       }
-    }, [route.params?.clearOrder, route.params?.openInDraftMode, navigation])
+    }, [route.params?.clearOrder, route.params?.openInDraftMode, route.params?.updateFromApproval, navigation])
   );
 
   // Process Add to Cart / Update Cart params when they appear (useEffect so we run after route has params, not dependent on focus timing).
@@ -708,11 +991,15 @@ export default function OrderEntry() {
   useFocusEffect(
     React.useCallback(() => {
       const onBack = () => {
-        if (sidebarOpen) {
-          Alert.alert('Exit App', 'Are you sure you want to exit?', [
-            { text: strings.cancel || 'Cancel', style: 'cancel' },
-            { text: 'Exit', style: 'destructive', onPress: () => BackHandler.exitApp() },
-          ]);
+        // If Order Entry was opened from Approvals (updateFromApproval), back should return to Approvals tab.
+        if (route.params?.updateFromApproval) {
+          const tabNav = navigation.getParent()?.getParent() as { navigate?: (name: string) => void } | undefined;
+          tabNav?.navigate?.('ApprovalsTab');
+          return true;
+        }
+        // Otherwise, keep existing behaviour: toggle sidebar on hardware back.
+        if (sidebarOpenRef.current) {
+          setSidebarOpen(false);
           return true;
         }
         setSidebarOpen(true);
@@ -720,8 +1007,9 @@ export default function OrderEntry() {
       };
       const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
       return () => sub.remove();
-    }, [sidebarOpen])
+    }, [navigation, route.params?.updateFromApproval])
   );
+
 
   // Track tab name so we can clear when user switches to Order Entry from another tab.
   useEffect(() => {
@@ -878,7 +1166,8 @@ export default function OrderEntry() {
     return stockItemsList.filter((item) => {
       const name = normalize(item.NAME ?? '');
       const alias = normalize(item.ALIAS ?? '');
-      return name.includes(q) || alias.includes(q);
+      const partno = normalize(item.PARTNO ?? '');
+      return name.includes(q) || alias.includes(q) || partno.includes(q);
     });
   }, [stockItemsList, itemSearch]);
 
@@ -983,28 +1272,91 @@ export default function OrderEntry() {
     setEditDetailsOrderNo(autoOrderNo);
     setEditDetailsOrderDate(new Date());
     setEditDetailsBatchNo(batchNo);
+    setEditDetailsGodown(orderDefaultGodown || ledgerField(selectedLedger, 'GODOWN', 'GODOWNNAME', 'godown', 'godownname') || '');
     setEditDetailsModalVisible(true);
   };
   const handleEditDetailsDone = () => {
     setBatchNo(editDetailsBatchNo);
+    setOrderDefaultGodown(editDetailsGodown);
+    setEditDetailsGodownDropdownOpen(false);
+    setEditDetailsSalesLedgerDropdownOpen(false);
     setEditDetailsModalVisible(false);
+    setPartyDetailsExpanded(false);
   };
   const handleEditDetailsClear = () => {
     setEditDetailsOrderNo(autoOrderNo);
     setEditDetailsOrderDate(new Date());
     setEditDetailsBatchNo('');
+    setEditDetailsGodown('');
+    setSalesLedgerOverride('');
   };
+  const toggleEditDetailsGodownDropdown = useCallback(() => {
+    setEditDetailsGodownDropdownOpen((prev) => !prev);
+  }, []);
+  const toggleEditDetailsSalesLedgerDropdown = useCallback(() => {
+    setEditDetailsSalesLedgerDropdownOpen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (!editDetailsGodownDropdownOpen) return;
+    let cancelled = false;
+    setEditDetailsGodownLoading(true);
+    (async () => {
+      try {
+        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+        if (cancelled) return;
+        const listRes = await apiService.getGodownList({ tallyloc_id: t, company: c, guid: g });
+        const godownData = listRes.data?.godownData ?? [];
+        setEditDetailsGodownList(Array.isArray(godownData) ? godownData : []);
+      } catch {
+        if (!cancelled) setEditDetailsGodownList([]);
+      } finally {
+        if (!cancelled) setEditDetailsGodownLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editDetailsGodownDropdownOpen]);
+
+  useEffect(() => {
+    if (!editDetailsSalesLedgerDropdownOpen) return;
+    let cancelled = false;
+    setEditDetailsSalesLedgerLoading(true);
+    (async () => {
+      try {
+        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+        if (cancelled) return;
+        const listRes = await apiService.getAccountingLedgers({ tallyloc_id: t, company: c, guid: g });
+        const ledgers = listRes.data?.ledgers ?? [];
+        const salesOnly = Array.isArray(ledgers)
+          ? ledgers.filter((l) => String(l.TYPE ?? '').trim().toLowerCase() === 'sales')
+          : [];
+        setEditDetailsSalesLedgerList(salesOnly);
+      } catch {
+        if (!cancelled) setEditDetailsSalesLedgerList([]);
+      } finally {
+        if (!cancelled) setEditDetailsSalesLedgerLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editDetailsSalesLedgerDropdownOpen]);
+
+  useEffect(() => {
+    // Reset any manually selected sales ledger when voucher type/class changes
+    setSalesLedgerOverride('');
+    setEditDetailsSalesLedgerDropdownOpen(false);
+  }, [selectedVoucherType, selectedClass]);
   const handleScanClick = () => setShowQRScanner(true);
   const handleQRScanned = useCallback((text: string) => {
     setShowQRScanner(false);
     const scanned = text.trim();
     if (!scanned) return;
 
-    // Find all exact matches against NAME or ALIAS
+    // Find all exact matches against NAME, ALIAS or PARTNO
     const exactMatches = stockItemsList.filter((item) => {
       const nameMatch = (item.NAME ?? '').trim().toLowerCase() === scanned.toLowerCase();
       const aliasMatch = (item.ALIAS ?? '').trim().toLowerCase() === scanned.toLowerCase();
-      return nameMatch || aliasMatch;
+      const partnoMatch = (item.PARTNO ?? '').trim().toLowerCase() === scanned.toLowerCase();
+      return nameMatch || aliasMatch || partnoMatch;
     });
 
     if (exactMatches.length === 1 && exactMatches[0].NAME) {
@@ -1029,6 +1381,7 @@ export default function OrderEntry() {
         viewOnly: route.params?.viewOnly,
         permissions,
         defaultQty,
+        defaultGodown: orderDefaultGodown || undefined,
       });
     } else if (exactMatches.length > 1) {
       // Multiple matches: show all in dropdown
@@ -1229,6 +1582,37 @@ export default function OrderEntry() {
     const list = cls?.LEDGERENTRIESLIST ?? (cls as Record<string, unknown> | undefined)?.LEDGERENTRIESLIST;
     return Array.isArray(list) ? (list as LedgerEntryConfig[]) : [];
   }, [selectedVoucherType, selectedClass, voucherTypesList]);
+
+  /** True when selected class has a NAME in LEDGERFORINVENTORYLIST (first row). */
+  const hasClassSalesLedgerName = useMemo((): boolean => {
+    if (!selectedClass?.trim() || selectedClass === NOT_APPLICABLE_CLASS || !selectedVoucherType?.trim()) return false;
+    const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
+    const classes = vt?.VOUCHERCLASSLIST ?? [];
+    const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim());
+    const list = cls?.LEDGERFORINVENTORYLIST ?? [];
+    const first = Array.isArray(list) && list.length > 0 ? list[0] : null;
+    const name = (first?.NAME ?? '').trim();
+    return !!name;
+  }, [selectedVoucherType, selectedClass, voucherTypesList]);
+
+  /** In Edit Details: show API dropdown when class has no NAME in LEDGERFORINVENTORYLIST; when it has NAME we show static value. */
+  const shouldUseSalesLedgerDropdown = !hasClassSalesLedgerName;
+
+  /** Sales Ledger for details UI: class LEDGERFORINVENTORYLIST NAME wins; otherwise use user-selected override or ledger SALESLEDGER/NAME. */
+  const salesLedgerDisplayValue = useMemo((): string => {
+    if (hasClassSalesLedgerName && selectedClass?.trim() && selectedClass !== NOT_APPLICABLE_CLASS && selectedVoucherType?.trim()) {
+      const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
+      const classes = vt?.VOUCHERCLASSLIST ?? [];
+      const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim());
+      const list = cls?.LEDGERFORINVENTORYLIST ?? [];
+      const first = Array.isArray(list) && list.length > 0 ? list[0] : null;
+      const name = (first?.NAME ?? '').trim();
+      if (name) return name;
+    }
+    if (salesLedgerOverride.trim()) return salesLedgerOverride.trim();
+    const fromLedger = ledgerField(selectedLedger, 'SALESLEDGER', 'salesledger');
+    return fromLedger !== '-' ? fromLedger : displayValue(selectedLedger?.NAME);
+  }, [hasClassSalesLedgerName, selectedVoucherType, selectedClass, voucherTypesList, selectedLedger, salesLedgerOverride]);
 
   /** Parse numeric field from ledger config (CLASSRATE, ROUNDLIMIT, GSTRATE, RATEOFTAXCALCULATION). Tries key as-is then lowercase for API casing. */
   const ledgerNum = useCallback((ledger: LedgerEntryConfig, key: string): number => {
@@ -1465,6 +1849,10 @@ export default function OrderEntry() {
   }, [orderItems, selectedClassLedgers, ledgerValues, selectedLedger, companyStateName]);
 
   const handlePlaceOrder = useCallback(async () => {
+    if (isCreditLimitRestrictMode) {
+      setValidationAlert({ title: 'Place order restricted', message: 'Place order restricted' });
+      return;
+    }
     if (!selectedCustomer.trim()) {
       setValidationAlert({ title: 'Select Customer', message: 'Please select a customer before placing the order.' });
       return;
@@ -1499,6 +1887,17 @@ export default function OrderEntry() {
     const buyerCountry = (f.buyerCountry ?? '').trim();
     const buyerGstno = (f.buyerGstinUin ?? '').trim();
     const defaultDraftItemName = DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED';
+    // Resolve inventory ledger from selected voucher type + class (for item ledgername from api/tally/vouchertype)
+    const vtForLedger = voucherTypesList.find((v) => (v.NAME ?? '').trim() === (selectedVoucherType || '').trim());
+    const classesForLedger = vtForLedger?.VOUCHERCLASSLIST ?? [];
+    const selectedClassObj = selectedClass && selectedClass !== NOT_APPLICABLE_CLASS
+      ? classesForLedger.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim())
+      : null;
+    const ledgerForInventoryList = selectedClassObj?.LEDGERFORINVENTORYLIST ?? [];
+    const firstInventoryLedger = Array.isArray(ledgerForInventoryList) && ledgerForInventoryList.length > 0 ? ledgerForInventoryList[0] : null;
+    const classLedgerName = (firstInventoryLedger?.NAME ?? '').trim();
+    const ledgerFromItem = String(firstInventoryLedger?.LEDGERFROMITEM ?? '').trim().toLowerCase() === 'yes';
+
     const items: PlaceOrderItemPayload[] =
       isDraftMode && orderItems.length === 0
         ? [
@@ -1537,6 +1936,17 @@ export default function OrderEntry() {
           if (mfgDate != null && String(mfgDate).trim() !== '') itemPayload.mfdon = String(mfgDate).trim();
           const expiryDate = oiAny.expiryDate;
           if (expiryDate != null && String(expiryDate).trim() !== '') itemPayload.expiryperiod = String(expiryDate).trim();
+          // Item ledgername: from class LEDGERFORINVENTORYLIST. If LEDGERFROMITEM=No use class NAME for all, unless item SALESLEDGER differs from NAME then use SALESLEDGER. If Yes use item SALESLEDGER if present else empty.
+          const stockRec = oi.stockItem as Record<string, unknown> | undefined;
+          const rawSalesLedger = stockRec?.SALESLEDGER ?? stockRec?.salesledger;
+          const itemSalesLedger = (rawSalesLedger != null ? String(rawSalesLedger) : '').trim();
+          if (classLedgerName) {
+            if (!ledgerFromItem) {
+              itemPayload.ledgername = itemSalesLedger && itemSalesLedger !== classLedgerName ? itemSalesLedger : classLedgerName;
+            } else {
+              itemPayload.ledgername = itemSalesLedger;
+            }
+          }
           return itemPayload;
         });
     const ledgers = selectedClassLedgers.map((le) => {
@@ -1549,7 +1959,7 @@ export default function OrderEntry() {
       tallyloc_id: tallylocId,
       company: companyName,
       guid,
-      masterid: 0,
+      masterid: editingMasterId ? Number(editingMasterId) : 0,
       voucherdate: voucherDateNum,
       date: dateStr,
       effectivedate: dateStr,
@@ -1593,7 +2003,12 @@ export default function OrderEntry() {
       shippingbillno: f.exportShippingBillNo || '',
       shippingbilldate: shippingbilldate || '',
       portcode: f.exportPortCode || '',
-      isoptional: 'No',
+      // When configuration "ctrl_creditdayslimit" is set to "Post as Optional",
+      // force isoptional to "Yes" even if saveOptionalByDefault is not enabled.
+      isoptional:
+        creditDaysLimitMode === 'Post as Optional' || transConfig.saveOptionalByDefault
+          ? 'Yes'
+          : 'No',
       items,
       ledgers,
     };
@@ -1652,6 +2067,7 @@ export default function OrderEntry() {
     autoOrderNo,
     selectedVoucherType,
     selectedClass,
+    voucherTypesList,
     calculatedLedgerAmounts,
     selectedClassLedgers,
     attachmentLinks,
@@ -1843,12 +2259,16 @@ export default function OrderEntry() {
   /** Auto-open customer dropdown whenever the screen gains focus in a cleared state. */
   useFocusEffect(
     React.useCallback(() => {
+      // When navigating from Approvals (updateFromApproval), never auto-open dropdowns.
+      if (route.params?.updateFromApproval) {
+        return;
+      }
       if (needsAutoOpenCustomerRef.current) {
         needsAutoOpenCustomerRef.current = false;
         const timer = setTimeout(() => setCustomerDropdownOpen(true), 400);
         return () => clearTimeout(timer);
       }
-    }, [])
+    }, [route.params?.updateFromApproval])
   );
 
   const setAddDetails = useCallback(<K extends keyof typeof addDetailsForm>(key: K, value: typeof addDetailsForm[K]) => {
@@ -1868,6 +2288,7 @@ export default function OrderEntry() {
           attachmentLinks: oi.attachmentLinks ?? [],
           attachmentUris: oi.attachmentUris ?? [],
           permissions,
+          defaultGodown: orderDefaultGodown || undefined,
         });
       }
     },
@@ -2009,7 +2430,13 @@ export default function OrderEntry() {
                           activeOpacity={0.8}
                         >
                           <Text style={styles.draftCreditLabel}>
-                            {creditLimitLoading ? `${strings.closing_balance}:` : hasNumericBal ? (isNegative ? `${strings.receivable}:` : `${strings.payable}:`) : `${strings.closing_balance}:`}
+                            {creditLimitLoading
+                              ? `${strings.closing_balance}:`
+                              : hasNumericBal
+                              ? isNegative
+                                ? `${strings.receivable}:`
+                                : 'Advance:'
+                              : `${strings.closing_balance}:`}
                           </Text>
                           <Text style={[styles.draftCreditValue, { color: isNegative ? '#ef4444' : isPayable ? '#39b57c' : '#0e172b' }]}>
                             {creditLimitLoading ? '...' : hasNumericBal
@@ -2128,7 +2555,10 @@ export default function OrderEntry() {
                     <Text style={styles.footerClearAllTextDraft}>Clear All</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.footerPlaceOrderDraft, (placeOrderLoading || uploadingAttachments) && { opacity: 0.5 }]}
+                    style={[
+                      styles.footerPlaceOrderDraft,
+                      (placeOrderLoading || uploadingAttachments || isCreditLimitRestrictMode) && { opacity: 0.5 },
+                    ]}
                     onPress={handlePlaceOrder}
                     activeOpacity={0.8}
                     disabled={placeOrderLoading || uploadingAttachments}
@@ -2146,6 +2576,7 @@ export default function OrderEntry() {
             </View>
           ) : (
             <>
+              <View style={{ flex: 1 }}>
               {/* Section - OrdEnt1: bg #e6ecfd, gap-2 pt-1 pb-0 px-4 */}
               <View style={styles.sectionWrap}>
                 <View style={styles.section}>
@@ -2228,12 +2659,10 @@ export default function OrderEntry() {
                           <Text style={styles.partyDetailLabel}>{strings.price_level}</Text>
                           <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, 'PRICELEVEL')}</Text>
                         </View>
-                        {(!selectedClass || selectedClass === NOT_APPLICABLE_CLASS) ? (
-                          <View style={styles.partyDetailRow}>
-                            <Text style={styles.partyDetailLabel}>{strings.sales_ledger}</Text>
-                            <Text style={styles.partyDetailValue}>{(v => v !== '-' ? v : displayValue(selectedLedger?.NAME))(ledgerField(selectedLedger, 'SALESLEDGER', 'salesledger'))}</Text>
-                          </View>
-                        ) : null}
+                        <View style={styles.partyDetailRow}>
+                          <Text style={styles.partyDetailLabel}>{strings.sales_ledger}</Text>
+                          <Text style={styles.partyDetailValue}>{salesLedgerDisplayValue}</Text>
+                        </View>
                         <View style={styles.partyDetailRow}>
                           <Text style={styles.partyDetailLabel}>{strings.order_no}</Text>
                           <Text style={styles.partyDetailValue}>{autoOrderNo}</Text>
@@ -2243,16 +2672,8 @@ export default function OrderEntry() {
                           <Text style={styles.partyDetailValue}>{formatDateDmmmYy(Date.now())}</Text>
                         </View>
                         <View style={styles.partyDetailRow}>
-                          <Text style={styles.partyDetailLabel}>{strings.place_of_supply}</Text>
-                          <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, "STATENAME")}</Text>
-                        </View>
-                        <View style={styles.partyDetailRow}>
                           <Text style={styles.partyDetailLabel}>{strings.godown}</Text>
-                          <Text style={styles.partyDetailValue}>{ledgerField(selectedLedger, 'GODOWN', 'GODOWNNAME', 'godown', 'godownname')}</Text>
-                        </View>
-                        <View style={styles.partyDetailRow}>
-                          <Text style={styles.partyDetailLabel}>{strings.batch_no}</Text>
-                          <Text style={styles.partyDetailValue}>{batchNo || '-'}</Text>
+                          <Text style={styles.partyDetailValue}>{orderDefaultGodown || ledgerField(selectedLedger, 'GODOWN', 'GODOWNNAME', 'godown', 'godownname') || '-'}</Text>
                         </View>
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.editDetailsBtn} onPress={handleEditDetails} activeOpacity={0.8}>
@@ -2291,7 +2712,7 @@ export default function OrderEntry() {
                           </>
                         ) : hasNumericBal ? (
                           <>
-                            <Text style={styles.closingBalanceLabel}>{isNegative ? strings.receivable : strings.payable}:</Text>
+                            <Text style={styles.closingBalanceLabel}>{isNegative ? strings.receivable : 'Advance'}:</Text>
                             <Text style={[styles.closingBalanceValue, { color: isNegative ? BALANCE_RED : BALANCE_GREEN }]} numberOfLines={1}>
                               {Math.round(Math.abs(n))} {isNegative ? 'Dr' : 'Cr'}
                             </Text>
@@ -2374,7 +2795,7 @@ export default function OrderEntry() {
                   style={styles.scroll}
                   contentContainerStyle={[
                     styles.scrollContent,
-                    { paddingBottom: insets.bottom + 100, paddingTop: 8 },
+                    { paddingBottom: insets.bottom + 100 + ledgerBlockHeight, paddingTop: 8 },
                   ]}
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
@@ -2549,6 +2970,7 @@ export default function OrderEntry() {
                                           attachmentLinks: first.attachmentLinks ?? [],
                                           attachmentUris: first.attachmentUris ?? [],
                                           permissions,
+                                          defaultGodown: orderDefaultGodown || undefined,
                                         });
                                       }
                                     }}
@@ -2705,6 +3127,7 @@ export default function OrderEntry() {
                                                     attachmentLinks: oi.attachmentLinks ?? [],
                                                     attachmentUris: oi.attachmentUris ?? [],
                                                     permissions,
+                                                    defaultGodown: orderDefaultGodown || undefined,
                                                   });
                                                 }
                                               }}
@@ -2740,10 +3163,13 @@ export default function OrderEntry() {
                   ) : null}
                 </ScrollView>
               </View>
-            </>
-          )}
 
-
+          {/* Ledger + Grand Total: absolute at bottom so expand doesn't push Select Item / cart */}
+          <View
+            style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
+            onLayout={(e) => setLedgerBlockHeight(e.nativeEvent.layout.height)}
+            pointerEvents="box-none"
+          >
           {/* LEDGER DETAILS - fixed above Grand Total, inside KAV so adjustResize lifts it above keyboard */}
           {!isDraftMode && orderItems.length > 0 ? (
             <KeyboardAvoidingView
@@ -2753,7 +3179,19 @@ export default function OrderEntry() {
               <View style={[styles.ledgerDetailsWrap, isKeyboardVisible && { paddingBottom: 280 }]}>
                 <TouchableOpacity
                   style={styles.ledgerDetailsHeader}
-                  onPress={() => setLedgerDetailsExpanded((e) => !e)}
+                  onPress={() => {
+                    LayoutAnimation.configureNext({
+                      duration: 220,
+                      update: { type: LayoutAnimation.Types.easeInEaseOut },
+                      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                    });
+                    setLedgerDetailsExpanded((e) => {
+                      const next = !e;
+                      if (next) setLedgerDetailsContentHeight(null);
+                      return next;
+                    });
+                  }}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.ledgerDetailsHeaderTitle}>LEDGER DETAILS</Text>
@@ -2765,12 +3203,48 @@ export default function OrderEntry() {
                   />
                 </TouchableOpacity>
                 {ledgerDetailsExpanded ? (
+                  (() => {
+                    const windowHeight = Dimensions.get('window').height;
+                    const ledgerMaxHeight = windowHeight * 0.55;
+                    const contentH = ledgerDetailsContentHeight ?? 0;
+                    const scrollH = Math.min(contentH, ledgerMaxHeight);
+                    const needsScroll = ledgerDetailsContentHeight != null && ledgerDetailsContentHeight > ledgerMaxHeight;
+                    return (
                   <ScrollView
                     keyboardShouldPersistTaps="handled"
                     automaticallyAdjustKeyboardInsets={true}
-                    style={{ maxHeight: 240 }}
+                    style={{ maxHeight: ledgerMaxHeight, height: scrollH }}
                     contentContainerStyle={styles.ledgerDetailsContent}
+                    scrollEnabled={needsScroll}
+                    onContentSizeChange={(_w, h) => {
+                      if (h > 0) {
+                        LayoutAnimation.configureNext({
+                          duration: 200,
+                          update: { type: LayoutAnimation.Types.easeInEaseOut },
+                          create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                          delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                        });
+                        setLedgerDetailsContentHeight(h);
+                      }
+                    }}
                   >
+                    <View
+                      onLayout={(e) => {
+                        const contentHeight = e.nativeEvent.layout.height;
+                        if (contentHeight > 0) {
+                          const paddingTop = 10;
+                          const paddingBottom = 5;
+                          const totalHeight = contentHeight + paddingTop + paddingBottom;
+                          LayoutAnimation.configureNext({
+                            duration: 200,
+                            update: { type: LayoutAnimation.Types.easeInEaseOut },
+                            create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                            delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                          });
+                          setLedgerDetailsContentHeight(totalHeight);
+                        }
+                      }}
+                    >
                     <View style={styles.ledgerDetailsRow}>
                       <Text style={styles.ledgerDetailsLabel}>Subtotal</Text>
                       <Text style={styles.ledgerDetailsAmt}>₹{calculatedLedgerAmounts.subtotal.toFixed(2)}</Text>
@@ -2878,10 +3352,10 @@ export default function OrderEntry() {
                           </View>
                           {gstOnThis > 0 ? (
                             <View style={[styles.ledgerDetailsRow, { paddingLeft: 12, marginTop: -4 }]}>
-                              <Text style={[styles.ledgerDetailsLabel, { fontSize: 12, color: LABEL_GRAY }]}>
+                              <Text style={[styles.ledgerDetailsLabel, { fontSize: 12 }]}>
                                 GST on {name}:
                               </Text>
-                              <Text style={[styles.ledgerDetailsAmt, { fontSize: 12, color: LABEL_GRAY }]}>
+                              <Text style={[styles.ledgerDetailsAmt, { fontSize: 12 }]}>
                                 ₹{gstOnThis.toFixed(2)}
                               </Text>
                             </View>
@@ -2889,7 +3363,10 @@ export default function OrderEntry() {
                         </View>
                       );
                     })}
+                    </View>
                   </ScrollView>
+                    );
+                  })()
                 ) : null}
               </View>
             </KeyboardAvoidingView>
@@ -2901,8 +3378,11 @@ export default function OrderEntry() {
               <Text style={styles.grandTotalBarAmt}>₹{calculatedLedgerAmounts.grandTotal.toFixed(2)}</Text>
             </View>
           )}
+          </View>
 
-
+              </View>
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
 
@@ -2931,7 +3411,10 @@ export default function OrderEntry() {
               </TouchableOpacity>
               {!route.params?.viewOnly && (
                 <TouchableOpacity
-                  style={[styles.footerPlaceOrder, placeOrderLoading && styles.footerPlaceOrderDisabled]}
+                  style={[
+                    styles.footerPlaceOrder,
+                    (placeOrderLoading || isCreditLimitRestrictMode) && styles.footerPlaceOrderDisabled,
+                  ]}
                   onPress={handlePlaceOrder}
                   activeOpacity={0.8}
                   disabled={placeOrderLoading}
@@ -2955,8 +3438,8 @@ export default function OrderEntry() {
         animationType="slide"
         onRequestClose={handleAddDetailsClose}
       >
-        <View style={[styles.addDetailsRoot, { paddingTop: insets.top }]}>
-          <View style={styles.addDetailsHeader}>
+        <View style={styles.addDetailsRoot}>
+          <View style={[styles.addDetailsHeader, { paddingTop: Math.max(0, insets.top - 30), paddingBottom: 3 }]}>
             <TouchableOpacity onPress={handleAddDetailsClose} style={styles.addDetailsBackBtn} hitSlop={12}>
               <Icon name="chevron-left" size={24} color={colors.white} />
             </TouchableOpacity>
@@ -3021,7 +3504,7 @@ export default function OrderEntry() {
             <View style={[styles.addDetailsPage, { width: addDetailsPageWidth }]}>
               <ScrollView
                 style={styles.addDetailsScroll}
-                contentContainerStyle={[styles.addDetailsScrollContent, { paddingBottom: insets.bottom + 80 }]}
+                contentContainerStyle={[styles.addDetailsScrollContent, { paddingBottom: 80 }]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
@@ -3161,7 +3644,7 @@ export default function OrderEntry() {
             <View style={[styles.addDetailsPage, { width: addDetailsPageWidth }]}>
               <ScrollView
                 style={styles.addDetailsScroll}
-                contentContainerStyle={[styles.addDetailsScrollContent, { paddingBottom: insets.bottom + 80 }]}
+                contentContainerStyle={[styles.addDetailsScrollContent, { paddingBottom: 80 }]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
@@ -3246,7 +3729,7 @@ export default function OrderEntry() {
             <View style={[styles.addDetailsPage, { width: addDetailsPageWidth }]}>
               <ScrollView
                 style={styles.addDetailsScroll}
-                contentContainerStyle={[styles.addDetailsScrollContent, { paddingBottom: insets.bottom + 80 }]}
+                contentContainerStyle={[styles.addDetailsScrollContent, { paddingBottom: 80 }]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
@@ -3428,7 +3911,7 @@ export default function OrderEntry() {
               </ScrollView>
             </View>
           </ScrollView>
-          <View style={[styles.addDetailsFooter, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={[styles.addDetailsFooter, { paddingBottom: 16 }]}>
             <TouchableOpacity style={styles.addDetailsClearBtn} onPress={handleAddDetailsClear} activeOpacity={0.8}>
               <Text style={styles.addDetailsClearBtnText}>{strings.clear}</Text>
             </TouchableOpacity>
@@ -3558,7 +4041,7 @@ export default function OrderEntry() {
       </Modal>
 
       {/* Add Details date picker – same calendar presentation as PeriodSelection */}
-      <Modal visible={addDetailsDateField != null} transparent animationType="slide">
+      <Modal visible={addDetailsDateField != null} transparent animationType="slide" onRequestClose={() => setAddDetailsDateField(null)}>
         <View style={styles.addDetailsDateOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -3676,7 +4159,8 @@ export default function OrderEntry() {
           <View
             style={[
               sharedStyles.modalContentFullWidth,
-              { marginBottom: insets.bottom + 80 },
+              // Extra bottom space so last customers are scrollable above bottom bar on mobile
+              { marginBottom: insets.bottom + (isTablet ? 80 : 140) },
               isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
             ]}
             onStartShouldSetResponder={() => true}
@@ -3814,6 +4298,7 @@ export default function OrderEntry() {
               data={filteredCustomers}
               keyExtractor={(i) => i}
               style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
+              contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               ListEmptyComponent={
@@ -4094,6 +4579,7 @@ export default function OrderEntry() {
                         viewOnly: route.params?.viewOnly,
                         permissions,
                         defaultQty,
+                        defaultGodown: orderDefaultGodown || undefined,
                       });
                     }}
                     activeOpacity={0.7}
@@ -4124,22 +4610,33 @@ export default function OrderEntry() {
         visible={editDetailsModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setEditDetailsModalVisible(false)}
+        onRequestClose={() => {
+          setEditDetailsGodownDropdownOpen(false);
+          setEditDetailsModalVisible(false);
+        }}
       >
         <View style={styles.editDetailsOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
-            onPress={() => setEditDetailsModalVisible(false)}
+            onPress={() => {
+              setEditDetailsGodownDropdownOpen(false);
+              setEditDetailsSalesLedgerDropdownOpen(false);
+              setEditDetailsModalVisible(false);
+            }}
             activeOpacity={1}
           />
-          <View style={[styles.editDetailsSheet, { paddingBottom: insets.bottom + 24 }]}>
+          <View style={styles.editDetailsSheet}>
             <View style={styles.editDetailsHandleWrap}>
               <View style={styles.editDetailsHandle} />
             </View>
             <View style={styles.editDetailsHeader}>
               <Text style={styles.editDetailsTitle}>{strings.edit_details}</Text>
               <TouchableOpacity
-                onPress={() => setEditDetailsModalVisible(false)}
+                onPress={() => {
+                  setEditDetailsGodownDropdownOpen(false);
+                  setEditDetailsSalesLedgerDropdownOpen(false);
+                  setEditDetailsModalVisible(false);
+                }}
                 style={styles.editDetailsCloseBtn}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
@@ -4162,17 +4659,60 @@ export default function OrderEntry() {
                   <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
                 </View>
               </View>
-              {(!selectedClass || selectedClass === NOT_APPLICABLE_CLASS) ? (
-                <View style={styles.editDetailsFieldWrap}>
-                  <Text style={styles.editDetailsFieldLabel}>{strings.select_sales_ledger}</Text>
-                  <View style={styles.editDetailsDropdown}>
-                    <Text style={styles.editDetailsDropdownText} numberOfLines={1}>
-                      {(v => (v !== '-' ? v : displayValue(selectedLedger?.NAME)))(ledgerField(selectedLedger, 'SALESLEDGER', 'salesledger'))}
-                    </Text>
-                    <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
+              <View style={styles.editDetailsFieldWrap}>
+                <Text style={styles.editDetailsFieldLabel}>{strings.select_sales_ledger}</Text>
+                {/* Always show tappable dropdown: when class has NAME in LEDGERFORINVENTORYLIST that value is shown as current; options from accountingledger-list (TYPE=Sales only) */}
+                <TouchableOpacity
+                  style={styles.editDetailsDropdown}
+                  onPress={toggleEditDetailsSalesLedgerDropdown}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.editDetailsDropdownText} numberOfLines={1}>
+                    {salesLedgerOverride || salesLedgerDisplayValue || '-'}
+                  </Text>
+                  <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
+                </TouchableOpacity>
+                {editDetailsSalesLedgerDropdownOpen ? (
+                  <View style={styles.editDetailsGodownInlineWrap}>
+                    <View style={styles.editDetailsGodownInlineList}>
+                      {editDetailsSalesLedgerLoading ? (
+                        <View style={styles.editDetailsGodownInlineLoading}>
+                          <ActivityIndicator size="small" color={colors.primary_blue} />
+                          <Text style={styles.editDetailsGodownInlineEmpty}>Loading...</Text>
+                        </View>
+                      ) : editDetailsSalesLedgerList.length === 0 ? (
+                        <Text style={styles.editDetailsGodownInlineEmpty}>No sales ledgers</Text>
+                      ) : (
+                        <ScrollView
+                          style={styles.editDetailsGodownInlineScroll}
+                          nestedScrollEnabled
+                          keyboardShouldPersistTaps="handled"
+                        >
+                          {editDetailsSalesLedgerList.map((opt, i) => {
+                            const name = (opt?.NAME ?? '').trim();
+                            if (!name) return null;
+                            return (
+                              <TouchableOpacity
+                                key={i}
+                                style={styles.editDetailsGodownInlineOpt}
+                                onPress={() => {
+                                  setSalesLedgerOverride(name);
+                                  setEditDetailsSalesLedgerDropdownOpen(false);
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.editDetailsGodownInlineOptText} numberOfLines={1}>
+                                  {name}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ) : null}
+                ) : null}
+              </View>
               <View style={styles.editDetailsFieldWrap}>
                 <Text style={styles.editDetailsFieldLabel}>{strings.enter_order_no}</Text>
                 <TextInput
@@ -4197,32 +4737,51 @@ export default function OrderEntry() {
                 </TouchableOpacity>
               </View>
               <View style={styles.editDetailsFieldWrap}>
-                <Text style={styles.editDetailsFieldLabel}>{strings.place_of_supply}</Text>
-                <View style={styles.editDetailsDropdown}>
-                  <Text style={styles.editDetailsDropdownText} numberOfLines={1}>
-                    {ledgerField(selectedLedger, 'STATENAME') || '-'}
-                  </Text>
-                  <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
-                </View>
-              </View>
-              <View style={styles.editDetailsFieldWrap}>
                 <Text style={styles.editDetailsFieldLabel}>{strings.godown}</Text>
-                <View style={styles.editDetailsDropdown}>
+                <TouchableOpacity
+                  style={styles.editDetailsDropdown}
+                  onPress={toggleEditDetailsGodownDropdown}
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.editDetailsDropdownText} numberOfLines={1}>
-                    {ledgerField(selectedLedger, 'GODOWN', 'GODOWNNAME', 'godown', 'godownname') || '-'}
+                    {editDetailsGodown || '-'}
                   </Text>
                   <OrderEntryChevronDownIcon width={14} height={8} color={LABEL_GRAY} />
-                </View>
-              </View>
-              <View style={styles.editDetailsFieldWrap}>
-                <Text style={styles.editDetailsFieldLabel}>{strings.batch_no}</Text>
-                <TextInput
-                  style={styles.editDetailsInput}
-                  value={editDetailsBatchNo}
-                  onChangeText={setEditDetailsBatchNo}
-                  placeholder="-"
-                  placeholderTextColor={LABEL_GRAY}
-                />
+                </TouchableOpacity>
+                {/* Inline dropdown: godown list appears directly below the field */}
+                {editDetailsGodownDropdownOpen ? (
+                  <View style={styles.editDetailsGodownInlineWrap}>
+                    <View style={styles.editDetailsGodownInlineList}>
+                      {editDetailsGodownLoading ? (
+                        <View style={styles.editDetailsGodownInlineLoading}>
+                          <ActivityIndicator size="small" color={colors.primary_blue} />
+                          <Text style={styles.editDetailsGodownInlineEmpty}>Loading...</Text>
+                        </View>
+                      ) : editDetailsGodownList.length === 0 ? (
+                        <Text style={styles.editDetailsGodownInlineEmpty}>No godown options</Text>
+                      ) : (
+                        <ScrollView style={styles.editDetailsGodownInlineScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                          {editDetailsGodownList.map((opt, i) => {
+                            const name = (opt?.GodownName ?? '').trim() || '-';
+                            return (
+                              <TouchableOpacity
+                                key={i}
+                                style={styles.editDetailsGodownInlineOpt}
+                                onPress={() => {
+                                  setEditDetailsGodown(name === '-' ? '' : name);
+                                  setEditDetailsGodownDropdownOpen(false);
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.editDetailsGodownInlineOptText} numberOfLines={1}>{name}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
+                  </View>
+                ) : null}
               </View>
             </ScrollView>
 
@@ -4342,15 +4901,15 @@ export default function OrderEntry() {
         </View>
       </Modal>
 
-      {/* Order date picker when editing details (shown on top of Edit Details sheet) */}
-      <Modal visible={editDetailsOrderDatePickerVisible} transparent animationType="fade">
-        <View style={styles.editDetailsCalendarOverlay}>
+      {/* Order date picker (Edit Details) – single calendar like due date in item details */}
+      <Modal visible={editDetailsOrderDatePickerVisible} transparent animationType="slide" onRequestClose={() => setEditDetailsOrderDatePickerVisible(false)}>
+        <View style={styles.orderItemCalendarOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
             onPress={() => setEditDetailsOrderDatePickerVisible(false)}
             activeOpacity={1}
           />
-          <View style={styles.editDetailsCalendarSheet}>
+          <View style={styles.orderItemCalendarSheet}>
             <CalendarPicker
               value={editDetailsOrderDate}
               onSelect={(d) => {
@@ -4375,7 +4934,10 @@ export default function OrderEntry() {
       }
 
       {/* Order item due date picker */}
-      <Modal visible={orderItemDueDatePickerVisible} transparent animationType="slide">
+      <Modal visible={orderItemDueDatePickerVisible} transparent animationType="slide" onRequestClose={() => {
+        setOrderItemDueDatePickerVisible(false);
+        setEditingDueDateOrderItemId(null);
+      }}>
         <View style={styles.orderItemCalendarOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -4402,7 +4964,7 @@ export default function OrderEntry() {
       </Modal>
 
       {/* Order item edit description modal */}
-      <Modal visible={orderItemDescriptionModalVisible} transparent animationType="fade">
+      <Modal visible={orderItemDescriptionModalVisible} transparent animationType="fade" onRequestClose={handleOrderItemDescriptionCancel}>
         <View style={styles.orderItemDescriptionOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -5186,6 +5748,7 @@ const styles = StyleSheet.create({
     backgroundColor: SECTION_BG,
     paddingVertical: 10,
     paddingHorizontal: 12,
+    paddingBottom: 5,
   },
   ledgerDetailsRow: {
     flexDirection: 'row',
@@ -5197,14 +5760,16 @@ const styles = StyleSheet.create({
   ledgerDetailsLabel: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: TEXT_ROW,
+    fontWeight: '500',
+    color: '#0e172b',
     flex: 1,
     minWidth: 100,
   },
   ledgerDetailsPct: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: TEXT_ROW,
+    fontWeight: '500',
+    color: '#0e172b',
     minWidth: 45,
     textAlign: 'right',
     flexShrink: 0,
@@ -5212,7 +5777,8 @@ const styles = StyleSheet.create({
   ledgerDetailsAmt: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: TEXT_ROW,
+    fontWeight: '500',
+    color: '#0e172b',
     minWidth: 70,
     textAlign: 'right',
     flexShrink: 0,
@@ -5230,7 +5796,8 @@ const styles = StyleSheet.create({
   ledgerDetailsInputSmall: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: TEXT_ROW,
+    fontWeight: '500',
+    color: '#0e172b',
     paddingVertical: 4,
     paddingHorizontal: 0,
     minWidth: 36,
@@ -5238,17 +5805,20 @@ const styles = StyleSheet.create({
   ledgerDetailsPctSuffix: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: LABEL_GRAY,
+    fontWeight: '500',
+    color: '#0e172b',
   },
   ledgerDetailsRupee: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: TEXT_ROW,
+    fontWeight: '500',
+    color: '#0e172b',
   },
   ledgerDetailsInputAmt: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    color: TEXT_ROW,
+    fontWeight: '500',
+    color: '#0e172b',
     paddingVertical: 4,
     paddingHorizontal: 0,
     minWidth: 56,
@@ -5510,7 +6080,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   editDetailsScroll: { maxHeight: 420 },
-  editDetailsScrollContent: { paddingHorizontal: 20, paddingBottom: 16 },
+  editDetailsScrollContent: { paddingHorizontal: 20 },
   editDetailsFieldWrap: { marginBottom: 16 },
   editDetailsFieldLabel: {
     fontFamily: 'Roboto',
@@ -5530,6 +6100,49 @@ const styles = StyleSheet.create({
     borderColor: INPUT_BORDER,
   },
   editDetailsDropdownText: { fontFamily: 'Roboto', fontSize: 14, color: TEXT_ROW, flex: 1 },
+  editDetailsGodownInlineWrap: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  editDetailsGodownInlineList: {
+    backgroundColor: colors.white,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: INPUT_BORDER,
+    maxHeight: 200,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+  },
+  editDetailsGodownInlineScroll: {
+    maxHeight: 198,
+  },
+  editDetailsGodownInlineLoading: {
+    padding: 16,
+    alignItems: 'center',
+    gap: 8,
+  },
+  editDetailsGodownInlineEmpty: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: LABEL_GRAY,
+    padding: 12,
+    textAlign: 'center',
+  },
+  editDetailsGodownInlineOpt: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  editDetailsGodownInlineOptText: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: TEXT_ROW,
+  },
   editDetailsInput: {
     fontFamily: 'Roboto',
     fontSize: 14,
@@ -5546,8 +6159,6 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 20,
     paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: ROW_BORDER,
     backgroundColor: colors.white,
   },
   editDetailsDoneBtn: {
@@ -5566,18 +6177,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   editDetailsClearText: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '500', color: LABEL_GRAY },
-  editDetailsCalendarOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  editDetailsCalendarSheet: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    marginHorizontal: 16,
-    padding: 16,
-  },
   // Add Details date picker – same calendar as PeriodSelection (bottom sheet)
   addDetailsDateOverlay: {
     flex: 1,

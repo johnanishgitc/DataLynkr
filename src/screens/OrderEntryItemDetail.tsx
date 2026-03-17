@@ -215,12 +215,11 @@ export default function OrderEntryItemDetail() {
   const [expiryDatePickerVisible, setExpiryDatePickerVisible] = useState(false);
   const [description, setDescription] = useState('');
   const godownBatchRowRef = useRef<View>(null);
-  const perFieldRef = useRef<View>(null);
+  const perFieldRef = useRef<View | null>(null); // kept for compatibility (Per dropdown now inline; ref unused)
   const qtyInputRef = useRef<TextInput>(null);
   /** Set when user clicks Update Batch so that Update Cart uses line item data (form is cleared after Update Batch). */
   const lastUpdateWasBatchRef = useRef(false);
   const [perDropdownOpen, setPerDropdownOpen] = useState(false);
-  const [perDropdownAnchor, setPerDropdownAnchor] = useState({ top: 0, left: 16, width: 0 });
   /** After Add Item is clicked, rate is locked for subsequent adds on this screen (still editable when updating a line). */
   const [rateLockedAfterAdd, setRateLockedAfterAdd] = useState(false);
   const [clipPopupVisible, setClipPopupVisible] = useState(false);
@@ -403,8 +402,13 @@ export default function OrderEntryItemDetail() {
       setSelectedLineId(editOrderItem.id);
       setGodown(editOrderItem.godown ?? '');
       setBatch(editOrderItem.batch ?? '');
+      return;
     }
-  }, [item?.stockItem?.MASTERID ?? item?.name ?? null, units, editOrderItem?.id, editOrderItems, selectedItemUnitConfig]);
+    // New item (no edit): default godown from Edit details so it applies to all items in item details
+    if (item) {
+      setGodown(route.params?.defaultGodown ?? '');
+    }
+  }, [item?.stockItem?.MASTERID ?? item?.name ?? null, units, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, route.params?.defaultGodown]);
 
   /** Parse quantity input and derive itemQuantity + compound state (UOM_IMPLEMENTATION_GUIDE § Quantity Parsing). */
   useEffect(() => {
@@ -589,8 +593,8 @@ export default function OrderEntryItemDetail() {
   /** Batch dropdown shows all batches from api/tally/itemwise-batchwise-bal; godown is auto-filled on selection. */
   const batchOptionsForDropdown = batchDataList;
 
-  /** Show godown & batch row when enable_batchGodown is granted, or when show_godownbrkup is on (so dropdowns appear for item details). */
-  const showGodownBatchRow = perms.enable_batchGodown || perms.show_godownbrkup;
+  /** Show godown & batch row only when enable_batchGodown is granted. */
+  const showGodownBatchRow = perms.enable_batchGodown;
 
   useEffect(() => {
     if (isBatchWiseOn) setGodownDropdownOpen(false);
@@ -809,7 +813,7 @@ export default function OrderEntryItemDetail() {
     setRateLockedAfterAdd(true);
     setQuantityInput('');
     setItemQuantity(0);
-    setGodown('');
+    setGodown(route.params?.defaultGodown ?? '');
     setBatch('');
     setSelectedBatchData(null);
     setGodownDropdownOpen(false);
@@ -817,7 +821,7 @@ export default function OrderEntryItemDetail() {
     // Clear attachments for new batch
     setAttachmentLinks([]);
     setAttachmentUris([]);
-  }, [name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris, route.params?.defaultGodown]);
 
   const handleUpdateItem = useCallback(() => {
     if (selectedLineId == null) return;
@@ -1204,7 +1208,8 @@ export default function OrderEntryItemDetail() {
                           }
                           if (validated && selectedItemUnitConfig) {
                             const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                            if (parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
+                            const hasFreeText = /=/.test(validated) || /\bof\b/i.test(validated);
+                            if (!hasFreeText && parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
                               const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
                               const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
                               const fmtBase = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
@@ -1212,7 +1217,7 @@ export default function OrderEntryItemDetail() {
                               const txtBase = selectedItemUnitConfig.BASEUNITS || parsed.customUnit1 || '';
                               const txtAddl = selectedItemUnitConfig.ADDITIONALUNITS || parsed.customUnit2 || '';
                               setQuantityInput(`${fmtBase} ${txtBase} = ${fmtAddl} ${txtAddl}`.replace(/\s+/g, ' ').trim());
-                            } else if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
+                            } else if (!hasFreeText && parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
                               const formatted = formatCompoundBaseUnit(
                                 parsed.qty,
                                 parsed.subQty,
@@ -1220,14 +1225,16 @@ export default function OrderEntryItemDetail() {
                                 units
                               );
                               setQuantityInput(formatted);
-                            } else if (parsed.uom === 'base' && parsed.qty != null) {
+                            } else if (!hasFreeText && parsed.uom === 'base' && parsed.qty != null) {
                               const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
                               const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
                               setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                            } else if (parsed.uom === 'additional' && parsed.qty != null) {
+                            } else if (!hasFreeText && parsed.uom === 'additional' && parsed.qty != null) {
                               const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
                               const fmt = addlDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(addlDec));
                               setQuantityInput(`${fmt} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
+                            } else {
+                              setQuantityInput(validated);
                             }
                           } else if (validated) setQuantityInput(validated);
                         }}
@@ -1242,7 +1249,8 @@ export default function OrderEntryItemDetail() {
                           }
                           if (validated && selectedItemUnitConfig) {
                             const parsed = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                            if (parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
+                            const hasFreeText = /=/.test(validated) || /\bof\b/i.test(validated);
+                            if (!hasFreeText && parsed.isCustomConversion && parsed.qty != null && parsed.customAddlQty != null) {
                               const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
                               const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
                               const fmtBase = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
@@ -1250,17 +1258,19 @@ export default function OrderEntryItemDetail() {
                               const txtBase = selectedItemUnitConfig.BASEUNITS || parsed.customUnit1 || '';
                               const txtAddl = selectedItemUnitConfig.ADDITIONALUNITS || parsed.customUnit2 || '';
                               setQuantityInput(`${fmtBase} ${txtBase} = ${fmtAddl} ${txtAddl}`.replace(/\s+/g, ' ').trim());
-                            } else if (parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
+                            } else if (!hasFreeText && parsed.isCompound && parsed.qty != null && parsed.subQty != null) {
                               const formatted = formatCompoundBaseUnit(parsed.qty, parsed.subQty, selectedItemUnitConfig, units);
                               setQuantityInput(formatted);
-                            } else if (parsed.uom === 'base' && parsed.qty != null) {
+                            } else if (!hasFreeText && parsed.uom === 'base' && parsed.qty != null) {
                               const baseDec = selectedItemUnitConfig.BASEUNIT_DECIMAL ?? 0;
                               const fmt = baseDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(baseDec));
                               setQuantityInput(`${fmt} ${selectedItemUnitConfig.BASEUNITS}`);
-                            } else if (parsed.uom === 'additional' && parsed.qty != null) {
+                            } else if (!hasFreeText && parsed.uom === 'additional' && parsed.qty != null) {
                               const addlDec = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL ?? 0;
                               const fmt = addlDec === 0 ? String(Math.round(parsed.qty)) : parsed.qty.toFixed(Number(addlDec));
                               setQuantityInput(`${fmt} ${selectedItemUnitConfig.ADDITIONALUNITS}`);
+                            } else {
+                              setQuantityInput(validated);
                             }
                           } else if (validated) setQuantityInput(validated);
                           qtyInputRef.current?.blur();
@@ -1332,15 +1342,14 @@ export default function OrderEntryItemDetail() {
 
                   <View style={styles.row}>
                     {perms.show_rateamt_Column ? (
-                      <View style={styles.half} ref={perFieldRef} collapsable={false}>
+                      <View style={styles.half}>
                         <Text style={styles.label}>Per</Text>
                         <TouchableOpacity
                           style={[styles.input, styles.inputRow]}
                           onPress={() => {
-                            perFieldRef.current?.measureInWindow((x, y, w, h) => {
-                              setPerDropdownAnchor({ top: y + h + 4, left: x, width: w });
-                              setPerDropdownOpen(true);
-                            });
+                            setBatchDropdownOpen(false);
+                            setGodownDropdownOpen(false);
+                            setPerDropdownOpen((prev) => !prev);
                           }}
                           activeOpacity={0.7}
                         >
@@ -1367,6 +1376,29 @@ export default function OrderEntryItemDetail() {
                     ) : null}
                   </View>
 
+                  {/* Inline Per (rate UOM) dropdown - same pattern as Godown/Batch so it always appears */}
+                  {perms.show_rateamt_Column && perDropdownOpen ? (
+                    <View style={styles.inlineDropdownWrap}>
+                      <View style={styles.overlayDropdown}>
+                        <View style={styles.inlineBatchDropdownList}>
+                          {getRateUOMOptions(selectedItemUnitConfig, units, per).map((opt) => (
+                            <TouchableOpacity
+                              key={opt.value}
+                              style={styles.inlineDropdownOpt}
+                              onPress={() => {
+                                setRateUOM(opt.value);
+                                setPerDropdownOpen(false);
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.inlineDropdownOptText} numberOfLines={1}>{opt.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+
                   {showGodownBatchRow ? (
                     <View ref={godownBatchRowRef} style={styles.godownBatchRow} collapsable={false}>
                       <View style={styles.half}>
@@ -1381,6 +1413,7 @@ export default function OrderEntryItemDetail() {
                           <TouchableOpacity
                             style={styles.godownInput}
                             onPress={() => {
+                              setPerDropdownOpen(false);
                               setBatchDropdownOpen(false);
                               setGodownDropdownOpen((prev) => !prev);
                             }}
@@ -1400,6 +1433,7 @@ export default function OrderEntryItemDetail() {
                             <TouchableOpacity
                               style={[styles.godownInput, styles.batchInputFlex]}
                               onPress={() => {
+                                setPerDropdownOpen(false);
                                 setGodownDropdownOpen(false);
                                 setBatchDropdownOpen((prev) => !prev);
                               }}
@@ -1838,36 +1872,6 @@ export default function OrderEntryItemDetail() {
               hideDone
             />
           </View>
-        </View>
-      </Modal>
-
-      <Modal visible={perDropdownOpen} transparent animationType="fade">
-        <View style={styles.dropdownOverlayContainer}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={() => setPerDropdownOpen(false)}
-          />
-          {perDropdownOpen ? (
-            <View style={[styles.dropdownOverlayContent, { top: perDropdownAnchor.top, left: perDropdownAnchor.left, width: Math.max(perDropdownAnchor.width || 120, 120) }]}>
-              <View style={styles.overlayDropdown}>
-                {getRateUOMOptions(selectedItemUnitConfig, units, per).map((opt) => (
-                  <TouchableOpacity
-                    key={opt.value}
-                    style={styles.inlineDropdownOpt}
-                    onPress={() => {
-                      setRateUOM(opt.value);
-                      setPerDropdownOpen(false);
-                      // Rate is not affected by Per; value is recomputed from quantityInRateUOM * rate * (1 - discount/100) via useEffect.
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.inlineDropdownOptText} numberOfLines={1}>{opt.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ) : null}
         </View>
       </Modal>
 

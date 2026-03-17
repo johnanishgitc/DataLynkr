@@ -91,10 +91,12 @@ export default function VoucherDetailView() {
   const [attachmentPreviewItems, setAttachmentPreviewItems] = useState<string[] | null>(null);
   const fetchDone = useRef(false);
   const { width: winWidth, height: winHeight } = useWindowDimensions();
+  const isTablet = winWidth >= 600;
 
   /** Header bar height (compact) ≈ 47 + padding */
   const headerBarHeight = 47;
-  const dropdownTop = insets.top + headerBarHeight + 4;
+  // Anchor dropdown much closer to the header three-dots icon
+  const dropdownTop = insets.top + headerBarHeight - 45;
 
   /** Extract voucher id for getVoucherData – ledger/bill-wise APIs may use different keys */
   const getMasterId = (obj: Record<string, unknown>): string => {
@@ -321,9 +323,9 @@ export default function VoucherDetailView() {
   /** Order/Invoice: translateY – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down. All footer anims use useNativeDriver: true to avoid native/JS conflict. */
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
-  const TAB_BAR_OFFSET = 55; // Space above tab bar when expanded
-  const SCROLL_UP_THRESHOLD = 10; // px – avoids jitter (same as SalesOrderLedgerOutstandings)
-  const FOOTER_COLLAPSE_HEIGHT = 55; // px – slide down when collapsed so grand total bar stays visible a bit up
+  const TAB_BAR_OFFSET = insets.bottom + (isTablet ? 60 : 49); // Space for tab bar + safe area
+  const SCROLL_UP_THRESHOLD = 10;
+  const FOOTER_COLLAPSE_HEIGHT = isTablet ? 60 : 49; // Match tab bar content height to keep footer visible above safe area
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -429,9 +431,8 @@ export default function VoucherDetailView() {
     }, [isAccountingView, footerTranslateY, collapseProgress, setScrollDirection])
   );
 
-  // Accounting: footer via translateY (native driver); Order/Invoice: fixed bottom + translateY (like LedgerVoucher)
-  const FOOTER_OFFSET_DOWN = 6; // px – item total, ledger details, grand total sit 4px lower
-  const footerBottomStyle = isAccountingView ? 0 : TAB_BAR_OFFSET - FOOTER_OFFSET_DOWN;
+  // Accounting: footer via translateY (native driver); Order/Invoice: fixed bottom + translateY
+  const footerBottomStyle = isAccountingView ? 0 : TAB_BAR_OFFSET;
   const footerTransform = isAccountingView
     ? [{ translateY: collapseProgress.interpolate({ inputRange: [0, 1], outputRange: [-TAB_BAR_OFFSET, 0] }) }]
     : [{ translateY: footerTranslateY }];
@@ -676,7 +677,7 @@ export default function VoucherDetailView() {
           {
             text: 'Share',
             onPress: () =>
-              Share.open({ url: fileUrl, type: 'application/pdf', title: 'Voucher PDF' }).catch(() => {}),
+              Share.open({ url: fileUrl, type: 'application/pdf', title: 'Voucher PDF' }).catch(() => { }),
           },
         ]
       );
@@ -720,7 +721,7 @@ export default function VoucherDetailView() {
                 url: fileUrl,
                 type: 'application/pdf',
                 title: 'Voucher PDF',
-              }).catch(() => {});
+              }).catch(() => { });
             }
           } catch (e) {
             if (!isUnauthorizedError(e)) Alert.alert('', 'Could not share PDF to WhatsApp.');
@@ -743,7 +744,7 @@ export default function VoucherDetailView() {
                 message,
               });
             } catch {
-              await Share.open({ message, title: 'Voucher details' }).catch(() => {});
+              await Share.open({ message, title: 'Voucher details' }).catch(() => { });
             }
           } catch (e) {
             if (!isUnauthorizedError(e)) Alert.alert('', 'Could not share link to WhatsApp.');
@@ -783,7 +784,7 @@ export default function VoucherDetailView() {
           title: 'Voucher PDF',
           subject,
           message,
-        }).catch(() => {});
+        }).catch(() => { });
       }
     } catch (e) {
       if (!isUnauthorizedError(e)) Alert.alert('', 'Could not open mail.');
@@ -835,9 +836,9 @@ export default function VoucherDetailView() {
         title="Voucher Details"
         leftIcon="back"
         onLeftPress={handleBack}
-        rightIcons="share-kebab"
+        rightIcons={isAccountingView ? 'share' : 'share-kebab'}
         onSharePress={openShareMenu}
-        onRightIconsPress={() => setMenuVisible(true)}
+        onRightIconsPress={isAccountingView ? undefined : () => setMenuVisible(true)}
         compact
       />
 
@@ -881,47 +882,47 @@ export default function VoucherDetailView() {
         variant="voucher"
       />
 
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeMenu}
-      >
-        <View style={styles.menuWrapper}>
-          <TouchableOpacity
-            style={styles.menuOverlay}
-            activeOpacity={1}
-            onPress={closeMenu}
-          />
-          <View style={[styles.menuDropdown, { top: dropdownTop }]}>
-            {!isAccountingView && (
-              <>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={() => handleMenuOption('bill_allocations')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.menuItemText}>{strings.bill_allocations}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={() => handleMenuOption('more_details')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.menuItemText}>{strings.more_details}</Text>
-                </TouchableOpacity>
-              </>
-            )}
+      {!isAccountingView && (
+        <Modal
+          visible={menuVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={closeMenu}
+        >
+          <View style={styles.menuWrapper}>
             <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => handleMenuOption('view_full_details')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.menuItemText}>{strings.view_full_details}</Text>
-            </TouchableOpacity>
+              style={styles.menuOverlay}
+              activeOpacity={1}
+              onPress={closeMenu}
+            />
+            <View style={[styles.menuDropdown, { top: dropdownTop }]}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleMenuOption('bill_allocations')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.menuItemText}>{strings.bill_allocations}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleMenuOption('more_details')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.menuItemText}>{strings.more_details}</Text>
+              </TouchableOpacity>
+              {/* View full details – commented out
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleMenuOption('view_full_details')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.menuItemText}>{strings.view_full_details}</Text>
+              </TouchableOpacity>
+              */}
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      )}
 
       <Modal
         visible={htmlModalVisible}
@@ -1184,24 +1185,27 @@ export default function VoucherDetailView() {
           ) : (
             /* ---- Order / Invoice Voucher View (Figma 3045-55819) – footer like LedgerVoucher ---- */
             <>
+              <View style={[styles.invSectionWrap, { marginVertical: 15, paddingBottom: 0, marginBottom: 4 }]}>
+                <View style={[styles.sectionHead, styles.sectionHeadInv]}>
+                  <Icon name="cube-outline" size={20} color="#1f3a89" />
+                  <Text style={styles.sectionTitle}>
+                    Inventory Allocations ({invAlloc.length})
+                  </Text>
+                </View>
+              </View>
               <ScrollView
                 ref={scrollRef}
                 style={styles.scroll}
-                contentContainerStyle={[styles.scrollContent, styles.scrollContentWithFooter]}
+                contentContainerStyle={[
+                  styles.scrollContent,
+                  { paddingTop: 0, paddingBottom: TAB_BAR_OFFSET + 130 }
+                ]}
                 showsVerticalScrollIndicator={true}
                 onScroll={handleScroll}
                 onMomentumScrollEnd={() => { programmaticScrollRef.current = false; }}
                 onScrollEndDrag={() => { programmaticScrollRef.current = false; }}
                 scrollEventThrottle={16}
               >
-                <View style={styles.invSectionWrap}>
-                  <View style={[styles.sectionHead, styles.sectionHeadInv]}>
-                    <Icon name="cube-outline" size={20} color="#1f3a89" />
-                    <Text style={styles.sectionTitle}>
-                      Inventory Allocations ({invAlloc.length})
-                    </Text>
-                  </View>
-                </View>
                 <View style={styles.invListWrap}>
                   {invAlloc.map((item, i) => (
                     <ExpandableInventoryRow
@@ -1223,7 +1227,6 @@ export default function VoucherDetailView() {
                       }
                     />
                   ))}
-                  <View style={styles.invListEmptySlot} />
                 </View>
               </ScrollView>
 

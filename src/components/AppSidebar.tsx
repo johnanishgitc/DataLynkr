@@ -18,6 +18,7 @@ import {
   StatusBar,
   ActivityIndicator,
   ScrollView,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -72,7 +73,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
-  const { logout } = useAuth();
+  const { logout, userName, userEmail } = useAuth();
   const { moduleAccess } = useModuleAccess();
 
   const getModuleKey = (target: string) => {
@@ -113,6 +114,7 @@ export function AppSidebar({
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [ledgerExpanded, setLedgerExpanded] = useState(false);
+  const [showModal, setShowModal] = useState(visible);
 
   // Fetch companies when sidebar becomes visible
   useEffect(() => {
@@ -222,22 +224,35 @@ export function AppSidebar({
   useEffect(() => {
     // Keep navigation bar transparent app-wide (matches theme)
     const transparent = '#00000000';
-    SystemNavigationBar.setNavigationColor(transparent, visible ? 'light' : 'dark');
-  }, [visible]);
+    SystemNavigationBar.setNavigationColor(transparent, showModal ? 'light' : 'dark');
+  }, [showModal]);
 
   useEffect(() => {
-    Animated.timing(anim, {
-      toValue: visible ? 1 : 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
+    if (visible) {
+      setShowModal(true);
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(anim, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.bezier(0.33, 0, 0.68, 0),
+        useNativeDriver: true,
+      }).start(() => {
+        setShowModal(false);
+      });
+    }
   }, [visible, anim]);
 
   const overlayOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.6] });
   const panelTranslateX = anim.interpolate({ inputRange: [0, 1], outputRange: [-SIDEBAR_WIDTH, 0] });
 
   return (
-    <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
+    <Modal visible={showModal} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
       <StatusBar backgroundColor="#1f3a89" barStyle="light-content" />
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
         <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]} />
@@ -252,6 +267,18 @@ export function AppSidebar({
           <View style={styles.logoRow}>
             <FullYellowLogo width={55} height={55} />
             <DataLynkrTextSvg width={150} height={35} />
+          </View>
+
+          {/* User Profile Section */}
+          <View style={styles.profileSection}>
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName} numberOfLines={1}>
+                {userName || 'User'}
+              </Text>
+              <Text style={styles.profileEmail} numberOfLines={1}>
+                {userEmail || ''}
+              </Text>
+            </View>
           </View>
 
           {/* Company dropdown section */}
@@ -470,6 +497,31 @@ const styles = StyleSheet.create({
     marginTop: 40,
     marginBottom: 10,
     marginLeft: 30,
+  },
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 14,
+    paddingHorizontal: 16, // Increased padding slightly since circle is gone
+    paddingVertical: 10,
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  profileInfo: {
+    flex: 1,
+    gap: 0,
+  },
+  profileName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    fontFamily: 'Inter',
+  },
+  profileEmail: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 11,
+    fontFamily: 'Inter',
   },
   companySection: {
     gap: 6,

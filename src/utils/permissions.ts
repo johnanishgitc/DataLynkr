@@ -204,6 +204,44 @@ export async function requestBackgroundPermissions(): Promise<void> {
 }
 
 /**
+ * Opens the system screen where the user can enable background permission for this app.
+ * Android: direct screen to "Allow battery optimization" / "Allow background activity" for this app.
+ * iOS: tries to open Background App Refresh list, then falls back to app settings.
+ */
+async function openBackgroundPermissionSettings(): Promise<void> {
+  if (Platform.OS === 'android') {
+    try {
+      if (StoragePermissionModule?.openBatteryOptimizationSettings) {
+        await StoragePermissionModule.openBatteryOptimizationSettings();
+      } else {
+        await Linking.openSettings();
+      }
+    } catch {
+      await Linking.openSettings();
+    }
+  } else {
+    // iOS: try to open Background App Refresh list (private URL; may not work on all iOS versions)
+    const backgroundRefreshUrls = [
+      'App-prefs:root=General&path=Background_App_Refresh',
+      'prefs:root=General&path=Background_App_Refresh',
+    ];
+    let opened = false;
+    for (const url of backgroundRefreshUrls) {
+      try {
+        await Linking.openURL(url);
+        opened = true;
+        break;
+      } catch {
+        // try next URL or fall back to app settings
+      }
+    }
+    if (!opened) {
+      await Linking.openSettings();
+    }
+  }
+}
+
+/**
  * Request Android background permissions
  */
 async function requestAndroidBackgroundPermissions(showAlert: boolean = true): Promise<void> {
@@ -211,7 +249,7 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
     // Note: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is not a standard runtime permission
     // that can be checked/requested through react-native-permissions. It requires
     // opening a system settings dialog, which must be handled through native code.
-    // For now, we'll guide the user to enable it manually in settings.
+    // Open Settings uses native module to go directly to battery optimization screen for this app.
 
     if (showAlert) {
       Alert.alert(
@@ -222,7 +260,7 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
           {
             text: 'Open Settings',
             onPress: () => {
-              Linking.openSettings();
+              openBackgroundPermissionSettings();
             },
           },
         ]
@@ -268,7 +306,7 @@ async function requestIOSBackgroundPermissions(showAlert: boolean = true): Promi
           {
             text: 'Open Settings',
             onPress: () => {
-              Linking.openSettings();
+              openBackgroundPermissionSettings();
             },
           },
         ]

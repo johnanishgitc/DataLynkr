@@ -281,7 +281,10 @@ export default function PastOrders({
             style={[
               sharedStyles.footer,
               isTablet && sharedStyles.footerTablet,
-              { transform: [{ translateY: footerTranslateY }] },
+              {
+                bottom: (isTablet ? 60 : 49) + insets.bottom,
+                transform: [{ translateY: footerTranslateY }]
+              },
             ]}
           >
             <TouchableOpacity style={sharedStyles.footerBar} onPress={() => setFooterExpanded((x) => !x)} activeOpacity={0.8}>

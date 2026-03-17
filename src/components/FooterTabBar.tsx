@@ -28,6 +28,24 @@ export default function FooterTabBar({
   const isHidden = tabBarStyle?.display === 'none';
   const footerHeight = 100; // Height to hide footer completely (including safe area)
 
+  // When VoucherDetailView is opened from Order Success "View Order" (on Ledger tab), show Orders as active in footer
+  const displayTabIndex = (() => {
+    if (focusedRoute.name !== 'LedgerTab') return state.index;
+    const ledgerState = focusedRoute.state as {
+      routes?: { name: string; params?: { returnToOrderEntryClear?: boolean } }[];
+      index?: number;
+    } | undefined;
+    const currentLedgerRoute = ledgerState?.routes?.[ledgerState.index ?? 0];
+    const isOrderSuccessViewOrder =
+      currentLedgerRoute?.name === 'VoucherDetailView' &&
+      Boolean(currentLedgerRoute?.params?.returnToOrderEntryClear);
+    if (isOrderSuccessViewOrder) {
+      const ordersTabIdx = state.routes.findIndex((r) => r.name === 'OrdersTab');
+      return ordersTabIdx >= 0 ? ordersTabIdx : state.index;
+    }
+    return state.index;
+  })();
+
   // Hide footer when keyboard is open (e.g. dropdown search in Ledger) so it doesn't slide up
   const keyboardOffsetY = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -136,7 +154,7 @@ export default function FooterTabBar({
     >
       <View style={styles.tabsRow} accessibilityRole="tablist">
         {state.routes.map((route, index) => {
-          const focused = index === state.index;
+          const focused = index === displayTabIndex;
           const { options } = descriptors[route.key];
           const tabStyle = getTabStyle(route.name);
 

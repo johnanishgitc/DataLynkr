@@ -6,10 +6,18 @@ import type {
   SignupResponse,
   ForgotPasswordRequest,
   ForgotPasswordResponse,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
+  SendOtpRequest,
+  SendOtpResponse,
+  VerifyOtpRequest,
+  VerifyOtpResponse,
   LedgerListRequest,
   LedgerListResponse,
   LedgerReportRequest,
   LedgerReportResponse,
+  AccountingLedgerListRequest,
+  AccountingLedgerListResponse,
   UserConnectionsResponse,
   VoucherDataRequest,
   VoucherDataResponse,
@@ -88,9 +96,13 @@ function createClient(timeoutMs = 60000): AxiosInstance {
 
   client.interceptors.request.use(
     async (config: InternalAxiosRequestConfig) => {
-      const token = await getToken();
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      // Allow per-request token (e.g. change-password after background login)
+      const existingAuth = config.headers?.Authorization;
+      if (!existingAuth) {
+        const token = await getToken();
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
       }
 
       // Log API request
@@ -147,7 +159,10 @@ function createClient(timeoutMs = 60000): AxiosInstance {
 
       if (e?.response?.status === 401) {
         (e as { isUnauthorized?: boolean }).isUnauthorized = true;
-        onUnauthorized();
+        const skipRedirect = (e.config as InternalAxiosRequestConfig & { skipUnauthorizedRedirect?: boolean })?.skipUnauthorizedRedirect;
+        if (!skipRedirect) {
+          onUnauthorized();
+        }
       }
       return Promise.reject(e);
     }
@@ -194,8 +209,9 @@ function getDownloadApi(): AxiosInstance {
 }
 
 export const apiService = {
-  login: (body: LoginRequest) =>
-    getApi().post<LoginResponse>('api/login', body),
+  /** Optional requestConfig.skipUnauthorizedRedirect: true to avoid triggering logout on 401 (e.g. background login for change-password). */
+  login: (body: LoginRequest, requestConfig?: { skipUnauthorizedRedirect?: boolean }) =>
+    getApi().post<LoginResponse>('api/login', body, requestConfig as any),
 
   signup: (body: SignupRequest) =>
     getApi().post<SignupResponse>('api/signup', body),
@@ -203,8 +219,22 @@ export const apiService = {
   forgotPassword: (body: ForgotPasswordRequest) =>
     getApi().post<ForgotPasswordResponse>('api/forget-password', body),
 
+  /** Change password. Pass optional token when calling after a background login (token not persisted). */
+  changePassword: (body: ChangePasswordRequest, token?: string) =>
+    getApi().post<ChangePasswordResponse>('api/change-password', body, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined),
+
+  sendOtp: (body: SendOtpRequest) =>
+    getApi().post<SendOtpResponse>('api/login/send-otp', body),
+
+  verifyOtp: (body: VerifyOtpRequest) =>
+    getApi().post<VerifyOtpResponse>('api/login/verify-otp', body),
+
   getLedgerList: (body: LedgerListRequest) =>
     getApi().post<LedgerListResponse>('api/tally/ledgerlist-w-addrs', body),
+
+  /** Accounting ledgers master list (Sales/Purchase etc.) */
+  getAccountingLedgers: (body: AccountingLedgerListRequest) =>
+    getApi().post<AccountingLedgerListResponse>('api/tally/masterdata/accountingledger-list', body),
 
   getLedgerReport: (body: LedgerReportRequest) =>
     getApi().post<LedgerReportResponse>('api/tally/led_statbillrep', body),
@@ -239,7 +269,7 @@ export const apiService = {
     }),
 
   getStockItems: (body: StockItemRequest, ts?: number) =>
-    getApi().post<StockItemResponse>('api/tally/stockitem', body, {
+    getApi().post<StockItemResponse>('api/tally/stockitem-loop', body, {
       params: ts != null ? { ts } : undefined,
     }),
 
@@ -295,6 +325,10 @@ export const apiService = {
   /** Reject a voucher */
   rejectVoucher: (body: VchAuthActionRequest) =>
     getApi().post<VchAuthActionResponse>('api/tally/vchauth/reject', body),
+
+  /** Resend a rejected voucher */
+  resendVoucher: (body: VchAuthActionRequest) =>
+    getApi().post<VchAuthActionResponse>('api/tally/vchauth/resend', body),
 
   /** Stock Summary – groups & items list (drill-down via stockitem param) */
   getStockSummary: (body: StockSummaryRequest) =>

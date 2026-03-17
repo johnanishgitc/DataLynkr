@@ -23,6 +23,29 @@ export interface LedgerListResponse {
   success?: boolean;
 }
 
+/** api/tally/masterdata/accountingledger-list request */
+export interface AccountingLedgerListRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** Single ledger from accountingledger-list (master data) */
+export interface AccountingLedgerItem {
+  NAME?: string | null;
+  TYPE?: string | null;
+  MASTERID?: string | null;
+  ALTERID?: string | null;
+  [key: string]: unknown;
+}
+
+export interface AccountingLedgerListResponse {
+  ledgers?: AccountingLedgerItem[] | null;
+  error?: string | null;
+  message?: string | null;
+  success?: boolean;
+}
+
 export interface LedgerReportRequest {
   tallyloc_id: number;
   company: string;

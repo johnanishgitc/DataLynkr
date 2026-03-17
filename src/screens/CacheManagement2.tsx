@@ -46,6 +46,7 @@ import { AppSidebar } from '../components/AppSidebar';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { invalidateLedgerListCache } from '../cache';
+import { subscribeToDataManagementSync } from '../cache/dataManagementAutoSync';
 
 // Enable SQLite promises
 SQLite.enablePromise(true);
@@ -1060,6 +1061,22 @@ export default function DataManagement() {
 
   // State for preview loading (for View Raw progressive loading)
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  // State for global Data Management background sync
+  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
+  const wasSyncingRef = useRef(false);
+
+  useEffect(() => {
+    return subscribeToDataManagementSync(setIsBackgroundSyncing);
+  }, []);
+
+  useEffect(() => {
+    // If it was syncing and now we're done, refresh the cache entries to update customer/item counts
+    if (wasSyncingRef.current && !isBackgroundSyncing) {
+      refreshEntries();
+    }
+    wasSyncingRef.current = isBackgroundSyncing;
+  }, [isBackgroundSyncing, refreshEntries]);
 
   // Track InteractionManager tasks for cleanup
   const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
@@ -3238,6 +3255,14 @@ export default function DataManagement() {
           {infoId ? `ID: ${infoId}` : ''}{infoId && infoCache ? ' | ' : ''}{infoCache ? `Cache: ${infoCache}` : ''}
         </Text>
       </View>
+
+      {isBackgroundSyncing && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#eff6ff', paddingVertical: 10, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#bfdbfe' }}>
+          <ActivityIndicator size="small" color={colors.primary_blue} />
+          <Text style={{ marginLeft: 10, color: colors.primary_blue, fontSize: 14, fontWeight: '500' }}>Syncing data in background...</Text>
+        </View>
+      )}
+
 
       <ScrollView
         style={styles.mainScroll}

@@ -159,12 +159,43 @@ export default function StockItemMonthly() {
 
     const { setFooterCollapseValue } = useScroll();
     const footerCollapseProgress = useRef(new Animated.Value(0)).current;
+    
+    // Collapsible bar logic
+    const lastScrollY = useRef(0);
+    const localScrollDirection = useRef<'up' | 'down'>('up');
+    const footerTranslateY = useRef(new Animated.Value(0)).current;
+    const SCROLL_UP_THRESHOLD = 10;
+
     useEffect(() => {
         setFooterCollapseValue(footerCollapseProgress);
         const listenerId = scrollY.addListener(({ value }) => {
             const raw = value / SCROLL_RANGE;
             const eased = raw <= 0.5 ? raw * 1.3 : 0.65 + (raw - 0.5) * 0.7;
             footerCollapseProgress.setValue(Math.min(1, eased));
+
+            // Sync bar collapse with scroll direction
+            const diff = value - lastScrollY.current;
+            if (diff > 0 && value > 10) {
+                if (localScrollDirection.current !== 'down') {
+                    localScrollDirection.current = 'down';
+                    Animated.timing(footerTranslateY, {
+                        toValue: 60,
+                        duration: 300,
+                        useNativeDriver: true,
+                    }).start();
+                }
+            } else if (diff < -SCROLL_UP_THRESHOLD || value <= 10) {
+                if (localScrollDirection.current !== 'up') {
+                    localScrollDirection.current = 'up';
+                    localScrollDirection.current = 'up';
+                    Animated.timing(footerTranslateY, {
+                        toValue: 0,
+                        duration: 300,
+                        useNativeDriver: true,
+                    }).start();
+                }
+            }
+            lastScrollY.current = value;
         });
         return () => {
             scrollY.removeListener(listenerId);
@@ -225,6 +256,13 @@ export default function StockItemMonthly() {
             setLoading(false);
         }
     }, [selectedStockItem]);
+    
+    const closingBalanceDisplay = useMemo(() => {
+        if (!opening && months.length === 0) return '- - - -';
+        const totalValue = (opening?.value ?? 0) + 
+            months.reduce((acc, m) => acc + (m.inward?.value ?? 0) - (m.outward?.value ?? 0), 0);
+        return fmtValue(totalValue);
+    }, [opening, months]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
@@ -380,12 +418,53 @@ export default function StockItemMonthly() {
                     data={listData}
                     keyExtractor={(item, idx) => String(idx)}
                     renderItem={renderItem}
-                    contentContainerStyle={s.listContent}
+                    contentContainerStyle={[
+                        s.listContent,
+                        { paddingBottom: 44 + (isTablet ? 60 : 49) + insets.bottom + 16 }
+                    ]}
                     showsVerticalScrollIndicator={false}
                     onScroll={onScroll}
                     scrollEventThrottle={16}
                 />
             )}
+
+            {/* Closing balance bar: sit on top of tab bar (49 + insets.bottom) */}
+            <Animated.View
+                style={[
+                    sharedStyles.footer,
+                    {
+                        bottom: (isTablet ? 60 : 49) + insets.bottom,
+                        height: 44, // Matches footer height from Stock Summary
+                        paddingHorizontal: 16,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: colors.primary_blue,
+                        transform: [{ translateY: footerTranslateY }],
+                    },
+                ]}
+            >
+                <Text
+                    style={{
+                        fontFamily: 'Roboto',
+                        fontSize: 14,
+                        fontWeight: '700',
+                        color: colors.white,
+                    }}
+                >
+                    {strings.closing_balance.toUpperCase()}
+                </Text>
+                <Text
+                    style={{
+                        fontFamily: 'Roboto',
+                        fontSize: 14,
+                        fontWeight: '700',
+                        color: colors.white,
+                    }}
+                >
+                    {closingBalanceDisplay}
+                </Text>
+            </Animated.View>
 
             <PeriodSelection
                 visible={periodOpen}

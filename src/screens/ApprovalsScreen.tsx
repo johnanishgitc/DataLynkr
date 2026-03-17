@@ -15,6 +15,8 @@ import {
     LayoutAnimation,
     Platform,
     UIManager,
+    Pressable,
+    Animated,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -37,6 +39,7 @@ import UserPartSvg from '../assets/approvals/user.svg';
 import BoxSvg from '../assets/approvals/box.svg';
 import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
 import CloseSvg from '../assets/clipPopup/close.svg';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 import { colors } from '../constants/colors';
 import { apiService, isUnauthorizedError } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
@@ -62,7 +65,7 @@ try {
 // Types
 // ---------------------------------------------------------------------------
 
-type TabKey = 'pending' | 'waiting' | 'approved' | 'rejected';
+type TabKey = 'pending' | 'approved' | 'rejected';
 
 interface Tab {
     key: TabKey;
@@ -71,7 +74,6 @@ interface Tab {
 
 const TABS: Tab[] = [
     { key: 'pending', label: 'Pending' },
-    { key: 'waiting', label: 'Waiting' },
     { key: 'approved', label: 'Approved' },
     { key: 'rejected', label: 'Rejected' },
 ];
@@ -94,10 +96,13 @@ function fmtDateInt(n: number): string {
 const SCROLL_UP_THRESHOLD = 10;
 
 export default function ApprovalsScreen({ navigation }: { navigation: any }) {
+    const isTablet = Dimensions.get('window').width >= 768;
     const insets = useSafeAreaInsets();
+    const { moduleAccess } = useModuleAccess();
     const { setScrollDirection } = useScroll();
     const lastScrollY = useRef(0);
     const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
+    const bulkBarTranslateY = useRef(new Animated.Value(0)).current;
 
     // Reset footer to visible when entering Approvals; scroll handler will update on scroll
     useEffect(() => {
@@ -119,9 +124,22 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             if (next !== scrollDirectionRef.current) {
                 scrollDirectionRef.current = next;
                 setScrollDirection(next);
+                if (next === 'down') {
+                    Animated.timing(bulkBarTranslateY, {
+                        toValue: 60,
+                        duration: 250,
+                        useNativeDriver: true,
+                    }).start();
+                } else {
+                    Animated.timing(bulkBarTranslateY, {
+                        toValue: 0,
+                        duration: 250,
+                        useNativeDriver: true,
+                    }).start();
+                }
             }
         },
-        [setScrollDirection],
+        [setScrollDirection, bulkBarTranslateY],
     );
 
     // Date range – default to last 1 week (today minus 7 days → today)
@@ -141,6 +159,9 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [allItems, setAllItems] = useState<PendVchAuthItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [chunkProgress, setChunkProgress] = useState<{ total: number; done: number } | null>(
+        null,
+    );
 
     // UI
     const [activeTab, setActiveTab] = useState<TabKey>('pending');
@@ -170,6 +191,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [showRejectionReasonModal, setShowRejectionReasonModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [companyName, setCompanyName] = useState('DataLynkr');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [historyVoucher, setHistoryVoucher] = useState<PendVchAuthItem | null>(null);
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const canApproveReject = !!(moduleAccess as any).approvals_def_apprvrej;
 
     useEffect(() => {
         getCompany().then(c => {
@@ -259,22 +284,129 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         try {
             setLoading(true);
             setError(null);
+
             const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-            const { data } = await apiService.getPendVchAuth({
-                tallyloc_id: t,
-                company: c,
-                guid: g,
-                fromdate: toYyyyMmDd(fromDate),
-                todate: toYyyyMmDd(toDate),
-            });
-            setAllItems(data?.pendingVchAuth ?? []);
+
+            // Fetch in 2-day chunks for large ranges
+            const start = new Date(fromDate);
+            const end = new Date(toDate);
+            start.setHours(0, 0, 0, 0);
+            end.setHours(0, 0, 0, 0);
+
+            const allResults: PendVchAuthItem[] = [];
+
+            const DAY_MS = 24 * 60 * 60 * 1000;
+
+            // Precompute total chunks for progress
+            let tmpCurrent = new Date(start.getTime());
+            let totalChunks = 0;
+            while (tmpCurrent.getTime() <= end.getTime()) {
+                totalChunks += 1;
+                tmpCurrent = new Date(tmpCurrent.getTime() + 2 * DAY_MS);
+            }
+            setChunkProgress(totalChunks > 1 ? { total: totalChunks, done: 0 } : null);
+
+            let current = new Date(start.getTime());
+            let doneChunks = 0;
+
+            while (current.getTime() <= end.getTime()) {
+                const chunkStart = new Date(current.getTime());
+                const chunkEnd = new Date(
+                    Math.min(end.getTime(), current.getTime() + DAY_MS), // 2 days window: current + 1 day
+                );
+
+                // eslint-disable-next-line no-await-in-loop
+                const { data } = await apiService.getPendVchAuth({
+                    tallyloc_id: t,
+                    company: c,
+                    guid: g,
+                    fromdate: toYyyyMmDd(chunkStart.getTime()),
+                    todate: toYyyyMmDd(chunkEnd.getTime()),
+                });
+
+                if (Array.isArray(data?.pendingVchAuth) && data.pendingVchAuth.length > 0) {
+                    allResults.push(...data.pendingVchAuth);
+                }
+
+                doneChunks += 1;
+                if (totalChunks > 1) {
+                    setChunkProgress({ total: totalChunks, done: doneChunks });
+                }
+
+                current = new Date(current.getTime() + 2 * DAY_MS);
+            }
+
+            setAllItems(allResults);
         } catch (e: any) {
             if (isUnauthorizedError(e)) return;
             setError(e?.message ?? 'Failed to load approvals');
         } finally {
             setLoading(false);
+            setChunkProgress(null);
         }
     }, [fromDate, toDate]);
+
+    const handleBulkApprove = useCallback(async () => {
+        if (activeTab !== 'pending' || selectedIds.size === 0) return;
+        try {
+            const t = await getTallylocId();
+            const c = await getCompany();
+            const g = await getGuid();
+            if (!t || !c || !g) return;
+
+            // Approve every selected voucher using the same API/payload as handleApprove
+            const itemsToApprove = allItems.filter(it => selectedIds.has(it.MASTERID));
+            for (const item of itemsToApprove) {
+                await apiService.authVoucher({
+                    tallyloc_id: t,
+                    company: c,
+                    guid: g,
+                    date: toYyyyMmDd(toDate),
+                    masterid: Number(item.MASTERID),
+                    narration: item.ORIGINALNARRATION ?? '',
+                    comments: '',
+                });
+            }
+
+            setSelectedIds(new Set());
+            setShowApprovedModal(true);
+            fetchData();
+        } catch (e: any) {
+            if (isUnauthorizedError(e)) return;
+            Alert.alert('Error', e?.message ?? 'Approval failed');
+        }
+    }, [activeTab, allItems, selectedIds, toDate, fetchData]);
+
+    const handleBulkReject = useCallback(async () => {
+        if (activeTab !== 'pending' || selectedIds.size === 0) return;
+        try {
+            const t = await getTallylocId();
+            const c = await getCompany();
+            const g = await getGuid();
+            if (!t || !c || !g) return;
+
+            // Reject every selected voucher using the same API/payload as submitReject (but without comments)
+            const itemsToReject = allItems.filter(it => selectedIds.has(it.MASTERID));
+            for (const item of itemsToReject) {
+                await apiService.rejectVoucher({
+                    tallyloc_id: t,
+                    company: c,
+                    guid: g,
+                    date: toYyyyMmDd(toDate),
+                    masterid: Number(item.MASTERID),
+                    narration: item.ORIGINALNARRATION ?? '',
+                    comments: '',
+                });
+            }
+
+            setSelectedIds(new Set());
+            setShowRejectedModal(true);
+            fetchData();
+        } catch (e: any) {
+            if (isUnauthorizedError(e)) return;
+            Alert.alert('Error', e?.message ?? 'Rejection failed');
+        }
+    }, [activeTab, allItems, selectedIds, toDate, fetchData]);
 
     useEffect(() => {
         fetchData();
@@ -287,7 +419,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const grouped = useMemo(() => {
         const map: Record<TabKey, PendVchAuthItem[]> = {
             pending: [],
-            waiting: [],
             approved: [],
             rejected: [],
         };
@@ -315,12 +446,14 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         return map;
     }, [allItems]);
 
-    const counts = useMemo(() => ({
-        pending: grouped.pending.length,
-        waiting: grouped.waiting.length,
-        approved: grouped.approved.length,
-        rejected: grouped.rejected.length,
-    }), [grouped]);
+    const counts = useMemo(
+        () => ({
+            pending: grouped.pending.length,
+            approved: grouped.approved.length,
+            rejected: grouped.rejected.length,
+        }),
+        [grouped],
+    );
 
     // Unique persons and voucher types for filter dropdowns
     const uniquePersons = useMemo(() => {
@@ -474,35 +607,127 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         }
     }, [rejectingItem, rejectComment, toDate, fetchData]);
 
+    const [showResentModal, setShowResentModal] = useState(false);
+
+    const handleResendMany = useCallback(
+        async (items: PendVchAuthItem[]) => {
+            if (!items || items.length === 0) return;
+            try {
+                const t = await getTallylocId();
+                const c = await getCompany();
+                const g = await getGuid();
+                if (!t || !c || !g) return;
+
+                for (const item of items) {
+                    const { data } = await apiService.resendVoucher({
+                        tallyloc_id: t,
+                        company: c,
+                        guid: g,
+                        date: toYyyyMmDd(toDate),
+                        masterid: Number(item.MASTERID),
+                        narration: item.ORIGINALNARRATION ?? '',
+                        comments: item.REJECTION_REASON ?? '',
+                    });
+                    if (!data?.success) {
+                        Alert.alert(
+                            'Error',
+                            data?.message ?? 'Resend failed for one or more vouchers',
+                        );
+                        return;
+                    }
+                }
+
+                setShowResentModal(true);
+                fetchData();
+            } catch (e: any) {
+                if (isUnauthorizedError(e)) return;
+                Alert.alert('Error', e?.message ?? 'Resend failed');
+            }
+        },
+        [toDate, fetchData],
+    );
+
+    const getFirstLedgerName = (item: PendVchAuthItem) => {
+        const raw =
+            (item as any).ALLLEDGERENTRIES ??
+            (item as any).allledgerentries ??
+            (item as any).LEDGERENTRIES ??
+            (item as any).ledgerentries;
+        if (!raw) return item.SUBMITTER;
+        const first = Array.isArray(raw) ? raw[0] : raw;
+        return (first?.LEDGERNAME ?? first?.ledgername ?? item.SUBMITTER) as string;
+    };
+
+    const toggleSelect = useCallback((id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
     // -----------------------------------------------------------------------
     // Renderers
     // -----------------------------------------------------------------------
 
     const renderCard = useCallback(
-        ({ item }: { item: PendVchAuthItem }) => (
-            <TouchableOpacity
-                style={styles.card}
-                onPress={() => handleCardPress(item)}
-                activeOpacity={0.9}
-            >
-                {/* Row 1: type badge + amount */}
-                <View style={styles.cardRow}>
-                    <View style={styles.typeBadge}>
-                        <Text style={styles.typeBadgeText}>{item.VCHTYPE}</Text>
-                    </View>
-                    <Text style={styles.amount}>
-                        {Number(item.DEBITAMT || 0) !== 0
-                            ? `₹${item.DEBITAMT} Dr`
-                            : Number(item.CREDITAMT || 0) !== 0
-                                ? `₹${item.CREDITAMT} Cr`
-                                : `₹${item.AMOUNT ?? 0}`}
-                    </Text>
-                </View>
+        ({ item }: { item: PendVchAuthItem }) => {
+            const isSelected = selectedIds.has(item.MASTERID);
+            const currentStatus = String(item.STATUS ?? '').toLowerCase();
+            const isPendingTab = activeTab === 'pending';
+            const isApprovedTab = activeTab === 'approved';
+            const isRejectedTab = activeTab === 'rejected';
 
-                {/* Row 2: code, submitter, date */}
+            const getSelectedInCurrentTab = () => {
+                if (selectedIds.size === 0) return [item];
+                return allItems.filter(
+                    (it) =>
+                        selectedIds.has(it.MASTERID) &&
+                        String(it.STATUS ?? '').toLowerCase() === currentStatus,
+                );
+            };
+
+            return (
+                <TouchableOpacity
+                    style={styles.card}
+                    onPress={() => handleCardPress(item)}
+                    activeOpacity={0.9}
+                >
+                    {/* Row 1: checkbox + type badge + amount */}
+                    <View style={styles.cardRow}>
+                        {canApproveReject && (isPendingTab || isApprovedTab || isRejectedTab) && (
+                            <TouchableOpacity
+                                style={styles.cardCheckbox}
+                                onPress={(e) => { e.stopPropagation(); toggleSelect(item.MASTERID); }}
+                                activeOpacity={0.7}
+                            >
+                                <Icon
+                                    name={isSelected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                                    size={20}
+                                    color={isSelected ? colors.primary_blue : '#9ca3af'}
+                                />
+                            </TouchableOpacity>
+                        )}
+                        <View style={styles.typeBadge}>
+                            <Text style={styles.typeBadgeText}>{item.VCHTYPE}</Text>
+                        </View>
+                        <Text style={styles.amount}>
+                            {Number(item.DEBITAMT || 0) !== 0
+                                ? `₹${item.DEBITAMT} Dr`
+                                : Number(item.CREDITAMT || 0) !== 0
+                                    ? `₹${item.CREDITAMT} Cr`
+                                    : `₹${item.AMOUNT ?? 0}`}
+                        </Text>
+                    </View>
+
+                {/* Row 2: code, first ledger name, date */}
                 <View style={styles.cardRow}>
                     <Text style={styles.cardText} numberOfLines={1}>
-                        {item.VCHNO}, By {item.SUBMITTER}
+                        {item.VCHNO}, By {getFirstLedgerName(item)}
                     </Text>
                     <Text style={styles.cardTextLight}>{item.DATE}</Text>
                 </View>
@@ -520,28 +745,23 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     </View>
                 ) : null}
 
-                {/* Pending tab: action buttons */}
-                {activeTab === 'pending' ? (
-                    <View style={styles.actionRow}>
-                        <TouchableOpacity
-                            style={styles.rejectBtn}
-                            onPress={(e) => { e.stopPropagation(); handleReject(item); }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.rejectBtnText}>Reject</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.approveBtn}
-                            onPress={(e) => { e.stopPropagation(); handleApprove(item); }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.approveBtnText}>Approve</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : null}
-            </TouchableOpacity>
-        ),
-        [activeTab, handleApprove, handleReject, handleCardPress],
+                {/* View history link */}
+                <View style={styles.cardHistoryRow}>
+                    <TouchableOpacity
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            setHistoryVoucher(item);
+                            setShowHistoryModal(true);
+                        }}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.cardHistoryLink}>View History</Text>
+                    </TouchableOpacity>
+                </View>
+                </TouchableOpacity>
+            );
+        },
+        [activeTab, allItems, handleCardPress, handleResendMany, selectedIds, toggleSelect],
     );
 
     // -----------------------------------------------------------------------
@@ -629,7 +849,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     accessibilityState={{ selected: isActive }}
                                 >
                                     <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
-                                        {tab.label}
+                                        {tab.key === 'pending' && !canApproveReject ? 'Waiting' : tab.label}
                                     </Text>
                                     <View style={styles.tabCount}>
                                         <Text style={styles.tabCountText}>{counts[tab.key]}</Text>
@@ -643,7 +863,27 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 {/* Content */}
                 {loading ? (
                     <View style={styles.center}>
-                        <ActivityIndicator size="large" color={colors.primary_blue} />
+                        {chunkProgress ? (
+                            <View style={styles.progressContainer}>
+                                <View style={styles.progressBar}>
+                                    <View
+                                        style={[
+                                            styles.progressFill,
+                                            {
+                                                width: `${Math.round(
+                                                    (chunkProgress.done / chunkProgress.total) * 100,
+                                                )}%`,
+                                            },
+                                        ]}
+                                    />
+                                </View>
+                                <Text style={styles.progressLabel}>
+                                    Loading {chunkProgress.done} of {chunkProgress.total} days...
+                                </Text>
+                            </View>
+                        ) : (
+                            <ActivityIndicator size="large" color={colors.primary_blue} />
+                        )}
                     </View>
                 ) : error ? (
                     <View style={styles.center}>
@@ -669,6 +909,75 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 )}
             </View>
 
+            {/* Bulk actions bar above footer (pending tab only, collapses with scroll) */}
+            {activeTab === 'pending' && canApproveReject && (
+                    style={[
+                        styles.bulkBar,
+                        {
+                            transform: [{ translateY: bulkBarTranslateY }],
+                            // Lift the bar above the bottom tab bar (FooterTabBar)
+                            bottom: (isTablet ? 60 : 49) + insets.bottom,
+                        },
+                    ]}
+                >
+                    <View style={styles.bulkBarActions}>
+                        <TouchableOpacity
+                            style={[styles.bulkRejectBtn, selectedIds.size === 0 && styles.bulkBtnDisabled]}
+                            onPress={handleBulkReject}
+                            activeOpacity={0.8}
+                            disabled={selectedIds.size === 0}
+                        >
+                            <Text style={styles.bulkRejectText}>Reject</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.bulkApproveBtn, selectedIds.size === 0 && styles.bulkBtnDisabled]}
+                            onPress={handleBulkApprove}
+                            activeOpacity={0.8}
+                            disabled={selectedIds.size === 0}
+                        >
+                            <Text style={styles.bulkApproveText}>Approve</Text>
+                        </TouchableOpacity>
+                    </View>
+                </Animated.View>
+            )}
+
+            {/* Bulk Resend bar above footer for Approved / Rejected (collapses with scroll) */}
+            {(activeTab === 'approved' || activeTab === 'rejected') && (
+                    style={[
+                        styles.bulkBar,
+                        {
+                            transform: [{ translateY: bulkBarTranslateY }],
+                            bottom: (isTablet ? 60 : 49) + insets.bottom,
+                        },
+                    ]}
+                >
+                    <View style={styles.bulkBarActions}>
+                        <TouchableOpacity
+                            style={[
+                                styles.bulkApproveBtn,
+                                selectedIds.size === 0 && styles.bulkBtnDisabled,
+                            ]}
+                            onPress={() => {
+                                const status = activeTab.toLowerCase();
+                                const itemsToResend =
+                                    selectedIds.size > 0
+                                        ? allItems.filter(
+                                              (it) =>
+                                                  selectedIds.has(it.MASTERID) &&
+                                                  String(it.STATUS ?? '').toLowerCase() === status,
+                                          )
+                                        : [];
+                                handleResendMany(itemsToResend);
+                            }}
+                            activeOpacity={0.8}
+                            disabled={selectedIds.size === 0}
+                        >
+                            <Text style={styles.bulkApproveText}>Resend</Text>
+                        </TouchableOpacity>
+                    </View>
+                </Animated.View>
+            )}
+
             <PeriodSelection
                 visible={showPeriodPicker}
                 onClose={() => setShowPeriodPicker(false)}
@@ -679,6 +988,141 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     setToDate(t);
                 }}
             />
+
+            {/* -------- Voucher Activity History Modal -------- */}
+            <Modal
+                visible={showHistoryModal && !!historyVoucher}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowHistoryModal(false)}
+            >
+                <View style={historyStyles.overlay}>
+                    <View style={historyStyles.container}>
+                        <View style={historyStyles.header}>
+                            <View>
+                                <Text style={historyStyles.title}>Voucher Activity History</Text>
+                                {historyVoucher && (
+                                    <Text style={historyStyles.subtitle}>
+                                        {historyVoucher.VCHNO} - {historyVoucher.VCHTYPE}
+                                    </Text>
+                                )}
+                            </View>
+                            <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
+                                <Text style={historyStyles.closeText}>X</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView contentContainerStyle={historyStyles.list}>
+                            {Array.isArray((historyVoucher as any)?.VOUCHER_ACTIVITY_HISTORY) &&
+                            (historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.length > 0 ? (
+                                (historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.map(
+                                    (entry: any, idx: number) => {
+                                        const rawStatus: string | null | undefined =
+                                            (entry.apprv_status as string | null | undefined) ?? null;
+                                        const statusLower = rawStatus
+                                            ? String(rawStatus).toLowerCase()
+                                            : null;
+                                        let statusLabel = '';
+                                        let statusType: 'approved' | 'rejected' | 'resend' | 'other' =
+                                            'other';
+                                        if (statusLower === 'approved') {
+                                            statusLabel = 'Approved';
+                                            statusType = 'approved';
+                                        } else if (statusLower === 'rejected') {
+                                            statusLabel = 'Rejected';
+                                            statusType = 'rejected';
+                                        } else if (
+                                            !rawStatus &&
+                                            String(entry.activity_type ?? '').toLowerCase() ===
+                                                'resend'
+                                        ) {
+                                            statusLabel = 'Resend';
+                                            statusType = 'resend';
+                                        } else {
+                                            const actType = String(entry.activity_type ?? '').trim();
+                                            statusLabel =
+                                                actType.toLowerCase() === 'modified'
+                                                    ? 'Created'
+                                                    : actType || '—';
+                                            statusType = 'other';
+                                        }
+
+                                        const createdAt = entry.created_at
+                                            ? new Date(entry.created_at)
+                                            : null;
+                                        const dateStr = createdAt
+                                            ? createdAt.toLocaleDateString('en-GB')
+                                            : '—';
+                                        const timeStr = createdAt
+                                            ? createdAt.toLocaleTimeString('en-GB', {
+                                                  hour: '2-digit',
+                                                  minute: '2-digit',
+                                                  second: '2-digit',
+                                              })
+                                            : '';
+
+                                        return (
+                                            <View key={idx} style={historyStyles.card}>
+                                                <View style={historyStyles.row}>
+                                                    <Text style={historyStyles.label}>
+                                                        USER EMAIL
+                                                    </Text>
+                                                    <Text style={historyStyles.email}>
+                                                        {entry.email || '—'}
+                                                    </Text>
+                                                </View>
+                                                <View style={historyStyles.row}>
+                                                    <Text style={historyStyles.label}>STATUS</Text>
+                                                    <View
+                                                        style={[
+                                                            historyStyles.statusPill,
+                                                            statusType === 'approved' &&
+                                                                historyStyles.statusApproved,
+                                                            statusType === 'rejected' &&
+                                                                historyStyles.statusRejected,
+                                                            statusType === 'resend' &&
+                                                                historyStyles.statusResend,
+                                                        ]}
+                                                    >
+                                                        <Text style={historyStyles.statusText}>
+                                                            {statusLabel}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <View style={historyStyles.row}>
+                                                    <Text style={historyStyles.label}>
+                                                        DATE &amp; TIME
+                                                    </Text>
+                                                    <Text style={historyStyles.date}>
+                                                        {dateStr}
+                                                        {timeStr ? `, ${timeStr}` : ''}
+                                                    </Text>
+                                                </View>
+                                                {entry.comments ? (
+                                                    <View style={historyStyles.row}>
+                                                        <Text style={historyStyles.label}>
+                                                            COMMENTS
+                                                        </Text>
+                                                        <View style={historyStyles.commentBox}>
+                                                            <Text style={historyStyles.comments}>
+                                                                {entry.comments}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                ) : null}
+                                            </View>
+                                        );
+                                    },
+                                )
+                            ) : (
+                                <Text style={historyStyles.emptyText}>
+                                    No activity history found.
+                                </Text>
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
 
             {/* -------- Approved Popup -------- */}
             <Modal
@@ -722,6 +1166,56 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         <TouchableOpacity
                             style={popupStyles.continueBtn}
                             onPress={() => setShowApprovedModal(false)}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={popupStyles.continueBtnText}>Continue</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* -------- Resent Popup (same design as Approved) -------- */}
+            <Modal
+                visible={showResentModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowResentModal(false)}
+            >
+                <View style={popupStyles.overlay}>
+                    <View style={popupStyles.sheet}>
+                        {/* Drag handle */}
+                        <View style={popupStyles.handleRow}>
+                            <View style={popupStyles.handle} />
+                        </View>
+
+                        {/* Close button */}
+                        <TouchableOpacity
+                            style={popupStyles.closeBtn}
+                            onPress={() => setShowResentModal(false)}
+                            hitSlop={12}
+                        >
+                            <Text style={popupStyles.closeBtnText}>✕</Text>
+                        </TouchableOpacity>
+
+                        {/* Animation */}
+                        <View style={popupStyles.animationWrap}>
+                            {LottieView ? (
+                                <LottieView source={SuccessLottieSource} style={popupStyles.lottie} loop={false} autoPlay />
+                            ) : (
+                                <View style={popupStyles.fallbackIcon}>
+                                    <Text style={{ fontSize: 64 }}>✅</Text>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Text */}
+                        <Text style={popupStyles.title}>Resent!</Text>
+                        <Text style={popupStyles.subtitle}>The Voucher was sent again successfully</Text>
+
+                        {/* Continue button */}
+                        <TouchableOpacity
+                            style={popupStyles.continueBtn}
+                            onPress={() => setShowResentModal(false)}
                             activeOpacity={0.8}
                         >
                             <Text style={popupStyles.continueBtnText}>Continue</Text>
@@ -1043,7 +1537,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
                             {loadingDetail ? (
                                 <View style={popupStyles.detailLoading}>
-                                    <ActivityIndicator size="large" color={colors.tab_active_bg} />
+                                    <ActivityIndicator size="large" color={colors.primary_blue} />
                                 </View>
                             ) : (
                                 <>
@@ -1078,8 +1572,15 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     {/* Inventory Toggle - Constant */}
                                     <View style={popupStyles.inventoryToggleRow}>
                                         <View style={popupStyles.inventoryToggleLeft}>
-                                            <BoxSvg width={18} height={18} style={{ marginRight: 10 }} />
-                                            <Text style={popupStyles.inventoryToggleTitle}>Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})</Text>
+                                            <Icon
+                                                name="cube-outline"
+                                                size={18}
+                                                color="#1f3a89"
+                                                style={{ marginRight: 10 }}
+                                            />
+                                            <Text style={popupStyles.inventoryToggleTitle}>
+                                                Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})
+                                            </Text>
                                         </View>
                                         <TouchableOpacity
                                             onPress={() => setInventoryExpanded(!inventoryExpanded)}
@@ -1194,7 +1695,27 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     </TouchableOpacity>
                                     <TouchableOpacity
                                         style={[popupStyles.updateOrderBtn, popupStyles.updateOrderBtnBlue]}
-                                        onPress={() => setShowDetailModal(false)}
+                                        onPress={() => {
+                                            if (!selectedVoucher) return;
+                                            const masterId = String(selectedVoucher.MASTERID ?? '').trim();
+                                            if (!masterId) {
+                                                setShowDetailModal(false);
+                                                return;
+                                            }
+                                            setShowDetailModal(false);
+                                            const tabNav = navigation.getParent() as
+                                                | { navigate?: (name: string, params?: object) => void }
+                                                | undefined;
+                                            tabNav?.navigate?.('OrdersTab', {
+                                                screen: 'OrderEntry',
+                                                params: {
+                                                    updateFromApproval: {
+                                                        masterId,
+                                                        voucher: voucherDetail || selectedVoucher,
+                                                    },
+                                                },
+                                            });
+                                        }}
                                         activeOpacity={0.8}
                                     >
                                         <Text style={popupStyles.updateOrderBtnText}>Update Order</Text>
@@ -1203,7 +1724,27 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             ) : (
                                 <TouchableOpacity
                                     style={popupStyles.updateOrderBtn}
-                                    onPress={() => setShowDetailModal(false)}
+                                    onPress={() => {
+                                        if (!selectedVoucher) return;
+                                        const masterId = String(selectedVoucher.MASTERID ?? '').trim();
+                                        if (!masterId) {
+                                            setShowDetailModal(false);
+                                            return;
+                                        }
+                                        setShowDetailModal(false);
+                                        const tabNav = navigation.getParent() as
+                                            | { navigate?: (name: string, params?: object) => void }
+                                            | undefined;
+                                        tabNav?.navigate?.('OrdersTab', {
+                                            screen: 'OrderEntry',
+                                            params: {
+                                                updateFromApproval: {
+                                                    masterId,
+                                                    voucher: voucherDetail || selectedVoucher,
+                                                },
+                                            },
+                                        });
+                                    }}
                                     activeOpacity={0.8}
                                 >
                                     <Text style={popupStyles.updateOrderBtnText}>Update Order</Text>
@@ -1221,8 +1762,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 animationType="fade"
                 onRequestClose={() => setShowRejectionReasonModal(false)}
             >
-                <View style={reasonPopupStyles.overlay}>
-                    <View style={reasonPopupStyles.popup}>
+                <Pressable
+                    style={reasonPopupStyles.overlay}
+                    onPress={() => setShowRejectionReasonModal(false)}
+                >
+                    <Pressable style={reasonPopupStyles.popup}>
                         <View style={reasonPopupStyles.header}>
                             <Text style={reasonPopupStyles.headerTitle}>Rejection Reason</Text>
                             <TouchableOpacity
@@ -1237,8 +1781,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 {selectedVoucher?.REJECTION_REASON || 'No reason specified'}
                             </Text>
                         </View>
-                    </View>
-                </View>
+                    </Pressable>
+                </Pressable>
             </Modal>
 
             <AppSidebar
@@ -1416,7 +1960,8 @@ const styles = StyleSheet.create({
     // Cards
     list: {
         gap: 8,
-        paddingBottom: 16,
+        // Extra bottom padding so last voucher is visible above bulk action bar + footer
+        paddingBottom: (Dimensions.get('window').width >= 768 ? 60 : 49) + 47 + 20, 
     },
     card: {
         backgroundColor: colors.white,
@@ -1425,6 +1970,9 @@ const styles = StyleSheet.create({
         borderColor: '#E2EAF2',
         padding: 10,
         gap: 5,
+    },
+    cardCheckbox: {
+        marginRight: 8,
     },
     cardRow: {
         flexDirection: 'row',
@@ -1516,6 +2064,92 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: colors.text_primary,
     },
+    cardHistoryRow: {
+        marginTop: 4,
+        alignItems: 'flex-end',
+    },
+    cardHistoryLink: {
+        fontFamily: 'Roboto',
+        fontSize: 11,
+        color: colors.primary_blue,
+        textDecorationLine: 'underline',
+    },
+    bulkBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderTopWidth: 1,
+        borderTopColor: '#d1d5db',
+        backgroundColor: '#ffffff',
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        // bottom: 0, // This covers the app tab bar
+    },
+    bulkBarText: {
+        fontFamily: 'Roboto',
+        fontSize: 12,
+        color: colors.text_secondary,
+    },
+    bulkBarActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        gap: 10,
+    },
+    bulkRejectBtn: {
+        flex: 1,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: colors.reject_red,
+        backgroundColor: '#ffffff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    bulkRejectText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.reject_red,
+    },
+    bulkApproveBtn: {
+        flex: 1,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 4,
+        backgroundColor: '#4caf7b',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    bulkApproveText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.white,
+    },
+    bulkBtnDisabled: {
+        opacity: 0.4,
+    },
+    resendBtn: {
+        flex: 1,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: 4,
+        backgroundColor: '#4caf7b',
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+    },
+    resendBtnText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.white,
+    },
 
     // States
     center: {
@@ -1546,6 +2180,27 @@ const styles = StyleSheet.create({
     emptyText: {
         fontFamily: 'Roboto',
         fontSize: 14,
+        color: colors.text_secondary,
+    },
+    progressContainer: {
+        width: '80%',
+        alignItems: 'center',
+    },
+    progressBar: {
+        width: '100%',
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: '#e5e7eb',
+        overflow: 'hidden',
+        marginTop: 8,
+    },
+    progressFill: {
+        height: '100%',
+        backgroundColor: colors.primary_blue,
+    },
+    progressLabel: {
+        marginTop: 8,
+        fontSize: 12,
         color: colors.text_secondary,
     },
 });
@@ -2294,6 +2949,125 @@ const reasonPopupStyles = StyleSheet.create({
         fontSize: 14,
         color: '#131313',
         lineHeight: 20,
+    },
+});
+
+const historyStyles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 16,
+    },
+    container: {
+        width: '100%',
+        maxWidth: 420,
+        maxHeight: '80%',
+        backgroundColor: '#ffffff',
+        borderRadius: 16,
+        padding: 16,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    title: {
+        fontFamily: 'Roboto',
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#0f172a',
+    },
+    subtitle: {
+        marginTop: 2,
+        fontFamily: 'Roboto',
+        fontSize: 12,
+        color: '#475569',
+    },
+    closeText: {
+        fontSize: 18,
+        color: '#ffffff',
+        backgroundColor: '#1f3a89',
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        textAlign: 'center',
+        textAlignVertical: 'center',
+    },
+    list: {
+        paddingBottom: 8,
+    },
+    card: {
+        borderRadius: 12,
+        backgroundColor: '#f8fafc',
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        marginBottom: 8,
+    },
+    row: {
+        marginBottom: 6,
+    },
+    label: {
+        fontFamily: 'Roboto',
+        fontSize: 10,
+        fontWeight: '600',
+        color: '#94a3b8',
+        marginBottom: 2,
+    },
+    email: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        color: '#0f172a',
+    },
+    statusPill: {
+        alignSelf: 'flex-start',
+        paddingVertical: 3,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        backgroundColor: '#e5e7eb',
+    },
+    statusApproved: {
+        backgroundColor: '#bbf7d0',
+    },
+    statusRejected: {
+        backgroundColor: '#fee2e2',
+    },
+    statusResend: {
+        backgroundColor: '#fef3c7',
+    },
+    statusText: {
+        fontFamily: 'Roboto',
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#111827',
+    },
+    date: {
+        fontFamily: 'Roboto',
+        fontSize: 12,
+        color: '#0f172a',
+    },
+    commentBox: {
+        marginTop: 2,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        backgroundColor: '#ffffff',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+    },
+    comments: {
+        fontFamily: 'Roboto',
+        fontSize: 12,
+        color: '#0f172a',
+    },
+    emptyText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        color: '#64748b',
+        textAlign: 'center',
+        marginTop: 16,
     },
 });
 

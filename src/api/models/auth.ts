@@ -12,6 +12,9 @@ export interface LoginResponse {
   error?: string | null;
   success?: boolean;
   message?: string | null;
+  is_first_login?: number;
+  user_type?: string | null;
+  user_type_details?: Record<string, unknown> | null;
 }
 
 export interface SignupRequest {
@@ -35,3 +38,32 @@ export interface ForgotPasswordResponse {
   message?: string | null;
   error?: string | null;
 }
+
+export interface ChangePasswordRequest {
+  email: string;
+  oldPassword: string;
+  newPassword: string;
+}
+
+export interface ChangePasswordResponse {
+  message?: string | null;
+  error?: string | null;
+}
+
+/** Send OTP to email – api/login/send-otp */
+export interface SendOtpRequest {
+  email: string;
+}
+
+export interface SendOtpResponse {
+  message?: string | null;
+  error?: string | null;
+}
+
+/** Verify OTP – api/login/verify-otp. Success response matches LoginResponse. */
+export interface VerifyOtpRequest {
+  email: string;
+  otp: string;
+}
+
+export type VerifyOtpResponse = LoginResponse;
