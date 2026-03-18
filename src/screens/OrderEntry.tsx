@@ -1053,6 +1053,8 @@ export default function OrderEntry() {
         }
       } else if (item.target === 'DataManagement') {
         if (navigationRef.isReady()) (navigationRef as { navigate: (name: string) => void }).navigate('DataManagement');
+      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+        if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
       } else if (item.target === 'ComingSoon' && item.params) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (navigation as any).navigate('ComingSoon', item.params);

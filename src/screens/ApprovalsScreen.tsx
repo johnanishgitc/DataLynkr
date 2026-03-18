@@ -222,6 +222,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
                 return;
             }
+            if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+                if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
+                return;
+            }
             const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
             if (item.target === 'LedgerTab' && p?.report_name) {
                 (navigation as any).navigate('LedgerTab', { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } });
@@ -911,6 +915,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             {/* Bulk actions bar above footer (pending tab only, collapses with scroll) */}
             {activeTab === 'pending' && canApproveReject && (
+                <Animated.View
                     style={[
                         styles.bulkBar,
                         {
@@ -943,6 +948,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             {/* Bulk Resend bar above footer for Approved / Rejected (collapses with scroll) */}
             {(activeTab === 'approved' || activeTab === 'rejected') && (
+                <Animated.View
                     style={[
                         styles.bulkBar,
                         {

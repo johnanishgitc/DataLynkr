@@ -353,6 +353,20 @@ export const apiService = {
   getBankUpi: (body: BankUpiRequest) =>
     getApi().post<BankUpiResponse>('api/tally/masterdata/companyinfo', body),
 
+  /** Expense ledgers list for Expense Claim dropdown (name field). */
+  getExpenseLedgers: (body: { tallyloc_id: number; company: string; guid: string }) =>
+    getApi().post<{ success?: boolean; data?: Array<{ masterId?: string; name?: string; parent?: string }> }>(
+      'api/tally/vendor-mang/expense-ledgers',
+      body,
+    ),
+
+  /** Cash/Bank ledgers list for Payment Mode dropdown (name field). */
+  getCashBankLedgers: (body: { tallyloc_id: number; company: string; guid: string }) =>
+    getApi().post<{ success?: boolean; data?: Array<{ masterId?: string; name?: string; parent?: string }> }>(
+      'api/tally/vendor-mang/cash-bank-ledgers',
+      body,
+    ),
+
   /** User access permissions (access-control/user-access) for module & field-level controls */
   getUserAccess: (params: { tallylocId: number | string; co_guid: string }) =>
     getApi().get('api/access-control/user-access', {

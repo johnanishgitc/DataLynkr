@@ -179,6 +179,8 @@ export default function LedgerEntries() {
         tabNav?.navigate?.('HomeTab');
       } else if (item.target === 'DataManagement') {
         if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
+      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+        if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
       } else if (item.target === 'ComingSoon' && item.params) {
         tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
       } else {

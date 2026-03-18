@@ -198,6 +198,9 @@ export type MainStackParamList = {
   AdminDashboard: undefined;
   MainTabs: undefined;
   DataManagement: undefined;
+  Payments: undefined;
+  ExpenseClaims: undefined;
+  Collections: undefined;
   SalesOrderVoucherDetails: {
     row: object;
     ledger_name?: string;

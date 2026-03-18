@@ -1131,6 +1131,8 @@ export default function DataManagement() {
         root?.navigate?.('MainTabs', { screen: 'ApprovalsTab' });
       } else if (item.target === 'DataManagement') {
         // Already here
+      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+        root?.navigate?.(item.target);
       } else if (item.target === 'SalesDashboard') {
         root?.navigate?.('MainTabs');
       } else if (item.target === 'SummaryTab') {

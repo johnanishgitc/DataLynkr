@@ -114,6 +114,7 @@ export function AppSidebar({
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [ledgerExpanded, setLedgerExpanded] = useState(false);
+  const [paymentExpanded, setPaymentExpanded] = useState(false);
   const [showModal, setShowModal] = useState(visible);
 
   // Fetch companies when sidebar becomes visible
@@ -161,6 +162,7 @@ export function AppSidebar({
       setDropdownOpen(false);
       setDashboardExpanded(false);
       setLedgerExpanded(false);
+      setPaymentExpanded(false);
     }
   }, [visible]);
 
@@ -359,6 +361,7 @@ export function AppSidebar({
               renderItem={({ item }) => {
                 const isDashboard = item.id === 'sales' && item.label === 'Dashboard';
                 const isLedger = item.id === 'ledger' && item.label === 'Ledger Reports';
+                const isPaymentCollections = item.id === 'payment-collections';
                 const hasChevron = item.params && (item.params as any).hasChevron;
 
                 const modKey = getModuleKey(item.target);
@@ -433,6 +436,52 @@ export function AppSidebar({
                               <Text style={styles.subItemBoxText}>{report}</Text>
                             </TouchableOpacity>
                           ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+                if (isPaymentCollections) {
+                  return (
+                    <View style={[styles.dashboardBlock, paymentExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
+                      <TouchableOpacity
+                        style={styles.row}
+                        onPress={isEnabled ? () => setPaymentExpanded(!paymentExpanded) : undefined}
+                        activeOpacity={isEnabled ? 0.7 : 1}
+                      >
+                        <View style={styles.rowIconContainer}>
+                          {renderMenuItemIcon(item, '#d1d5dc', 24)}
+                        </View>
+                        <Text style={styles.rowLabel}>{item.label}</Text>
+                        <Icon
+                          name={paymentExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={20}
+                          color="#d1d5dc"
+                        />
+                      </TouchableOpacity>
+                      {paymentExpanded && (
+                        <View style={styles.dashboardSubItems}>
+                          <TouchableOpacity
+                            style={styles.subItemBox}
+                            onPress={() => onItemPress({ id: 'expense-claims', label: 'Expense Claims', target: 'ExpenseClaims', icon: item.icon })}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.subItemBoxText}>Expense Claims</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.subItemBox}
+                            onPress={() => onItemPress({ id: 'payments', label: 'Payments', target: 'Payments', icon: item.icon })}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.subItemBoxText}>Payments</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.subItemBox}
+                            onPress={() => onItemPress({ id: 'collections', label: 'Collections', target: 'Collections', icon: item.icon })}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.subItemBoxText}>Collections</Text>
+                          </TouchableOpacity>
                         </View>
                       )}
                     </View>
