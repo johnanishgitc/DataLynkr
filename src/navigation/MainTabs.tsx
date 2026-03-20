@@ -64,6 +64,8 @@ function NoAccessScreen() {
       closeSidebar();
       if (item.target === 'DataManagement') {
         if (navigationRef.isReady()) (navigationRef as any).navigate('DataManagement');
+      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+        if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
       }
     },
     [closeSidebar],
@@ -160,7 +162,6 @@ function MainTabsInner() {
           tabBarIcon: ({ focused }) => <TabIcon name="ledger" focused={focused} />,
         }}
       />
-      {/* Approvals tab commented out – re-enable when requested
       <Tab.Screen
         name="ApprovalsTab"
         component={ApprovalsStack}
@@ -169,7 +170,6 @@ function MainTabsInner() {
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
         }}
       />
-      */}
       <Tab.Screen
         name="SummaryTab"
         component={SummaryStack}

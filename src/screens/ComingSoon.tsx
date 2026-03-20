@@ -37,6 +37,8 @@ export default function ComingSoon({ route }: { route: { params?: P } }) {
         if (item.params) nav.navigate('ComingSoon', item.params as never);
       } else if (item.target === 'DataManagement') {
         if (navigationRef.isReady()) (navigationRef as { navigate: (name: string) => void }).navigate('DataManagement');
+      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+        if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
       } else if (item.params) {
         nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
       } else {

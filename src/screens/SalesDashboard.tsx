@@ -215,6 +215,8 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 // Already here
             } else if (item.target === 'DataManagement') {
                 if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
+            } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+                if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
             } else if (item.params) {
                 nav.navigate(item.target as keyof HomeStackParamList, item.params as never);
             } else {

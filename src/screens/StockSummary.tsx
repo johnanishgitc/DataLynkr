@@ -9,11 +9,21 @@ import {
     Modal,
     TextInput,
     Animated,
+    useWindowDimensions,
 } from 'react-native';
+import type { TextInput as RNTextInput } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { StatusBarTopBar, AppSidebar } from '../components';
+import RNHTMLtoPDF from 'react-native-html-to-pdf';
+import RNPrint from 'react-native-print';
+import * as XLSX from 'xlsx';
+import RNFS from 'react-native-fs';
+import FileViewer from 'react-native-file-viewer';
+import Share, { Social } from 'react-native-share';
+import { StatusBarTopBar, AppSidebar, ExportMenu } from '../components';
+import { SharePopup, type ShareOptionId } from '../components/SharePopup';
 import { PeriodSelection } from '../components/PeriodSelection';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
@@ -27,6 +37,8 @@ import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { sharedStyles } from './ledger';
 import { getStockItemsAndGroupsFromDataManagementCache, type StockListEntry } from '../cache';
+import { requestStoragePermissionForRootExport } from '../utils/permissions';
+import { formatDate } from '../utils/dateUtils';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -105,27 +117,225 @@ function fmtRate(r?: number): string {
     return r.toFixed(2);
 }
 
-/** Return true if the item has at least one of qty, rate or value in any section (opening/inward/outward/closing). */
+/** Hide rows where all of opening/inward/outward/closing have no qty, rate or value. */
 function itemHasAnyQtyRateOrValue(item: StockSummaryItem): boolean {
     const check = (s: StockSummaryItem['opening'] | undefined) => {
         if (!s) return false;
-        const qtyStr = s.qty != null ? String(s.qty).trim() : '';
-        const hasQty = qtyStr !== '' && !Number.isNaN(parseFloat(qtyStr)) && parseFloat(qtyStr) !== 0;
+        // qty can come as strings like "0.000", "0.00 Nos", "", etc.
+        const qtyRaw = s.qty != null ? String(s.qty).trim() : '';
+        const qtyClean = qtyRaw.replace(/[^0-9.+-]/g, '');
+        const qtyNum = qtyClean ? parseFloat(qtyClean) : NaN;
+        const hasQty = !Number.isNaN(qtyNum) && qtyNum !== 0;
+
         const hasRate = s.rate != null && !Number.isNaN(Number(s.rate)) && Number(s.rate) !== 0;
         const hasValue = s.value != null && !Number.isNaN(Number(s.value)) && Number(s.value) !== 0;
-        const amt = (s as { amt?: string }).amt;
-        const amtNum = amt != null && amt.trim() !== '' ? parseFloat(String(amt).replace(/^\(-\)?/, '').replace(/,/g, '')) : NaN;
-        const hasAmt = !Number.isNaN(amtNum) && amtNum !== 0;
-        return hasQty || hasRate || hasValue || hasAmt;
+
+        return hasQty || hasRate || hasValue;
     };
-    return check(item.opening) || check(item.inward) || check(item.outward) || check(item.closing);
+
+    return check(item.closing);
+}
+
+/** Build HTML for Stock Summary / Stock Group Summary export (matches blue table design). */
+function buildStockSummaryHtml(
+    items: StockSummaryItem[],
+    companyName: string,
+    title: string,
+    fromStr: string,
+    toStr: string,
+    godown: string,
+): string {
+    const headerCompany = companyName || 'Company';
+    const periodStr = `From Date: ${fromStr}`;
+    const toDateStr = `To Date: ${toStr}`;
+    const recordsStr = `Total Records: ${items.length}`;
+    const godownStr = godown ? `Godown: ${godown}` : '';
+
+    const bodyRows = items
+        .map((it) => {
+            const name = it.name || '';
+            const openQty = it.opening?.qty ?? '';
+            const openRate = it.opening?.rate ?? 0;
+            const openVal = it.opening?.value ?? 0;
+            const inQty = it.inward?.qty ?? '';
+            const inRate = it.inward?.rate ?? 0;
+            const inVal = it.inward?.value ?? 0;
+            const outQty = it.outward?.qty ?? '';
+            const outRate = it.outward?.rate ?? 0;
+            const outVal = it.outward?.value ?? 0;
+            const closeQty = it.closing?.qty ?? '';
+            const closeRate = it.closing?.rate ?? 0;
+            const closeVal = it.closing?.value ?? 0;
+
+            const esc = (v: unknown) =>
+                String(v ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+
+            return `<tr>
+        <td>${esc(name)}</td>
+        <td class="num">${esc(openQty)}</td>
+        <td class="num">${esc(openRate || '')}</td>
+        <td class="num">${esc(openVal || '')}</td>
+        <td class="num">${esc(inQty)}</td>
+        <td class="num">${esc(inRate || '')}</td>
+        <td class="num">${esc(inVal || '')}</td>
+        <td class="num">${esc(outQty)}</td>
+        <td class="num">${esc(outRate || '')}</td>
+        <td class="num">${esc(outVal || '')}</td>
+        <td class="num">${esc(closeQty)}</td>
+        <td class="num">${esc(closeRate || '')}</td>
+        <td class="num">${esc(closeVal || '')}</td>
+      </tr>`;
+        })
+        .join('\n');
+
+    const grandTotal = items.reduce((acc, it) => acc + (it.closing?.value ?? 0), 0);
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      margin: 36px 10px 24px 10px; /* minimal left/right margins so content shifts left */
+      font-size: 12px;
+      color: #000;
+    }
+    .header {
+      margin-bottom: 18px;
+    }
+    .header-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .header-line {
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0; /* flush with body margins (more to the left) */
+    }
+    th, td {
+      border: 1px solid #dcdcdc;
+      padding: 6px 4px;
+      text-align: left;
+    }
+    th {
+      background-color: #0f4eb3;
+      color: #ffffff;
+      font-weight: 600;
+      font-size: 12px;
+      text-align: center;
+    }
+    .num {
+      text-align: right;
+    }
+    .grand-total-row {
+      background-color: #0f4eb3;
+      color: #ffffff;
+      font-weight: 700;
+    }
+    .grand-total-row td {
+      border-color: #0f4eb3;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-title">${title}</div>
+    <div class="header-line">Company: ${headerCompany}</div>
+    <div class="header-line">${periodStr}</div>
+    <div class="header-line">${toDateStr}</div>
+    <div class="header-line">${recordsStr}</div>
+    ${godownStr ? `<div class="header-line">${godownStr}</div>` : ''}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Particulars</th>
+        <th>Opening Qty</th>
+        <th>Opening Rate</th>
+        <th>Opening Value</th>
+        <th>Inward Qty</th>
+        <th>Inward Rate</th>
+        <th>Inward Value</th>
+        <th>Outward Qty</th>
+        <th>Outward Rate</th>
+        <th>Outward Value</th>
+        <th>Closing Qty</th>
+        <th>Closing Rate</th>
+        <th>Closing Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${bodyRows}
+    </tbody>
+  </table>
+  <table style="width:100%; margin-top:12px;">
+    <tr class="grand-total-row">
+      <td style="text-align:left;">Grand Total</td>
+      <td style="text-align:right;">${fmtValue(grandTotal)}</td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildStockSummaryRows(items: StockSummaryItem[]): (string | number)[][] {
+    const rows: (string | number)[][] = [
+        [
+            'Particulars',
+            'Opening Qty',
+            'Opening Rate',
+            'Opening Value',
+            'Inward Qty',
+            'Inward Rate',
+            'Inward Value',
+            'Outward Qty',
+            'Outward Rate',
+            'Outward Value',
+            'Closing Qty',
+            'Closing Rate',
+            'Closing Value',
+        ],
+    ];
+    for (const it of items) {
+        rows.push([
+            it.name,
+            it.opening?.qty ?? '',
+            it.opening?.rate ?? '',
+            it.opening?.value ?? '',
+            it.inward?.qty ?? '',
+            it.inward?.rate ?? '',
+            it.inward?.value ?? '',
+            it.outward?.qty ?? '',
+            it.outward?.rate ?? '',
+            it.outward?.value ?? '',
+            it.closing?.qty ?? '',
+            it.closing?.rate ?? '',
+            it.closing?.value ?? '',
+        ]);
+    }
+    return rows;
 }
 
 /* ── Component ───────────────────────────────────────────── */
 
+const TABLET_MODAL_MAX_HEIGHT = 1200;
+const TABLET_MODAL_LIST_MAX_HEIGHT = 1200;
+
 export default function StockSummary() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
+    const { width: windowWidth } = useWindowDimensions();
+    const isTablet = windowWidth >= 600;
 
     // If navigated as StockGroupSummary, we get stockitem & breadcrumb. primary = user chose "Primary" (top-level summary).
     const isGroupDrill = route.name === 'StockGroupSummary';
@@ -137,6 +347,7 @@ export default function StockSummary() {
     const [error, setError] = useState('');
     const [items, setItems] = useState<StockSummaryItem[]>([]);
     const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
+    const [company, setCompany] = useState('');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [periodOpen, setPeriodOpen] = useState(false);
     const [primaryDropdownOpen, setPrimaryDropdownOpen] = useState(false);
@@ -150,6 +361,12 @@ export default function StockSummary() {
     const [godownDropdownOpen, setGodownDropdownOpen] = useState(false);
     const [loadingGodown, setLoadingGodown] = useState(false);
     const insets = useSafeAreaInsets();
+    const [exportVisible, setExportVisible] = useState(false);
+    const [sharePopupVisible, setSharePopupVisible] = useState(false);
+    const [shareExportLoading, setShareExportLoading] = useState(false);
+    const [shareExportType, setShareExportType] = useState<'pdf' | 'excel' | null>(null);
+    const [sharingFileInfo, setSharingFileInfo] = useState<{ path: string; type: string; title: string } | null>(null);
+    const exportCustomerInputRef = useRef<RNTextInput | null>(null);
 
     // When navigated to Stock Group Summary (or Stock Item Monthly), use godown from params so it matches Stock Summary
     useEffect(() => {
@@ -157,30 +374,50 @@ export default function StockSummary() {
         if (paramGodown !== undefined) setGodown(paramGodown);
     }, [route.params]);
 
-    const scrollY = useRef(new Animated.Value(0)).current;
-    const SCROLL_RANGE = 140;
-    const onScroll = useMemo(
-        () =>
-            Animated.event(
-                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                { useNativeDriver: true }
-            ),
-        [scrollY]
-    );
-    const { setFooterCollapseValue } = useScroll();
-    const footerCollapseProgress = useRef(new Animated.Value(0)).current;
+    // Footer expansion toggle
+    const [footerExpanded, setFooterExpanded] = useState(false);
+
+    // Scroll-based footer collapse only (header stays visible)
+    const lastScrollY = useRef(0);
+    const localScrollDirection = useRef<'up' | 'down'>('up');
+    const footerTranslateY = useRef(new Animated.Value(0)).current;
+    const { scrollDirection, setScrollDirection } = useScroll();
+
+    const SCROLL_UP_THRESHOLD = 10;
+    const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+        const currentScrollY = event.nativeEvent.contentOffset.y;
+        const scrollDiff = currentScrollY - lastScrollY.current;
+
+        if (scrollDiff > 0 && currentScrollY > 10) {
+            if (localScrollDirection.current !== 'down') {
+                localScrollDirection.current = 'down';
+                setScrollDirection('down');
+                Animated.timing(footerTranslateY, {
+                    toValue: 60, // approximate height of the grand total bar
+                    duration: 300,
+                    useNativeDriver: true,
+                }).start();
+            }
+        } else if (scrollDiff < -SCROLL_UP_THRESHOLD || currentScrollY <= 10) {
+            if (localScrollDirection.current !== 'up') {
+                localScrollDirection.current = 'up';
+                setScrollDirection('up');
+                Animated.timing(footerTranslateY, {
+                    toValue: 0,
+                    duration: 300,
+                    useNativeDriver: true,
+                }).start();
+            }
+        }
+
+        lastScrollY.current = currentScrollY;
+    };
+
     useEffect(() => {
-        setFooterCollapseValue(footerCollapseProgress);
-        const listenerId = scrollY.addListener(({ value }) => {
-            const raw = value / SCROLL_RANGE;
-            const eased = raw <= 0.5 ? raw * 1.3 : 0.65 + (raw - 0.5) * 0.7;
-            footerCollapseProgress.setValue(Math.min(1, eased));
-        });
         return () => {
-            scrollY.removeListener(listenerId);
-            setFooterCollapseValue(null);
+            setScrollDirection(null);
         };
-    }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
+    }, [setScrollDirection]);
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -204,6 +441,8 @@ export default function StockSummary() {
                 tabNav?.navigate?.('HomeTab');
             } else if (item.target === 'DataManagement') {
                 if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
+            } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+                if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
             } else if (item.target === 'ComingSoon' && item.params) {
                 tabNav?.navigate?.('HomeTab', { screen: 'ComingSoon', params: item.params });
             } else {
@@ -228,6 +467,7 @@ export default function StockSummary() {
                 setLoading(false);
                 return;
             }
+            setCompany(c);
             const range = overrideRange ?? computeDateRange(bf);
             setDateRange(range);
             const godownToUse = overrideGodown !== undefined ? overrideGodown : godownRef.current;
@@ -346,7 +586,7 @@ export default function StockSummary() {
         return [...primary, ...rest];
     }, [itemsAndGroups, primarySearch]);
 
-    /** Only show items/groups that have at least one of qty, rate or value. */
+    /** Show only items/groups that have at least one of qty, rate or value. */
     const filteredItems = useMemo(
         () => items.filter(itemHasAnyQtyRateOrValue),
         [items]
@@ -386,6 +626,211 @@ export default function StockSummary() {
     };
 
     const title = isGroupDrill ? strings.stock_group_summary : strings.stock_summary;
+
+    const dateRangeStr = useMemo(
+        () => `${formatApiDate(dateRange.fromdate)} - ${formatApiDate(dateRange.todate)}`,
+        [dateRange.fromdate, dateRange.todate],
+    );
+
+    const onExportOpen = () => setExportVisible(true);
+
+    const getExportDir = useCallback(async (): Promise<string> => {
+        await requestStoragePermissionForRootExport();
+        const downloadsOrDocs = RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath;
+        const storageRoot = downloadsOrDocs.replace(/\/[^/]+\/?$/, '');
+        const dataLynkrDir = `${storageRoot}/DataLynkr`;
+        const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_') || 'Default';
+        const connectionName = company.trim() ? safe(company.trim()) : 'Default';
+        const exportDir = `${dataLynkrDir}/${connectionName}`;
+        try {
+            if (!(await RNFS.exists(dataLynkrDir))) {
+                await RNFS.mkdir(dataLynkrDir);
+            }
+            if (!(await RNFS.exists(exportDir))) {
+                await RNFS.mkdir(exportDir);
+            }
+            return exportDir;
+        } catch {
+            const fallbackBase = downloadsOrDocs;
+            const fallbackDataLynkr = `${fallbackBase}/DataLynkr`;
+            const fallbackDir = `${fallbackDataLynkr}/${connectionName}`;
+            if (!(await RNFS.exists(fallbackDataLynkr))) {
+                await RNFS.mkdir(fallbackDataLynkr);
+            }
+            if (!(await RNFS.exists(fallbackDir))) {
+                await RNFS.mkdir(fallbackDir);
+            }
+            return fallbackDir;
+        }
+    }, [company]);
+
+    const onPdf = async () => {
+        if (filteredItems.length === 0) {
+            Alert.alert(strings.error, 'No data available to export');
+            return;
+        }
+        setExportVisible(false);
+        setShareExportLoading(true);
+        setShareExportType('pdf');
+        try {
+            const html = buildStockSummaryHtml(
+                filteredItems,
+                company,
+                isGroupDrill ? 'Stock Group Summary' : 'Stock Summary',
+                formatApiDate(dateRange.fromdate),
+                formatApiDate(dateRange.todate),
+                godown,
+            );
+
+            const exportDir = await getExportDir();
+            const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
+            const datePart = `${formatDate(yyyymmddToMs(dateRange.fromdate)).replace(/\//g, '-')}_${formatDate(
+                yyyymmddToMs(dateRange.todate),
+            ).replace(/\//g, '-')}`;
+            const fileName = `${safe(isGroupDrill ? 'StockGroupSummary' : 'StockSummary')}_${datePart}`;
+            const pdfOptions = {
+                html,
+                fileName,
+                directory: exportDir,
+            } as const;
+
+            const pdf = await RNHTMLtoPDF.convert(pdfOptions);
+            if (!pdf || !pdf.filePath) {
+                throw new Error('Failed to generate PDF');
+            }
+
+            const path = pdf.filePath;
+            setSharingFileInfo({
+                path,
+                type: 'application/pdf',
+                title: isGroupDrill ? 'Stock Group Summary' : 'Stock Summary',
+            });
+            if (Platform.OS === 'ios') {
+                await FileViewer.open(path, { showOpenWithDialog: true });
+            }
+            setSharePopupVisible(true);
+        } catch (e: any) {
+            const msg = e?.message || 'PDF export failed';
+            Alert.alert(strings.error, msg);
+        } finally {
+            setShareExportLoading(false);
+            setShareExportType(null);
+        }
+    };
+
+    const onExcel = async () => {
+        if (filteredItems.length === 0) {
+            Alert.alert(strings.error, 'No data available to export');
+            return;
+        }
+        setExportVisible(false);
+        setShareExportLoading(true);
+        setShareExportType('excel');
+        try {
+            const sheetData = buildStockSummaryRows(filteredItems);
+            const exportDir = await getExportDir();
+            const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_');
+            const datePart = `${formatDate(yyyymmddToMs(dateRange.fromdate)).replace(/\//g, '-')}_${formatDate(
+                yyyymmddToMs(dateRange.todate),
+            ).replace(/\//g, '-')}`;
+            const name = `${safe(isGroupDrill ? 'StockGroupSummary' : 'StockSummary')}_${datePart}.xlsx`;
+            const path = `${exportDir}/${name}`;
+
+            const sheet = XLSX.utils.aoa_to_sheet(sheetData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, sheet, 'StockSummary');
+            const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+
+            if (await RNFS.exists(path)) {
+                await RNFS.unlink(path);
+            }
+            await RNFS.writeFile(path, wbout, 'base64');
+
+            setSharingFileInfo({
+                path,
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                title: 'Share Excel',
+            });
+            setSharePopupVisible(true);
+        } catch (e: any) {
+            const msg = e?.message || 'Excel export failed';
+            Alert.alert(strings.error, msg);
+        } finally {
+            setShareExportLoading(false);
+            setShareExportType(null);
+        }
+    };
+
+    const onPrint = async () => {
+        if (filteredItems.length === 0) {
+            Alert.alert(strings.error, 'No data available to export');
+            return;
+        }
+        try {
+            const html = buildStockSummaryHtml(
+                filteredItems,
+                company,
+                isGroupDrill ? 'Stock Group Summary' : 'Stock Summary',
+                formatApiDate(dateRange.fromdate),
+                formatApiDate(dateRange.todate),
+                godown,
+            );
+            await RNPrint.print({ html });
+        } catch (e: any) {
+            const msg = e?.message || 'Print failed';
+            Alert.alert(strings.error, msg);
+        }
+    };
+
+    const handleShareOption = async (optionId: ShareOptionId) => {
+        setSharePopupVisible(false);
+        if (!sharingFileInfo) return;
+        const { path, type, title: shareTitle } = sharingFileInfo;
+        const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
+
+        try {
+            let urlToShare = fileUrl;
+            if (Platform.OS === 'android') {
+                const baseName = path.split('/').pop() || (type.includes('pdf') ? 'export.pdf' : 'export.xlsx');
+                const cachePath = `${RNFS.CachesDirectoryPath}/${baseName}`;
+                if (await RNFS.exists(cachePath)) await RNFS.unlink(cachePath);
+                await RNFS.copyFile(path, cachePath);
+                urlToShare = `file://${cachePath}`;
+            }
+
+            if (optionId === 'whatsapp') {
+                try {
+                    await Share.shareSingle({
+                        social: Social.Whatsapp,
+                        url: urlToShare,
+                        type,
+                        filename: urlToShare.split('/').pop(),
+                    });
+                } catch {
+                    await Share.open({ url: urlToShare, type, title: shareTitle }).catch(() => { });
+                }
+            } else if (optionId === 'mail') {
+                try {
+                    await Share.shareSingle({
+                        social: Social.Email,
+                        url: urlToShare,
+                        type,
+                        filename: urlToShare.split('/').pop(),
+                        subject: shareTitle,
+                    });
+                } catch {
+                    await Share.open({ url: urlToShare, type, title: shareTitle, subject: shareTitle }).catch(() => { });
+                }
+            } else {
+                await Share.open({ url: urlToShare, type, title: shareTitle }).catch(() => { });
+            }
+        } catch (e: any) {
+            const msg = e?.message || '';
+            if (!msg || !msg.includes('User did not share')) {
+                Alert.alert(strings.error, msg || 'Share failed');
+            }
+        }
+    };
 
     const renderRow = ({ item }: { item: StockSummaryItem }) => {
         const isItem = item.isitem === 'Yes';
@@ -427,6 +872,7 @@ export default function StockSummary() {
                 leftIcon={isGroupDrill ? 'back' : 'menu'}
                 onMenuPress={openSidebar}
                 onLeftPress={() => nav.goBack()}
+                onRightIconsPress={onExportOpen}
                 compact
             />
 
@@ -501,21 +947,58 @@ export default function StockSummary() {
                 </View>
             ) : (
                 <AnimatedFlatList
-                    data={filteredItems}
-                    keyExtractor={(item) => item.masterid}
-                    renderItem={renderRow}
-                    contentContainerStyle={s.listContent}
+                    data={filteredItems as any}
+                    keyExtractor={(item: any) => item.masterid}
+                    renderItem={renderRow as any}
+                    contentContainerStyle={[
+                        s.listContent,
+                        { paddingBottom: footerExpanded ? 160 : 120 }
+                    ]}
                     showsVerticalScrollIndicator={false}
-                    onScroll={onScroll}
+                    onScroll={handleScroll}
                     scrollEventThrottle={16}
                 />
             )}
 
             {/* Grand Total footer */}
-            <View style={s.grandTotalBar}>
-                <Text style={s.grandTotalText}>{strings.grand_total.toUpperCase()}</Text>
-                <Icon name="chevron-right" size={22} color={colors.white} />
-            </View>
+            <Animated.View
+                style={[
+                    s.footer,
+                    isTablet && s.footerTablet,
+                    {
+                        bottom: (isTablet ? 60 : 49) + insets.bottom,
+                        transform: [{ translateY: footerTranslateY }]
+                    }
+                ]}
+            >
+                <TouchableOpacity
+                    style={s.footerBar}
+                    onPress={() => setFooterExpanded((x) => !x)}
+                    activeOpacity={0.8}
+                >
+                    <Text style={s.footerBarTxt}>{strings.grand_total.toUpperCase()}</Text>
+                    <Icon
+                        name="chevron-down"
+                        size={20}
+                        color={colors.white}
+                        style={footerExpanded ? undefined : { transform: [{ rotate: '-90deg' }] }}
+                    />
+                </TouchableOpacity>
+                {footerExpanded && (
+                    <View
+                        style={[
+                            s.footerExpand,
+                        ]}
+                    >
+                        <View style={s.footerRow}>
+                            <Text style={s.footerLabel}>Total Closing Value</Text>
+                            <Text style={s.footerVal}>
+                                {fmtValue(filteredItems.reduce((acc, it) => acc + (it.closing?.value ?? 0), 0))}
+                            </Text>
+                        </View>
+                    </View>
+                )}
+            </Animated.View>
 
             {!isGroupDrill && (
                 <AppSidebar
@@ -549,7 +1032,14 @@ export default function StockSummary() {
                     activeOpacity={1}
                     onPress={() => setGodownDropdownOpen(false)}
                 >
-                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                    <View
+                        style={[
+                            sharedStyles.modalContentFullWidth,
+                            { marginBottom: insets.bottom + 80 },
+                            isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
                         <View style={sharedStyles.modalHeaderRow}>
                             <Text style={sharedStyles.modalHeaderTitle}>Select Godown</Text>
                             <TouchableOpacity onPress={() => setGodownDropdownOpen(false)} style={sharedStyles.modalHeaderClose}>
@@ -565,7 +1055,7 @@ export default function StockSummary() {
                             <FlatList
                                 data={[{ name: '', label: 'All Godowns' }, ...godownOptions.map((n) => ({ name: n, label: n }))]}
                                 keyExtractor={(item) => item.name || '__all__'}
-                                style={sharedStyles.modalList}
+                                style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
                                 keyboardShouldPersistTaps="handled"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No godown options</Text>}
                                 renderItem={({ item }) => (
@@ -604,7 +1094,14 @@ export default function StockSummary() {
                         setPrimarySearch('');
                     }}
                 >
-                    <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+                    <View
+                        style={[
+                            sharedStyles.modalContentFullWidth,
+                            { marginBottom: insets.bottom + 80 },
+                            isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
                         <View style={sharedStyles.modalHeaderRow}>
                             <Text style={sharedStyles.modalHeaderTitle}>Select Item or Group</Text>
                             <TouchableOpacity
@@ -632,8 +1129,8 @@ export default function StockSummary() {
                         ) : (
                             <FlatList
                                 data={primaryDropdownList}
-                                keyExtractor={(item) => `${item.type}-${item.name}`}
-                                style={sharedStyles.modalList}
+                                keyExtractor={(item, index) => `${item.type}-${item.name}-${index}`}
+                                style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
                                 keyboardShouldPersistTaps="handled"
                                 keyboardDismissMode="on-drag"
                                 ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No items or groups found. Download from Data Management first.</Text>}
@@ -655,6 +1152,47 @@ export default function StockSummary() {
                     </View>
                 </TouchableOpacity>
             </Modal>
+
+            <ExportMenu
+                visible={exportVisible}
+                onClose={() => setExportVisible(false)}
+                onPdf={onPdf}
+                onExcel={onExcel}
+                onPrint={onPrint}
+            />
+
+            <Modal visible={shareExportLoading} transparent animationType="fade" statusBarTranslucent>
+                <View
+                    style={{
+                        flex: 1,
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                    }}
+                >
+                    <View
+                        style={{
+                            backgroundColor: '#fff',
+                            borderRadius: 12,
+                            paddingVertical: 24,
+                            paddingHorizontal: 32,
+                            alignItems: 'center',
+                            minWidth: 200,
+                        }}
+                    >
+                        <ActivityIndicator size="large" color={colors.primary_blue} />
+                        <Text style={{ marginTop: 16, fontSize: 15, color: colors.text_primary }}>
+                            {shareExportType === 'pdf'
+                                ? 'Generating PDF…'
+                                : shareExportType === 'excel'
+                                    ? 'Generating Excel…'
+                                    : 'Preparing…'}
+                        </Text>
+                    </View>
+                </View>
+            </Modal>
+
+            <SharePopup visible={sharePopupVisible} onClose={() => setSharePopupVisible(false)} onOptionClick={handleShareOption} />
         </View>
     );
 }
@@ -804,19 +1342,54 @@ const s = StyleSheet.create({
     },
 
     // Grand Total footer
-    grandTotalBar: {
+    footer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: colors.white,
+        borderTopWidth: 1,
+        borderTopColor: colors.stock_border,
+    },
+    footerTablet: {
+        left: '20%',
+        right: '20%',
+    },
+    footerBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         backgroundColor: colors.primary_blue,
         paddingHorizontal: 16,
-        paddingVertical: 10,
+        paddingVertical: 8,
     },
-    grandTotalText: {
+    footerBarTxt: {
         fontFamily: 'Roboto',
         fontSize: 14,
         fontWeight: '700',
         color: colors.white,
+        letterSpacing: 0.5,
+    },
+    footerExpand: {
+        backgroundColor: colors.white,
+        padding: 16,
+        gap: 12,
+    },
+    footerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    footerLabel: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: colors.text_secondary,
+    },
+    footerVal: {
+        fontFamily: 'Roboto',
+        fontSize: 16,
+        fontWeight: '700',
+        color: colors.stock_text_dark,
     },
 
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },

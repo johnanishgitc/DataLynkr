@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -75,6 +76,8 @@ export default function SalesOrderLedgerOutstandings({
 }: SalesOrderLedgerOutstandingsProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
 
   const [loading, setLoading] = useState(true);
   const [salesOrderRows, setSalesOrderRows] = useState<SalesOrderOutstandingRow[] | null>(null);
@@ -403,7 +406,11 @@ export default function SalesOrderLedgerOutstandings({
           <Animated.View
             style={[
               sharedStyles.footer,
-              { transform: [{ translateY: footerTranslateY }] },
+              isTablet && sharedStyles.footerTablet,
+              {
+                bottom: (isTablet ? 60 : 49) + insets.bottom,
+                transform: [{ translateY: footerTranslateY }]
+              },
             ]}
           >
             <TouchableOpacity style={sharedStyles.footerBar} onPress={() => setFooterExpanded((x) => !x)} activeOpacity={0.8}>

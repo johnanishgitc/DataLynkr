@@ -8,6 +8,9 @@ import SalesOrderOrderDetails from '../screens/SalesOrderOrderDetails';
 import ClearedOrderDetails from '../screens/ClearedOrderDetails';
 import VoucherDetailView from '../screens/VoucherDetailView';
 import DataManagement from '../screens/CacheManagement2';
+import PaymentsScreen from '../screens/PaymentsScreen';
+import ExpenseClaimsScreen from '../screens/ExpenseClaimsScreen';
+import CollectionsScreen from '../screens/CollectionsScreen';
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
@@ -17,6 +20,9 @@ export default function MainStack() {
       <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="DataManagement" component={DataManagement} options={{ title: 'Data Management', headerShown: false }} />
+      <Stack.Screen name="Payments" component={PaymentsScreen} />
+      <Stack.Screen name="ExpenseClaims" component={ExpenseClaimsScreen} />
+      <Stack.Screen name="Collections" component={CollectionsScreen} />
       <Stack.Screen name="SalesOrderVoucherDetails" component={SalesOrderVoucherDetails} />
       <Stack.Screen name="SalesOrderLineDetail" component={SalesOrderLineDetail} />
       <Stack.Screen name="SalesOrderOrderDetails" component={SalesOrderOrderDetails} />

@@ -53,6 +53,10 @@ export type PlaceOrderTransConfig = {
     class?: string;
     /** Default quantity for new items in OrderEntryItemDetail (from configuration/permissions, e.g. permission_key "def_qty"). */
     defaultQty?: number;
+    /** When true, new orders are saved as Optional by default (from configuration/permissions, e.g. permission_key "save_optional"). */
+    saveOptionalByDefault?: boolean;
+    /** Behaviour when credit limit / days are exceeded (from configuration key "ctrl_creditdayslimit"). */
+    creditDaysLimitMode?: 'Post as Optional' | 'Restrict generation of transaction';
 };
 
 /** Fallback when permissions are not available (e.g. OrderEntryItemDetail using params from OrderEntry). All restricted. */
@@ -186,6 +190,8 @@ export function useUserAccess(): UseUserAccessReturn {
                 const transConfigArr = (data?.trans_config ?? []) as Array<Record<string, unknown>>;
                 let pOrderTransConfig: PlaceOrderTransConfig = {};
                 let defaultQty: number | undefined;
+                let saveOptionalByDefault = false;
+                let creditDaysLimitMode: 'Post as Optional' | 'Restrict generation of transaction' | undefined;
 
                 if (transConfigArr.length > 0) {
                     const firstConfig = transConfigArr[0];
@@ -199,7 +205,22 @@ export function useUserAccess(): UseUserAccessReturn {
                             class: poConfig?.class as string | undefined,
                         };
 
-                        // Try to find a configuration entry with key/permission_key "def_qty" and a numeric permission_value/value.
+                        // Try to find configuration entries such as:
+                        // {
+                        //   "permission_key": "def_qty",
+                        //   "display_name": "Set Default Qty Value",
+                        //   "sort_order": "180",
+                        //   "granted": true,
+                        //   "permission_value": "3"
+                        // }
+                        // and:
+                        // {
+                        //   "permission_key": "save_optional",
+                        //   "display_name": "Save Order by default as Optional",
+                        //   "sort_order": "201",
+                        //   "granted": true,
+                        //   "permission_value": null
+                        // }
                         for (const cfg of poConfigArr) {
                             const key = String((cfg as any).permission_key ?? (cfg as any).key ?? '').trim();
                             if (key === 'def_qty') {
@@ -207,7 +228,20 @@ export function useUserAccess(): UseUserAccessReturn {
                                 const num = rawVal != null ? Number(rawVal) : NaN;
                                 if (!Number.isNaN(num)) {
                                     defaultQty = num;
-                                    break;
+                                }
+                            } else if (key === 'save_optional') {
+                                const grantedRaw = (cfg as any).is_granted ?? (cfg as any).granted ?? (cfg as any).value;
+                                if (toBool(grantedRaw)) {
+                                    saveOptionalByDefault = true;
+                                }
+                            } else if (key === 'ctrl_creditdayslimit' && creditDaysLimitMode === undefined) {
+                                const rawVal = (cfg as any).permission_value ?? (cfg as any).value;
+                                const val = rawVal != null ? String(rawVal).trim() : '';
+                                // Ignore when permission_value is "null" (string) or empty.
+                                if (val && val.toLowerCase() !== 'null') {
+                                    if (val === 'Post as Optional' || val === 'Restrict generation of transaction') {
+                                        creditDaysLimitMode = val;
+                                    }
                                 }
                             }
                         }
@@ -216,6 +250,7 @@ export function useUserAccess(): UseUserAccessReturn {
 
                 // --- Module-level access ---
                 const modAccess: ModuleAccess = { ...DEFAULT_MODULE_ACCESS };
+                let approvalsApproveReject = false;
                 for (const mod of modules) {
                     const name = String(mod.module_name ?? mod.module_key ?? '').trim();
                     if (name) {
@@ -223,8 +258,26 @@ export function useUserAccess(): UseUserAccessReturn {
                         const isEnabledRaw = mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted;
                         // If the API omits the enabled flag entirely, assume it's true because the module is listed.
                         modAccess[mappedKey] = isEnabledRaw !== undefined ? toBool(isEnabledRaw) : true;
+
+                        // Extract Approvals-specific permission: def_apprvrej from voucher_authorization module
+                        const lowerName = name.toLowerCase();
+                        if (lowerName === 'voucher_authorization') {
+                            const permsArr = (mod.permissions ?? []) as Array<Record<string, unknown>>;
+                            for (const p of permsArr) {
+                                const key = String(p.permission_key ?? p.permission_name ?? '').trim();
+                                if (key === 'def_apprvrej') {
+                                    const granted = toBool(p.is_granted ?? p.granted ?? p.value);
+                                    if (granted) {
+                                        approvalsApproveReject = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                // Expose Approvals approve/reject option flag via moduleAccess
+                (modAccess as any).approvals_def_apprvrej = approvalsApproveReject;
                 if (!cancelled) setModuleAccess(modAccess);
 
                 // --- Place-order field permissions ---
@@ -242,19 +295,39 @@ export function useUserAccess(): UseUserAccessReturn {
                             permMap[pName] = toBool(p.is_granted ?? p.granted);
                         }
 
-                        // Also allow default quantity to be configured via a permission entry:
-                        // {
-                        //   "permission_key": "def_qty",
-                        //   "display_name": "Set Default Qty Value",
-                        //   "sort_order": "180",
-                        //   "granted": true,
-                        //   "permission_value": "3"
-                        // }
+                        // Also allow some configuration values to be driven via permission entries when present.
                         if (pName === 'def_qty' && defaultQty === undefined) {
+                            // {
+                            //   "permission_key": "def_qty",
+                            //   "display_name": "Set Default Qty Value",
+                            //   "sort_order": "180",
+                            //   "granted": true,
+                            //   "permission_value": "3"
+                            // }
                             const rawVal = (p as any).permission_value ?? (p as any).value;
                             const num = rawVal != null ? Number(rawVal) : NaN;
                             if (!Number.isNaN(num)) {
                                 defaultQty = num;
+                            }
+                        } else if (pName === 'save_optional' && !saveOptionalByDefault) {
+                            // {
+                            //   "permission_key": "save_optional",
+                            //   "display_name": "Save Order by default as Optional",
+                            //   "sort_order": "201",
+                            //   "granted": true,
+                            //   "permission_value": null
+                            // }
+                            const grantedRaw = (p as any).is_granted ?? (p as any).granted ?? (p as any).value;
+                            if (toBool(grantedRaw)) {
+                                saveOptionalByDefault = true;
+                            }
+                        } else if (pName === 'ctrl_creditdayslimit' && creditDaysLimitMode === undefined) {
+                            const rawVal = (p as any).permission_value ?? (p as any).value;
+                            const val = rawVal != null ? String(rawVal).trim() : '';
+                            if (val && val.toLowerCase() !== 'null') {
+                                if (val === 'Post as Optional' || val === 'Restrict generation of transaction') {
+                                    creditDaysLimitMode = val;
+                                }
                             }
                         }
                     }
@@ -291,6 +364,8 @@ export function useUserAccess(): UseUserAccessReturn {
                     setTransConfig({
                         ...pOrderTransConfig,
                         defaultQty,
+                        saveOptionalByDefault,
+                        creditDaysLimitMode,
                     });
                 }
             } catch (err) {

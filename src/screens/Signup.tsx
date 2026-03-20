@@ -18,7 +18,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../navigation/types';
 import { apiService } from '../api';
 import { strings } from '../constants/strings';
-import { fonts } from '../constants/fonts';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'Signup'>;
 
@@ -84,23 +83,13 @@ export default function Signup() {
         <View style={styles.successWrap}>
           <View style={styles.card}>
             <View style={styles.topSection}>
-              <Logo width={74} height={48} style={styles.logo} />
-              <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
+              <Logo width={92} height={60} style={styles.logo} />
             </View>
             <Text style={styles.successText}>{strings.signup_success}</Text>
             <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('Login')} activeOpacity={0.8}>
               <Text style={styles.btnTxt}>{strings.login}</Text>
             </TouchableOpacity>
           </View>
-        </View>
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {'© '}
-            <Text style={styles.footerIT}>IT</Text>
-            {' '}
-            <Text style={styles.footerCatalyst}>Catalyst</Text>
-            {' Software India Pvt Ltd, 2025.'}
-          </Text>
         </View>
       </SafeAreaView>
     );
@@ -117,8 +106,7 @@ export default function Signup() {
         >
           <View style={styles.card}>
             <View style={styles.topSection}>
-              <Logo width={74} height={48} style={styles.logo} />
-              <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
+              <Logo width={92} height={60} style={styles.logo} />
               <Text style={styles.heading}>{strings.create_account}</Text>
             </View>
 
@@ -187,16 +175,6 @@ export default function Signup() {
             </View>
           </View>
         </ScrollView>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {'© '}
-            <Text style={styles.footerIT}>IT</Text>
-            {' '}
-            <Text style={styles.footerCatalyst}>Catalyst</Text>
-            {' Software India Pvt Ltd, 2025.'}
-          </Text>
-        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -205,7 +183,7 @@ export default function Signup() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#e6f0ff',
+    backgroundColor: '#ffffff',
   },
   keyboardView: {
     flex: 1,
@@ -223,29 +201,18 @@ const styles = StyleSheet.create({
   },
   topSection: {
     alignItems: 'center',
+    marginTop: -48,
     marginBottom: 24,
   },
   logo: {
-    width: 73.5,
-    height: 48,
-  },
-  brand: {
-    fontFamily: fonts.brand,
-    fontWeight: '400',
-    fontSize: 30,
-    marginTop: 8,
-  },
-  brandData: {
-    color: '#000000',
-  },
-  brandLynkr: {
-    color: '#000000',
+    width: 92,
+    height: 60,
   },
   heading: {
     fontWeight: '400',
     fontSize: 24,
     color: '#0e172b',
-    marginTop: 12,
+    marginTop: 22,
   },
   form: {
     gap: 20,
@@ -303,30 +270,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#1f3a89',
-  },
-  footer: {
-    borderTopWidth: 1.27,
-    borderTopColor: 'rgba(0,0,0,0.1)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#697282',
-  },
-  footerIT: {
-    fontFamily: 'serif',
-    fontStyle: 'italic',
-    fontWeight: '700',
-    color: '#CC7A2E',
-  },
-  footerCatalyst: {
-    fontFamily: 'serif',
-    fontStyle: 'italic',
-    fontWeight: '700',
-    color: '#000000',
   },
   successWrap: {
     flex: 1,

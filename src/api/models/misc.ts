@@ -8,7 +8,7 @@ export interface StockItemRequest {
   [key: string]: unknown;
 }
 
-/** Single item from api/tally/stockitem response (stockItems array). All fields are preserved as returned, including ISBATCHWISEON. */
+/** Single item from api/tally/stockitem-loop response (stockItems array). All fields are preserved as returned, including ISBATCHWISEON. */
 export interface StockItem {
   MASTERID?: string | null;
   NAME?: string | null;
@@ -26,13 +26,14 @@ export interface StockItem {
   PRICELEVELS?: unknown[] | null;
   PARENT?: string | null;
   GROUPLIST?: string | null;
-  /** From api/tally/stockitem. When "Yes", show Godown and Batch on Order Entry Item Detail. */
+  /** From api/tally/stockitem-loop. When "Yes", show Godown and Batch on Order Entry Item Detail. */
   ISBATCHWISEON?: string | null;
   /** When "Yes" (and ISBATCHWISEON and HASEXPDATE are Yes), show Mfg Date field. */
   HASMFGDATE?: string | null;
   /** When "Yes" (and ISBATCHWISEON and HASMFGDATE are Yes), show Expiry date field. */
   HASEXPDATE?: string | null;
   ALIAS?: string | null;
+  PARTNO?: string | null;
   [key: string]: unknown;
 }
 
@@ -166,10 +167,18 @@ export interface LedgerEntryConfig {
   [key: string]: unknown;
 }
 
-/** Single class in a voucher type (CLASSNAME used for Class dropdown). LEDGERENTRIESLIST drives Transaction Summary. */
+/** Ledger used for inventory lines (e.g. "Sales"). When LEDGERFROMITEM is "Yes", item's SALESLEDGER overrides. */
+export interface LedgerForInventoryItem {
+  NAME?: string | null;
+  LEDGERFROMITEM?: string | null;
+  [key: string]: unknown;
+}
+
+/** Single class in a voucher type (CLASSNAME used for Class dropdown). LEDGERENTRIESLIST drives Transaction Summary; LEDGERFORINVENTORYLIST gives item ledgername. */
 export interface VoucherClassItem {
   CLASSNAME?: string | null;
   LEDGERENTRIESLIST?: LedgerEntryConfig[] | null;
+  LEDGERFORINVENTORYLIST?: LedgerForInventoryItem[] | null;
   [key: string]: unknown;
 }
 

@@ -18,8 +18,8 @@ export interface StatusBarTopBarProps {
   onBankPress?: () => void;
   /** Called when bell icon is pressed (used when rightIcons='ledger-report'). If omitted, uses onRightIconsPress. */
   onBellPress?: () => void;
-  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'ledger-report' = bank+share+bell (Ledger Reports), 'kebab' = single kebab in white circle, 'share-kebab' = share (VDInv vector-14) + kebab (Voucher Details), 'ledger' = LedgerIcon (same as footer, Order Entry), 'draft-switch' = Switch for Order Entry draft mode, 'none' = no right buttons */
-  rightIcons?: 'default' | 'share-bell' | 'ledger-report' | 'kebab' | 'share-kebab' | 'ledger' | 'draft-switch' | 'none';
+  /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'ledger-report' = bank+share+bell (Ledger Reports), 'kebab' = single kebab in white circle, 'share' = share only (e.g. Accounting Voucher Details), 'share-kebab' = share (VDInv vector-14) + kebab (Voucher Details), 'ledger' = LedgerIcon (same as footer, Order Entry), 'draft-switch' = Switch for Order Entry draft mode, 'none' = no right buttons */
+  rightIcons?: 'default' | 'share-bell' | 'ledger-report' | 'kebab' | 'share' | 'share-kebab' | 'ledger' | 'draft-switch' | 'none';
   /** 'menu' = hamburger (default), 'back' = back arrow for sub-screens (LedgerBook2), 'none' = no left button */
   leftIcon?: 'menu' | 'back' | 'none';
   /** LedgerBook2 Figma: bar paddingVertical 3px (py-[3px]). */
@@ -50,6 +50,7 @@ export function StatusBarTopBar({
   const isShareBell = rightIcons === 'share-bell';
   const isLedgerReport = rightIcons === 'ledger-report';
   const isKebab = rightIcons === 'kebab';
+  const isShareOnly = rightIcons === 'share';
   const isShareKebab = rightIcons === 'share-kebab';
   const isLedger = rightIcons === 'ledger';
   const isDraftSwitch = rightIcons === 'draft-switch';
@@ -123,6 +124,18 @@ export function StatusBarTopBar({
               shadowRadius: 1,
             }} />
           </Animated.View>
+        </TouchableOpacity>
+      );
+    }
+    if (isShareOnly) {
+      return (
+        <TouchableOpacity
+          onPress={onSharePress}
+          style={styles.shareBtn}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityLabel="Share"
+        >
+          <ShareIcon width={16} height={16} color={colors.white} />
         </TouchableOpacity>
       );
     }

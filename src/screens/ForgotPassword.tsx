@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Platform,
   ScrollView,
   StatusBar,
-  Keyboard,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Logo from '../components/Logo';
@@ -19,7 +19,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../navigation/types';
 import { apiService } from '../api';
 import { strings } from '../constants/strings';
-import { fonts } from '../constants/fonts';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'ForgotPassword'>;
 
@@ -28,19 +27,6 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const subShow = Keyboard.addListener(show, () => setKeyboardVisible(true));
-    const subHide = Keyboard.addListener(hide, () => setKeyboardVisible(false));
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
-  }, []);
 
   const validate = (): boolean => {
     if (!email.trim()) {
@@ -61,12 +47,15 @@ export default function ForgotPassword() {
     setError('');
     try {
       const { data } = await apiService.forgotPassword({ email: email.trim() });
-      const d = data as { error?: string | null };
+      const d = data as { message?: string | null; error?: string | null };
       if (d?.error) {
         setError(d.error);
         return;
       }
-      setSuccess(true);
+      const message = d?.message ?? strings.forgot_password_success;
+      Alert.alert(strings.ok, message, [
+        { text: strings.ok, onPress: () => nav.navigate('Login') },
+      ]);
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Request failed. Please try again.';
       setError(msg);
@@ -74,35 +63,6 @@ export default function ForgotPassword() {
       setLoading(false);
     }
   };
-
-  if (success) {
-    return (
-      <SafeAreaView style={styles.root} edges={['top']}>
-        <StatusBar backgroundColor="#ffffff" barStyle="dark-content" />
-        <View style={styles.successWrap}>
-          <View style={styles.card}>
-            <View style={styles.topSection}>
-              <Logo width={74} height={48} style={styles.logo} />
-              <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
-            </View>
-            <Text style={styles.successText}>{strings.forgot_password_success}</Text>
-            <TouchableOpacity style={styles.btn} onPress={() => nav.navigate('Login')} activeOpacity={0.8}>
-              <Text style={styles.btnTxt}>{strings.login}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {'© '}
-            <Text style={styles.footerIT}>IT</Text>
-            {' '}
-            <Text style={styles.footerCatalyst}>Catalyst</Text>
-            {' Software India Pvt Ltd, 2025.'}
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -115,8 +75,7 @@ export default function ForgotPassword() {
         >
           <View style={styles.card}>
             <View style={styles.topSection}>
-              <Logo width={74} height={48} style={styles.logo} />
-              <Text style={styles.brand}><Text style={styles.brandData}>Data</Text><Text style={styles.brandLynkr}>Lynkr</Text></Text>
+              <Logo width={92} height={60} style={styles.logo} />
             </View>
 
             <Text style={styles.heading}>{strings.reset_password}</Text>
@@ -169,18 +128,6 @@ export default function ForgotPassword() {
             </View>
           </View>
         </ScrollView>
-
-        {!keyboardVisible && (
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              {'© '}
-              <Text style={styles.footerIT}>IT</Text>
-              {' '}
-              <Text style={styles.footerCatalyst}>Catalyst</Text>
-              {' Software India Pvt Ltd, 2025.'}
-            </Text>
-          </View>
-        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -189,7 +136,7 @@ export default function ForgotPassword() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#e6f0ff',
+    backgroundColor: '#ffffff',
   },
   keyboardView: {
     flex: 1,
@@ -207,23 +154,12 @@ const styles = StyleSheet.create({
   },
   topSection: {
     alignItems: 'center',
+    marginTop: -48,
     marginBottom: 24,
   },
   logo: {
-    width: 73.5,
-    height: 48,
-  },
-  brand: {
-    fontFamily: fonts.brand,
-    fontWeight: '400',
-    fontSize: 30,
-    marginTop: 8,
-  },
-  brandData: {
-    color: '#000000',
-  },
-  brandLynkr: {
-    color: '#000000',
+    width: 92,
+    height: 60,
   },
   heading: {
     fontWeight: '400',
@@ -314,30 +250,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#1f3a89',
-  },
-  footer: {
-    borderTopWidth: 1.27,
-    borderTopColor: 'rgba(0,0,0,0.1)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#697282',
-  },
-  footerIT: {
-    fontFamily: 'serif',
-    fontStyle: 'italic',
-    fontWeight: '700',
-    color: '#CC7A2E',
-  },
-  footerCatalyst: {
-    fontFamily: 'serif',
-    fontStyle: 'italic',
-    fontWeight: '700',
-    color: '#000000',
   },
   successWrap: {
     flex: 1,

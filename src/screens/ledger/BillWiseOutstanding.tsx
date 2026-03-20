@@ -65,6 +65,7 @@ export default function BillWiseOutstanding({
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const isNarrowScreen = windowWidth < 360;
+  const isTablet = windowWidth >= 600;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<LedgerReportData | null>(null);
@@ -360,7 +361,11 @@ export default function BillWiseOutstanding({
           <Animated.View
             style={[
               sharedStyles.footer,
-              { transform: [{ translateY: footerTranslateY }] },
+              isTablet && sharedStyles.footerTablet,
+              {
+                bottom: (isTablet ? 60 : 49) + insets.bottom,
+                transform: [{ translateY: footerTranslateY }]
+              },
             ]}
           >
             <TouchableOpacity style={sharedStyles.footerBar} onPress={() => setFooterExpanded((x) => !x)} activeOpacity={0.8}>

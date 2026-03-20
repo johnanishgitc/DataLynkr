@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,6 +53,8 @@ export default function PastOrders({
 }: PastOrdersProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const isTablet = windowWidth >= 600;
 
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<SalesOrderReportItem[] | null>(null);
@@ -277,7 +280,11 @@ export default function PastOrders({
           <Animated.View
             style={[
               sharedStyles.footer,
-              { transform: [{ translateY: footerTranslateY }] },
+              isTablet && sharedStyles.footerTablet,
+              {
+                bottom: (isTablet ? 60 : 49) + insets.bottom,
+                transform: [{ translateY: footerTranslateY }]
+              },
             ]}
           >
             <TouchableOpacity style={sharedStyles.footerBar} onPress={() => setFooterExpanded((x) => !x)} activeOpacity={0.8}>

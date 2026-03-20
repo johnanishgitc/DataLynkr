@@ -11,11 +11,9 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];
 
@@ -25,11 +23,9 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+ //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];
 
@@ -39,11 +35,9 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];
 
@@ -53,10 +47,8 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+ // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
 ];

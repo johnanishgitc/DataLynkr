@@ -51,4 +51,26 @@ class StoragePermissionModule(reactContext: ReactApplicationContext) :
             promise.reject("ERROR", e.message)
         }
     }
+
+    /**
+     * Opens the system screen where the user can allow the app to ignore battery optimizations
+     * (Allow background activity). Takes the user directly to the toggle for this app.
+     */
+    @ReactMethod
+    fun openBatteryOptimizationSettings(promise: Promise) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${reactApplicationContext.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactApplicationContext.startActivity(intent)
+                promise.resolve(true)
+            } else {
+                promise.resolve(true)
+            }
+        } catch (e: Exception) {
+            promise.reject("ERROR", e.message)
+        }
+    }
 }
