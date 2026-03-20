@@ -378,3 +378,39 @@ export interface UploadDocResponse {
   file_view_link?: string;
   message?: string;
 }
+
+/** api/images/upload-url request – step 1 of S3 attachment flow */
+export interface ImageUploadUrlRequest {
+  fileName: string;
+  fileType: string;
+  tallyloc_id: number;
+  guid: string;
+  type: 'others' | 'BCommerce' | 'master' | 'transaction';
+}
+
+/** api/images/upload-url response */
+export interface ImageUploadUrlResponse {
+  uploadUrl: string;
+  key: string;
+}
+
+/** api/images/confirm request – step 3 of S3 attachment flow */
+export interface ImageConfirmRequest {
+  s3Key: string;
+  tallyloc_id: number;
+  guid: string;
+  type: 'others' | 'BCommerce' | 'master' | 'transaction';
+  masterid?: number;
+  tally_refno?: string;
+  fileType: string;
+}
+
+/** api/images/confirm response */
+export interface ImageConfirmResponse {
+  status?: string;
+  id?: number;
+  s3Key?: string;
+  viewUrl?: string;
+  createdAt?: string;
+  message?: string;
+}

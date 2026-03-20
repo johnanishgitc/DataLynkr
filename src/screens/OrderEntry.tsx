@@ -90,6 +90,7 @@ import { QRCodeScanner } from '../components/QRCodeScanner';
 import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
 import { useModuleAccess } from '../store/ModuleAccessContext';
+import { useS3Attachment, type S3Attachment } from '../hooks/useS3Attachment';
 
 // OrdEnt1 exact colors - no modifications
 const HEADER_BG = '#1f3a89';
@@ -474,9 +475,11 @@ export default function OrderEntry() {
   const [addDetailsModalVisible, setAddDetailsModalVisible] = useState(false);
   const [clipPopupVisible, setClipPopupVisible] = useState(false);
   const [validationAlert, setValidationAlert] = useState<{ title: string; message: string } | null>(null);
-  const [attachmentUris, setAttachmentUris] = useState<string[]>([]);
-  const [attachmentLinks, setAttachmentLinks] = useState<string[]>([]);
-  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const s3Attachment = useS3Attachment({ type: 'transaction' });
+  // Derive legacy-compatible arrays from hook state
+  const attachmentLinks = s3Attachment.attachments.map((a) => a.viewUrl);
+  const attachmentUris = s3Attachment.attachments.map((a) => a.viewUrl);
+  const uploadingAttachments = s3Attachment.uploading;
   const [uploadErrorPopup, setUploadErrorPopup] = useState<{ status: string; message: string } | null>(null);
   const [addDetailsTab, setAddDetailsTab] = useState<'buyer' | 'consignee' | 'order'>('buyer');
   const initialAddDetailsForm: AddDetailsFormShape = {
@@ -932,8 +935,7 @@ export default function OrderEntry() {
         setClassDropdownOpen(false);
         setIsDraftMode(!!openInDraftMode);
         setDraftDescription('');
-        setAttachmentUris([]);
-        setAttachmentLinks([]);
+        s3Attachment.setAllAttachments([]);
         setDraftAttachmentDeleteIdx(null);
         const openDropdownTimer = setTimeout(() => {
           setCustomerDropdownOpen(true);
@@ -1400,177 +1402,59 @@ export default function OrderEntry() {
   const handleQRCancel = useCallback(() => setShowQRScanner(false), []);
   const handleAttachment = () => setClipPopupVisible(true);
 
-  const UPLOAD_MAX_ATTEMPTS = 4;
-
-  /** True if the error is a network/NO_RESPONSE failure (retry in background up to UPLOAD_MAX_ATTEMPTS, then show validation popup). */
-  const isUploadNetworkError = useCallback((err: unknown): boolean => {
-    if (!err || typeof err !== 'object') return false;
-    const e = err as { response?: { status?: unknown }; message?: string; code?: string; isNetworkError?: boolean };
-    return (
-      e.isNetworkError === true ||
-      e.response?.status === 'NO_RESPONSE' ||
-      (typeof e.message === 'string' && (e.message.includes('Network') || e.message.includes('network'))) ||
-      e.code === 'ERR_NETWORK' ||
-      e.code === 'ECONNABORTED'
-    );
-  }, []);
-
-  /** Upload a list of file URIs to api/upload-doc and return file_view_links with corresponding uris (same order). On network error, retries up to 4 times; after 4 failures shows validation-alert popup. */
-  const uploadFilesToApi = useCallback(async (uris: string[]): Promise<{ links: string[]; uris: string[] }> => {
-    const [tallylocId, companyName, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-    if (!tallylocId || !companyName || !guid) return { links: [], uris: [] };
-    const links: string[] = [];
-    const succeededUris: string[] = [];
-    for (const uri of uris) {
-      const fileName = uri.split('/').pop() || 'attachment';
-      const formData = new FormData();
-      formData.append('file', { uri, name: fileName, type: 'application/octet-stream' } as unknown as Blob);
-      formData.append('location_id', String(tallylocId));
-      formData.append('type', 'transactions');
-      formData.append('company_name', companyName);
-      formData.append('co_guid', guid);
-
-      const doUpload = async (): Promise<{ link?: string } | null> => {
-        const { data } = await apiService.uploadDocument(formData);
-        if (data?.status === 'error' && data?.message != null) {
-          setUploadErrorPopup({ status: String(data.status), message: String(data.message) });
-          return null;
-        }
-        return data?.file_view_link ? { link: data.file_view_link } : null;
-      };
-
-      let lastErr: unknown = null;
-      let succeeded = false;
-      for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
-        try {
-          const result = await doUpload();
-          if (result?.link) {
-            links.push(result.link);
-            succeededUris.push(uri);
-            succeeded = true;
-          }
-          break;
-        } catch (err: unknown) {
-          lastErr = err;
-          if (attempt > 1) console.warn('[OrderEntry] upload-doc attempt', attempt, 'failed for', uri, err);
-          else console.warn('[OrderEntry] upload-doc failed for', uri, err);
-          if (!isUploadNetworkError(err)) {
-            const responseData = err && typeof err === 'object' && 'response' in err
-              ? (err as { response?: { data?: { status?: string; message?: string } } }).response?.data
-              : undefined;
-            const status = responseData?.status;
-            const message = responseData?.message;
-            if (status != null && message != null) {
-              setUploadErrorPopup({ status: String(status), message: String(message) });
-            }
-            break;
-          }
-        }
-      }
-      if (!succeeded && lastErr != null && isUploadNetworkError(lastErr)) {
-        const msg = (lastErr && typeof lastErr === 'object' && 'message' in lastErr && typeof (lastErr as { message: unknown }).message === 'string')
-          ? (lastErr as { message: string }).message
-          : 'Network Error';
-        setValidationAlert({ title: 'Upload failed', message: msg });
-      }
-    }
-    return { links, uris: succeededUris };
-  }, [isUploadNetworkError]);
-
+  /** Handle clip option (camera/gallery/files) via S3 upload hook. After upload, create ITEM TO BE ALLOCATED cart items with viewUrl links. */
   const handleClipOption = useCallback(
     async (optionId: ClipDocsOptionId) => {
       setClipPopupVisible(false);
-      let pickedUris: string[] = [];
-      try {
-        if (optionId === 'camera') {
-          if (Platform.OS === 'android') {
-            const granted = await PermissionsAndroid.request(
-              PermissionsAndroid.PERMISSIONS.CAMERA,
-              {
-                title: 'Camera permission',
-                message: 'DataLynkr needs camera access to take photos for attachments.',
-                buttonNeutral: 'Ask Me Later',
-                buttonNegative: 'Cancel',
-                buttonPositive: 'OK',
-              }
-            );
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
+      const newAttachments = await s3Attachment.pickAndUpload(optionId);
+      if (newAttachments.length === 0) return;
+      const links = newAttachments.map((a) => a.viewUrl);
+      const uris = newAttachments.map((a) => a.viewUrl);
+      // In draft mode: one "ITEM TO BE ALLOCATED" only — merge new attachments into existing alloc item or add one item with all.
+      setOrderItems((prev) => {
+        const nextId = orderItemsNextId.current;
+        if (isDraftMode) {
+          const existingAllocIdx = prev.findIndex((oi) => isItemToBeAllocated(oi.name));
+          if (existingAllocIdx >= 0) {
+            const existing = prev[existingAllocIdx];
+            const merged: OrderEntryOrderItem = {
+              ...existing,
+              attachmentLinks: [...(existing.attachmentLinks ?? []), ...links],
+              attachmentUris: [...(existing.attachmentUris ?? []), ...uris],
+            };
+            return prev.map((oi, i) => (i === existingAllocIdx ? merged : oi));
           }
-          const result = await launchCamera({ mediaType: 'photo', saveToPhotos: false });
-          if (result.didCancel || result.errorCode || !result.assets?.[0]?.uri) return;
-          pickedUris = [result.assets[0].uri];
-        } else if (optionId === 'gallery') {
-          const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 10 });
-          if (result.didCancel || result.errorCode || !result.assets?.length) return;
-          pickedUris = result.assets.map((a: { uri?: string }) => a.uri).filter(Boolean) as string[];
-        } else if (optionId === 'files') {
-          const result = await DocumentPicker.pick({ type: [DocumentPicker.types.allFiles], allowMultiSelection: true });
-          pickedUris = result.map((f: { uri: string }) => f.uri);
+          const singleItem: OrderEntryOrderItem = {
+            id: nextId,
+            name: DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED',
+            qty: '1',
+            rate: '0',
+            total: 0,
+            unit: '',
+            stockItem: DUMMY_ITEM_TO_BE_ALLOCATED,
+            attachmentLinks: [...links],
+            attachmentUris: uris,
+          };
+          orderItemsNextId.current = nextId + 1;
+          return [...prev, singleItem];
         }
-      } catch (e) {
-        if (DocumentPicker.isCancel(e)) return;
-        Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong');
-        return;
-      }
-      if (pickedUris.length === 0) return;
-      setAttachmentUris((prev) => [...prev, ...pickedUris]);
-      setUploadingAttachments(true);
-      try {
-        const { links, uris: succeededUris } = await uploadFilesToApi(pickedUris);
-        if (links.length > 0) {
-          setAttachmentLinks((prev) => [...prev, ...links]);
-          const allocUris = links.map((_, i) => succeededUris[i]).filter((u): u is string => u != null);
-          // In draft mode: one "ITEM TO BE ALLOCATED" only — merge new attachments into existing alloc item or add one item with all.
-          setOrderItems((prev) => {
-            const nextId = orderItemsNextId.current;
-            if (isDraftMode) {
-              const existingAllocIdx = prev.findIndex((oi) => isItemToBeAllocated(oi.name));
-              if (existingAllocIdx >= 0) {
-                const existing = prev[existingAllocIdx];
-                const merged: OrderEntryOrderItem = {
-                  ...existing,
-                  attachmentLinks: [...(existing.attachmentLinks ?? []), ...links],
-                  attachmentUris: [...(existing.attachmentUris ?? []), ...allocUris],
-                };
-                return prev.map((oi, i) => (i === existingAllocIdx ? merged : oi));
-              }
-              const singleItem: OrderEntryOrderItem = {
-                id: nextId,
-                name: DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED',
-                qty: '1',
-                rate: '0',
-                total: 0,
-                unit: '',
-                stockItem: DUMMY_ITEM_TO_BE_ALLOCATED,
-                attachmentLinks: [...links],
-                attachmentUris: allocUris,
-              };
-              orderItemsNextId.current = nextId + 1;
-              return [...prev, singleItem];
-            }
-            // Non-draft: one cart item per attachment
-            const newItems: OrderEntryOrderItem[] = links.map((link, i) => ({
-              id: nextId + i,
-              name: DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED',
-              qty: '1',
-              rate: '0',
-              total: 0,
-              unit: '',
-              stockItem: DUMMY_ITEM_TO_BE_ALLOCATED,
-              attachmentLinks: [link],
-              attachmentUris: succeededUris[i] != null ? [succeededUris[i]] : [],
-            }));
-            orderItemsNextId.current = nextId + newItems.length;
-            return [...prev, ...newItems];
-          });
-        }
-      } catch (err) {
-        console.warn('[OrderEntry] upload failed:', err);
-      } finally {
-        setUploadingAttachments(false);
-      }
+        // Non-draft: one cart item per attachment
+        const newItems: OrderEntryOrderItem[] = links.map((link, i) => ({
+          id: nextId + i,
+          name: DUMMY_ITEM_TO_BE_ALLOCATED.NAME ?? 'ITEM TO BE ALLOCATED',
+          qty: '1',
+          rate: '0',
+          total: 0,
+          unit: '',
+          stockItem: DUMMY_ITEM_TO_BE_ALLOCATED,
+          attachmentLinks: [link],
+          attachmentUris: uris[i] != null ? [uris[i]] : [],
+        }));
+        orderItemsNextId.current = nextId + newItems.length;
+        return [...prev, ...newItems];
+      });
     },
-    [uploadFilesToApi, isDraftMode]
+    [s3Attachment.pickAndUpload, isDraftMode]
   );
 
   const handleAddDetails = () => setAddDetailsModalVisible(true);
@@ -2033,8 +1917,7 @@ export default function OrderEntry() {
         setClassDropdownOpen(false);
         if (isDraftMode) {
           setDraftDescription('');
-          setAttachmentUris([]);
-          setAttachmentLinks([]);
+          s3Attachment.setAllAttachments([]);
           setDraftAttachmentDeleteIdx(null);
         }
         // Auto-open customer dropdown when user returns from OrderSuccess
@@ -2208,8 +2091,7 @@ export default function OrderEntry() {
     setDraftAttachmentDeleteIdx(null);
     setEditingDueDateOrderItemId(null);
     setOrderItemDueDatePickerVisible(false);
-    setAttachmentUris([]);
-    setAttachmentLinks([]);
+    s3Attachment.setAllAttachments([]);
     setShowQRScanner(false);
     setSelectedItem('');
     setItemSearch('');
@@ -5006,8 +4888,7 @@ export default function OrderEntry() {
         onCancel={() => setDraftAttachmentDeleteIdx(null)}
         onConfirm={() => {
           if (draftAttachmentDeleteIdx !== null) {
-            setAttachmentUris((prev) => prev.filter((_, i) => i !== draftAttachmentDeleteIdx));
-            setAttachmentLinks((prev) => prev.filter((_, i) => i !== draftAttachmentDeleteIdx));
+            s3Attachment.removeAttachment(draftAttachmentDeleteIdx);
             setDraftAttachmentDeleteIdx(null);
           }
         }}

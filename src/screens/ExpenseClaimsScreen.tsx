@@ -6,10 +6,11 @@ import {
   TouchableOpacity,
   ScrollView,
   Modal,
-  Pressable,
   TextInput,
-  FlatList,
   ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -24,64 +25,15 @@ import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { getCompany, getGuid, getTallylocId } from '../store/storage';
 import CalendarPicker from '../components/CalendarPicker';
 import { formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
+import MarkedIconSvg from '../../Icon.svg';
+import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
+import { useS3Attachment } from '../hooks/useS3Attachment';
 
-const PAYMENT_MODES: string[] = [];
-
-function DropdownModal({
-  visible,
-  title,
-  options,
-  loading,
-  emptyText,
-  onClose,
-  onSelect,
-}: {
-  visible: boolean;
-  title: string;
-  options: string[];
-  loading?: boolean;
-  emptyText?: string;
-  onClose: () => void;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={s.modalOverlay} onPress={onClose}>
-        <Pressable style={s.modalCard} onPress={(e) => e.stopPropagation()}>
-          <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Icon name="close" size={22} color={colors.white} />
-            </TouchableOpacity>
-          </View>
-          {loading ? (
-            <View style={s.modalLoading}>
-              <ActivityIndicator size="small" color={colors.primary_blue} />
-              <Text style={s.modalLoadingText}>Loading…</Text>
-            </View>
-          ) : options.length === 0 ? (
-            <View style={s.modalLoading}>
-              <Text style={s.modalLoadingText}>{emptyText ?? 'No options found'}</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={options}
-              keyExtractor={(it) => it}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <TouchableOpacity style={s.modalOption} onPress={() => onSelect(item)} activeOpacity={0.7}>
-                  <Text style={s.modalOptionText} numberOfLines={1}>
-                    {item}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const formatYyyyMmDd = (d: Date) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
+const formatVoucherNumber = (d: Date) =>
+  Number(`${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`);
+const isImageUrl = (url: string) => /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i.test(url);
 
 export default function ExpenseClaimsScreen() {
   const insets = useSafeAreaInsets();
@@ -91,18 +43,28 @@ export default function ExpenseClaimsScreen() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const [category, setCategory] = useState('');
+  const [voucherType, setVoucherType] = useState('');
   const [paymentMode, setPaymentMode] = useState('');
   const [date, setDate] = useState('');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
 
   const [categoryOpen, setCategoryOpen] = useState(false);
+  const [voucherTypeOpen, setVoucherTypeOpen] = useState(false);
   const [paymentModeOpen, setPaymentModeOpen] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [clipVisible, setClipVisible] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
+  const s3Attachment = useS3Attachment({ type: 'others' });
 
   const [expenseLedgerNames, setExpenseLedgerNames] = useState<string[]>([]);
   const [expenseLedgersLoading, setExpenseLedgersLoading] = useState(false);
   const [expenseLedgersError, setExpenseLedgersError] = useState<string | null>(null);
+
+  const [voucherTypeNames, setVoucherTypeNames] = useState<string[]>([]);
+  const [voucherTypesLoading, setVoucherTypesLoading] = useState(false);
+  const [voucherTypesError, setVoucherTypesError] = useState<string | null>(null);
 
   const [cashBankLedgerNames, setCashBankLedgerNames] = useState<string[]>([]);
   const [cashBankLedgersLoading, setCashBankLedgersLoading] = useState(false);
@@ -137,6 +99,31 @@ export default function ExpenseClaimsScreen() {
       setExpenseLedgersLoading(false);
     }
   }, [expenseLedgersLoading]);
+
+  const fetchVoucherTypes = useCallback(async () => {
+    if (voucherTypesLoading) return;
+    setVoucherTypesLoading(true);
+    setVoucherTypesError(null);
+    try {
+      const [tallyloc_id, company, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+      if (!tallyloc_id || !company || !guid) {
+        setVoucherTypeNames([]);
+        setVoucherTypesError('Please select a company connection first.');
+        return;
+      }
+      const res = await apiService.getPaymentVoucherTypes({ tallyloc_id, company, guid });
+      const rows = (res.data?.data ?? []).map((r) => String(r?.name ?? '').trim()).filter(Boolean);
+      setVoucherTypeNames(rows);
+      if (rows.length === 0 && res.data?.success === false) setVoucherTypesError('No voucher types found.');
+    } catch (e: unknown) {
+      if (isUnauthorizedError(e)) return;
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as any).message) : 'Failed to load voucher types.';
+      setVoucherTypeNames([]);
+      setVoucherTypesError(msg);
+    } finally {
+      setVoucherTypesLoading(false);
+    }
+  }, [voucherTypesLoading]);
 
   const fetchCashBankLedgers = useCallback(async () => {
     if (cashBankLedgersLoading) return;
@@ -184,6 +171,82 @@ export default function ExpenseClaimsScreen() {
     [closeSidebar],
   );
 
+  const handleClipOption = useCallback(
+    async (id: ClipDocsOptionId) => {
+      setClipVisible(false);
+      await s3Attachment.pickAndUpload(id);
+    },
+    [s3Attachment],
+  );
+
+  const resetForm = useCallback(() => {
+    setVoucherType('');
+    setCategory('');
+    setNotes('');
+    setDate('');
+    setPaymentMode('');
+    setAmount('');
+    setVoucherTypeOpen(false);
+    setCategoryOpen(false);
+    setPaymentModeOpen(false);
+    setDatePickerVisible(false);
+    setPreviewAttachmentUri(null);
+    s3Attachment.setAllAttachments([]);
+  }, [s3Attachment]);
+
+  const handleSubmitForApproval = useCallback(async () => {
+    if (!voucherType.trim()) return Alert.alert('Validation', 'Please select Voucher type.');
+    if (!category.trim()) return Alert.alert('Validation', 'Please select Expense Category.');
+    if (!paymentMode.trim()) return Alert.alert('Validation', 'Please select Payment Mode.');
+    if (!date.trim()) return Alert.alert('Validation', 'Please select Expense Date.');
+    const parsed = parseDateDmmmYy(date);
+    if (!parsed) return Alert.alert('Validation', 'Invalid date selected.');
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return Alert.alert('Validation', 'Please enter a valid Amount.');
+
+    const [tallyloc_id, company, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+    if (!tallyloc_id || !company || !guid) return Alert.alert('Validation', 'Please select a company connection first.');
+
+    const now = new Date();
+    const payload = {
+      tallyloc_id,
+      company,
+      guid,
+      voucherTypeName: voucherType,
+      voucherNumber: formatVoucherNumber(now),
+      date: formatYyyyMmDd(parsed),
+      narration: notes.trim(),
+      cashBankName: paymentMode,
+      ledgerEntries: [
+        {
+          ledgerName: category,
+          isDeemedPositive: true,
+          isPartyLedger: false,
+          amount: -Math.abs(amt),
+          narration: s3Attachment.attachments.map((a) => a.viewUrl).join('|'),
+        },
+      ],
+    };
+
+    console.log('[ExpenseClaims] createPaymentVoucher payload:', payload);
+    console.log('[ExpenseClaims] createPaymentVoucher payload (json):\n' + JSON.stringify(payload, null, 2));
+    resetForm();
+    setSubmitLoading(true);
+    try {
+      const res = await apiService.createPaymentVoucher(payload);
+      const successRaw = res.data?.success;
+      const isSuccess = successRaw === true || String(successRaw).toLowerCase() === 'true';
+      if (isSuccess) Alert.alert('Success', 'Voucher submitted successfully.');
+      else Alert.alert('Error', res.data?.message || 'Failed to submit voucher.');
+    } catch (e: unknown) {
+      if (isUnauthorizedError(e)) return;
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as any).message) : 'Failed to submit voucher.';
+      Alert.alert('Error', msg);
+    } finally {
+      setSubmitLoading(false);
+    }
+  }, [voucherType, category, paymentMode, date, amount, notes, s3Attachment.attachments, resetForm]);
+
   return (
     <View style={s.root}>
       <View style={[s.headerWrap, { paddingTop: insets.top }]}>
@@ -202,12 +265,72 @@ export default function ExpenseClaimsScreen() {
 
       <ScrollView
         style={s.scroll}
-        contentContainerStyle={[s.scrollContent, { paddingBottom: 28 + insets.bottom + 16 }]}
+        contentContainerStyle={[s.scrollContent, { paddingBottom: 140 + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={s.sectionTitleRow}>
-          <Icon name="cube-outline" size={20} color={colors.primary_blue} />
+          <MarkedIconSvg width={20} height={20} />
           <Text style={s.sectionTitle}>Expense Details</Text>
+        </View>
+
+        <View style={s.fieldBlock}>
+          <Text style={s.fieldLabel}>Voucher type</Text>
+          <TouchableOpacity
+            style={s.selectBox}
+            onPress={() => {
+              setVoucherTypeOpen((v) => {
+                const next = !v;
+                if (next && voucherTypeNames.length === 0 && !voucherTypesLoading) fetchVoucherTypes();
+                return next;
+              });
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={[s.selectText, !voucherType && s.selectPlaceholder]} numberOfLines={1}>
+              {voucherType || 'Select Voucher Type'}
+            </Text>
+            {voucherTypesLoading ? (
+              <ActivityIndicator size="small" color={colors.text_secondary} />
+            ) : (
+              <Icon
+                name={voucherTypeOpen ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={colors.text_secondary}
+              />
+            )}
+          </TouchableOpacity>
+          {voucherTypeOpen && (
+            <View style={s.inlineDropdown}>
+              {voucherTypesLoading ? (
+                <View style={s.inlineDropdownLoading}>
+                  <ActivityIndicator size="small" color={colors.primary_blue} />
+                  <Text style={s.inlineDropdownLoadingText}>Loading…</Text>
+                </View>
+              ) : voucherTypeNames.length === 0 ? (
+                <View style={s.inlineDropdownLoading}>
+                  <Text style={s.inlineDropdownLoadingText}>{voucherTypesError ?? 'No voucher types found'}</Text>
+                </View>
+              ) : (
+                <ScrollView style={s.inlineDropdownList} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {voucherTypeNames.map((item) => (
+                    <TouchableOpacity
+                      key={item}
+                      style={s.inlineDropdownItem}
+                      onPress={() => {
+                        setVoucherType(item);
+                        setVoucherTypeOpen(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={s.inlineDropdownItemText} numberOfLines={1}>
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          )}
         </View>
 
         <View style={s.fieldBlock}>
@@ -241,14 +364,10 @@ export default function ExpenseClaimsScreen() {
                   <Text style={s.inlineDropdownLoadingText}>{expenseLedgersError ?? 'No expense ledgers found'}</Text>
                 </View>
               ) : (
-                <FlatList
-                  data={expenseLedgerNames}
-                  keyExtractor={(it) => it}
-                  style={s.inlineDropdownList}
-                  keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
-                  renderItem={({ item }) => (
+                <ScrollView style={s.inlineDropdownList} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {expenseLedgerNames.map((item) => (
                     <TouchableOpacity
+                      key={item}
                       style={s.inlineDropdownItem}
                       onPress={() => {
                         setCategory(item);
@@ -260,8 +379,8 @@ export default function ExpenseClaimsScreen() {
                         {item}
                       </Text>
                     </TouchableOpacity>
-                  )}
-                />
+                  ))}
+                </ScrollView>
               )}
             </View>
           )}
@@ -302,16 +421,59 @@ export default function ExpenseClaimsScreen() {
           <TouchableOpacity
             style={s.selectBox}
             onPress={() => {
-              setPaymentModeOpen(true);
-              if (cashBankLedgerNames.length === 0 && !cashBankLedgersLoading) fetchCashBankLedgers();
+              setPaymentModeOpen((v) => {
+                const next = !v;
+                if (next && cashBankLedgerNames.length === 0 && !cashBankLedgersLoading) fetchCashBankLedgers();
+                return next;
+              });
             }}
             activeOpacity={0.7}
           >
             <Text style={[s.selectText, !paymentMode && s.selectPlaceholder]} numberOfLines={1}>
               {paymentMode || 'Select Payment Mode'}
             </Text>
-            <Icon name="chevron-down" size={20} color={colors.text_secondary} />
+            {cashBankLedgersLoading ? (
+              <ActivityIndicator size="small" color={colors.text_secondary} />
+            ) : (
+              <Icon
+                name={paymentModeOpen ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={colors.text_secondary}
+              />
+            )}
           </TouchableOpacity>
+          {paymentModeOpen && (
+            <View style={s.inlineDropdown}>
+              {cashBankLedgersLoading ? (
+                <View style={s.inlineDropdownLoading}>
+                  <ActivityIndicator size="small" color={colors.primary_blue} />
+                  <Text style={s.inlineDropdownLoadingText}>Loading…</Text>
+                </View>
+              ) : cashBankLedgerNames.length === 0 ? (
+                <View style={s.inlineDropdownLoading}>
+                  <Text style={s.inlineDropdownLoadingText}>{cashBankLedgersError ?? 'No payment modes found'}</Text>
+                </View>
+              ) : (
+                <ScrollView style={s.inlineDropdownList} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {cashBankLedgerNames.map((item) => (
+                    <TouchableOpacity
+                      key={item}
+                      style={s.inlineDropdownItem}
+                      onPress={() => {
+                        setPaymentMode(item);
+                        setPaymentModeOpen(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={s.inlineDropdownItemText} numberOfLines={1}>
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          )}
         </View>
 
         <View style={s.fieldBlock}>
@@ -328,18 +490,37 @@ export default function ExpenseClaimsScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={s.attachmentBtn} activeOpacity={0.7}>
-          <Icon name="paperclip" size={18} color={colors.primary_blue} />
-          <Text style={s.attachmentText}>Attachment</Text>
+        <TouchableOpacity
+          style={s.attachmentBtn}
+          activeOpacity={0.7}
+          onPress={() => setClipVisible(true)}
+          disabled={s3Attachment.uploading}
+        >
+          {s3Attachment.uploading ? (
+            <ActivityIndicator size="small" color={colors.primary_blue} />
+          ) : (
+            <Icon name="paperclip" size={18} color={colors.primary_blue} />
+          )}
+          <Text style={s.attachmentText}>{s3Attachment.uploading ? 'Uploading...' : 'Attachment'}</Text>
         </TouchableOpacity>
 
-        <View style={s.buttonStack}>
-          <TouchableOpacity style={s.primaryBtn} activeOpacity={0.8}>
-            <Text style={s.primaryBtnText}>Submit for Approval</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8}>
-            <Text style={s.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
+        <View style={s.attachmentsList}>
+          {s3Attachment.attachments.map((att, idx) => (
+            <View key={`${att.s3Key}-${idx}`} style={s.attachmentRow}>
+              <TouchableOpacity
+                style={s.attachmentLinkWrap}
+                onPress={() => {
+                  if (isImageUrl(att.viewUrl)) setPreviewAttachmentUri(att.viewUrl);
+                  else Linking.openURL(att.viewUrl);
+                }}
+              >
+                <Text style={s.attachmentLink}>Attachment #{idx + 1}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => s3Attachment.removeAttachment(idx)}>
+                <Icon name="close" size={18} color={colors.text_secondary} />
+              </TouchableOpacity>
+            </View>
+          ))}
         </View>
       </ScrollView>
 
@@ -350,19 +531,6 @@ export default function ExpenseClaimsScreen() {
         activeTarget="ExpenseClaims"
         onItemPress={onSidebarItemPress}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
-      />
-
-      <DropdownModal
-        visible={paymentModeOpen}
-        title="Select Payment Mode"
-        options={cashBankLedgerNames}
-        loading={cashBankLedgersLoading}
-        emptyText={cashBankLedgersError ?? 'No payment modes found'}
-        onClose={() => setPaymentModeOpen(false)}
-        onSelect={(v) => {
-          setPaymentMode(v);
-          setPaymentModeOpen(false);
-        }}
       />
 
       <Modal visible={datePickerVisible} transparent animationType="slide">
@@ -382,6 +550,28 @@ export default function ExpenseClaimsScreen() {
               hideDone
             />
           </View>
+        </View>
+      </Modal>
+      <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 12 }]}>
+        <TouchableOpacity
+          style={s.primaryBtn}
+          activeOpacity={0.8}
+          onPress={handleSubmitForApproval}
+          disabled={submitLoading || s3Attachment.uploading}
+        >
+          <Text style={s.primaryBtnText}>
+            {submitLoading ? 'Submitting...' : s3Attachment.uploading ? 'Uploading...' : 'Submit for Approval'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8} onPress={resetForm} disabled={submitLoading}>
+          <Text style={s.cancelBtnText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+      <ClipDocsPopup visible={clipVisible} onClose={() => setClipVisible(false)} onOptionClick={handleClipOption} />
+      <Modal visible={previewAttachmentUri != null} transparent animationType="fade" onRequestClose={() => setPreviewAttachmentUri(null)}>
+        <View style={s.previewOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setPreviewAttachmentUri(null)} activeOpacity={1} />
+          {previewAttachmentUri ? <Image source={{ uri: previewAttachmentUri }} style={s.previewImage} resizeMode="contain" /> : null}
         </View>
       </Modal>
     </View>
@@ -461,20 +651,40 @@ const s = StyleSheet.create({
   },
   attachmentText: { fontFamily: 'Roboto', fontSize: 15, fontWeight: '500', color: colors.primary_blue },
 
-  buttonStack: { marginTop: 16, gap: 16 },
+  attachmentsList: { marginTop: 10, gap: 8 },
+  attachmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border_gray,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  attachmentLinkWrap: { flex: 1, marginRight: 8 },
+  attachmentLink: { fontFamily: 'Roboto', fontSize: 13, color: colors.primary_blue, textDecorationLine: 'underline' },
+
+  bottomButtons: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.white,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border_gray,
+  },
   primaryBtn: { backgroundColor: colors.primary_blue, height: 48, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   primaryBtnText: { fontFamily: 'Roboto', fontSize: 15, fontWeight: '500', color: colors.white },
   cancelBtn: { backgroundColor: colors.border_gray, height: 48, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontFamily: 'Roboto', fontSize: 15, fontWeight: '500', color: colors.stock_text_dark },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: colors.white, borderRadius: 12, overflow: 'hidden', maxHeight: 420 },
-  modalHeader: { backgroundColor: colors.primary_blue, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  modalTitle: { fontFamily: 'Roboto', fontSize: 15, fontWeight: '600', color: colors.white },
-  modalLoading: { padding: 18, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  modalLoadingText: { fontFamily: 'Roboto', fontSize: 13, color: colors.text_secondary, textAlign: 'center' },
-  modalOption: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eef2f7' },
-  modalOptionText: { fontFamily: 'Roboto', fontSize: 14, color: colors.text_primary },
+  previewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  previewImage: { width: '92%', height: '78%' },
 
   calendarOverlay: {
     flex: 1,

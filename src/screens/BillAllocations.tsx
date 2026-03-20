@@ -26,7 +26,8 @@ import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
 import { toNum, fmtNum, getLedgerEntryAmount } from '../components/VoucherDetailsContent';
 import { strings } from '../constants/strings';
-import { IconAccountVector4, IconDocumentBill } from '../assets/bill-allocations';
+import { IconAccountVector4 } from '../assets/bill-allocations';
+import MarkedIconSvg from '../../Icon.svg';
 
 type Route = RouteProp<LedgerStackParamList, 'BillAllocations'>;
 
@@ -267,7 +268,7 @@ export default function BillAllocations() {
         {/* Bottom circled: section header – document/box icon + "Bill Allocations" (section title) */}
         <View style={styles.sectionHead}>
           <View style={styles.sectionIconWrap}>
-            <IconDocumentBill width={20} height={20} color="#1f3a89" />
+            <MarkedIconSvg width={20} height={20} />
           </View>
           <Text style={styles.sectionTitle}>{strings.bill_allocations}</Text>
         </View>

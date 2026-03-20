@@ -39,6 +39,7 @@ import UserPartSvg from '../assets/approvals/user.svg';
 import BoxSvg from '../assets/approvals/box.svg';
 import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
 import CloseSvg from '../assets/clipPopup/close.svg';
+import MarkedIconSvg from '../../Icon.svg';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 import { colors } from '../constants/colors';
 import { apiService, isUnauthorizedError } from '../api';
@@ -1578,12 +1579,9 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     {/* Inventory Toggle - Constant */}
                                     <View style={popupStyles.inventoryToggleRow}>
                                         <View style={popupStyles.inventoryToggleLeft}>
-                                            <Icon
-                                                name="cube-outline"
-                                                size={18}
-                                                color="#1f3a89"
-                                                style={{ marginRight: 10 }}
-                                            />
+                                            <View style={{ marginRight: 10 }}>
+                                                <MarkedIconSvg width={18} height={18} />
+                                            </View>
                                             <Text style={popupStyles.inventoryToggleTitle}>
                                                 Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})
                                             </Text>
