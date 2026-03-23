@@ -367,6 +367,20 @@ export const apiService = {
       body,
     ),
 
+  /** Payment voucher types list for Voucher type dropdown (name field). */
+  getPaymentVoucherTypes: (body: { tallyloc_id: number; company: string; guid: string }) =>
+    getApi().post<{ success?: boolean; data?: Array<{ masterId?: string; name?: string; parent?: string }> }>(
+      'api/tally/vendor-mang/payment-voucher-types',
+      body,
+    ),
+
+  /** Create Payment Voucher for Payment/Expense Claims/Collections. */
+  createPaymentVoucher: (body: any) =>
+    getApi().post<{ success?: boolean | string; message?: string; data?: unknown }>(
+      'api/tally/vendor-mang/payment-voucher/create',
+      body,
+    ),
+
   /** User access permissions (access-control/user-access) for module & field-level controls */
   getUserAccess: (params: { tallylocId: number | string; co_guid: string }) =>
     getApi().get('api/access-control/user-access', {
@@ -416,6 +430,38 @@ export const apiService = {
     encrptyurl: string;
   }) =>
     getApi().post<{ encrptyid?: string; expirydate?: string }>('api/tallydata_share/create', body),
+
+  /**
+   * Send email with invoice PDF attachment via api/tallydata_share/email/send (multipart/form-data).
+   * Used for "Order invoice email" from Order Entry.
+   */
+  sendTallydataShareEmail: (
+    formData: FormData,
+    requestConfig?: { skipUnauthorizedRedirect?: boolean }
+  ) =>
+    getApi().post<{
+      success?: boolean;
+      message?: string;
+      messageId?: string;
+    }>('api/tallydata_share/email/send', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      ...(requestConfig ?? {}),
+    } as any),
+
+  /** S3 attachment: step 1 – get presigned upload URL */
+  getImageUploadUrl: (body: import('./models').ImageUploadUrlRequest) =>
+    getApi().post<import('./models').ImageUploadUrlResponse>('api/images/upload-url', body),
+
+  /** S3 attachment: step 2 – upload file binary to S3 presigned URL (PUT) */
+  uploadToS3: (uploadUrl: string, fileBlob: Blob | { uri: string; type: string; name: string }, contentType: string) =>
+    axios.put(uploadUrl, fileBlob, {
+      headers: { 'Content-Type': contentType },
+      timeout: 120000,
+    }),
+
+  /** S3 attachment: step 3 – confirm upload and get viewUrl */
+  confirmImageUpload: (body: import('./models').ImageConfirmRequest) =>
+    getApi().post<import('./models').ImageConfirmResponse>('api/images/confirm', body),
 };
 
 export default apiService;

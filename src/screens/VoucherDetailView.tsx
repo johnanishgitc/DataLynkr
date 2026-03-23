@@ -41,6 +41,7 @@ import type {
   BillAllocation,
 } from '../api/models/ledger';
 import { colors } from '../constants/colors';
+import MarkedIconSvg from '../../Icon.svg';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
 import {
@@ -1187,7 +1188,7 @@ export default function VoucherDetailView() {
             <>
               <View style={[styles.invSectionWrap, { marginVertical: 15, paddingBottom: 0, marginBottom: 4 }]}>
                 <View style={[styles.sectionHead, styles.sectionHeadInv]}>
-                  <Icon name="cube-outline" size={20} color="#1f3a89" />
+                  <MarkedIconSvg width={20} height={20} />
                   <Text style={styles.sectionTitle}>
                     Inventory Allocations ({invAlloc.length})
                   </Text>
@@ -1313,7 +1314,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   sectionHeadInv: {
-    paddingLeft: 16,
+    paddingLeft: 30,
   },
   accSectionHead: { paddingVertical: 8 },
   accSectionHeadSpaced: { marginTop: 8, paddingVertical: 8 },

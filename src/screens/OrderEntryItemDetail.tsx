@@ -77,6 +77,7 @@ import DocumentPicker from 'react-native-document-picker/lib/commonjs';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { colors } from '../constants/colors';
 import { DEFAULT_PLACE_ORDER_PERMISSIONS, type PlaceOrderPermissions } from '../hooks/useUserAccess';
+import { useS3Attachment, type S3Attachment } from '../hooks/useS3Attachment';
 
 
 
@@ -223,9 +224,23 @@ export default function OrderEntryItemDetail() {
   /** After Add Item is clicked, rate is locked for subsequent adds on this screen (still editable when updating a line). */
   const [rateLockedAfterAdd, setRateLockedAfterAdd] = useState(false);
   const [clipPopupVisible, setClipPopupVisible] = useState(false);
-  const [attachmentUris, setAttachmentUris] = useState<string[]>(route.params.attachmentUris ?? []);
-  const [attachmentLinks, setAttachmentLinks] = useState<string[]>(route.params.attachmentLinks ?? []);
-  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const s3Attachment = useS3Attachment({ type: 'transaction' });
+  // Initialize hook attachments from route params if editing
+  const [s3InitDone, setS3InitDone] = useState(false);
+  if (!s3InitDone && (route.params.attachmentLinks?.length || route.params.attachmentUris?.length)) {
+    const initLinks = route.params.attachmentLinks ?? [];
+    const initUris = route.params.attachmentUris ?? [];
+    const initItems: S3Attachment[] = initLinks.map((link, i) => ({
+      viewUrl: link,
+      s3Key: '',
+      fileName: `Attachment ${i + 1}`,
+    }));
+    if (initItems.length > 0) s3Attachment.setAllAttachments(initItems);
+    setS3InitDone(true);
+  }
+  const attachmentUris = s3Attachment.attachments.map((a) => a.viewUrl);
+  const attachmentLinks = s3Attachment.attachments.map((a) => a.viewUrl);
+  const uploadingAttachments = s3Attachment.uploading;
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   const [attachmentDeleteIdx, setAttachmentDeleteIdx] = useState<number | null>(null);
   const [uploadErrorPopup, setUploadErrorPopup] = useState<{ status: string; message: string } | null>(null);
@@ -767,8 +782,9 @@ export default function OrderEntryItemDetail() {
     const commonDesc = lineDesc || (allLineItems?.find((l) => l.description && String(l.description).trim())?.description?.trim() ?? '');
     setDescription(commonDesc);
     // Restore per-batch attachments
-    setAttachmentLinks(line.attachmentLinks ?? []);
-    setAttachmentUris(line.attachmentUris ?? []);
+    s3Attachment.setAllAttachments(
+      (line.attachmentLinks ?? []).map((link, i) => ({ viewUrl: link, s3Key: '', fileName: `Attachment ${i + 1}` }))
+    );
   }, []);
 
   const handleAddItem = useCallback(() => {
@@ -819,8 +835,7 @@ export default function OrderEntryItemDetail() {
     setGodownDropdownOpen(false);
     setBatchDropdownOpen(false);
     // Clear attachments for new batch
-    setAttachmentLinks([]);
-    setAttachmentUris([]);
+    s3Attachment.setAllAttachments([]);
   }, [name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris, route.params?.defaultGodown]);
 
   const handleUpdateItem = useCallback(() => {
@@ -955,131 +970,16 @@ export default function OrderEntryItemDetail() {
     setDueDatePickerVisible(false);
   }, [editingDueDateLineId]);
 
-  const UPLOAD_MAX_ATTEMPTS = 4;
-
-  /** True if the error is a network/NO_RESPONSE failure (retry in background up to UPLOAD_MAX_ATTEMPTS, then show validation popup). */
-  const isUploadNetworkError = useCallback((err: unknown): boolean => {
-    if (!err || typeof err !== 'object') return false;
-    const e = err as { response?: { status?: unknown }; message?: string; code?: string; isNetworkError?: boolean };
-    return (
-      e.isNetworkError === true ||
-      e.response?.status === 'NO_RESPONSE' ||
-      (typeof e.message === 'string' && (e.message.includes('Network') || e.message.includes('network'))) ||
-      e.code === 'ERR_NETWORK' ||
-      e.code === 'ECONNABORTED'
-    );
-  }, []);
-
-  /** Upload a list of file URIs to api/upload-doc and return file_view_links. On network error, retries up to 4 times; after 4 failures shows validation-alert popup (same UI as OrderEntry empty-customer). */
-  const uploadFilesToApi = useCallback(async (uris: string[]): Promise<string[]> => {
-    const [tallylocId, companyName, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-    if (!tallylocId || !companyName || !guid) return [];
-    const links: string[] = [];
-    for (const uri of uris) {
-      const fileName = uri.split('/').pop() || 'attachment';
-      const formData = new FormData();
-      formData.append('file', { uri, name: fileName, type: 'application/octet-stream' } as unknown as Blob);
-      formData.append('location_id', String(tallylocId));
-      formData.append('type', 'transactions');
-      formData.append('company_name', companyName);
-      formData.append('co_guid', guid);
-
-      const doUpload = async (): Promise<string | null> => {
-        const { data } = await apiService.uploadDocument(formData);
-        if (data?.status === 'error' && data?.message != null) {
-          setUploadErrorPopup({ status: String(data.status), message: String(data.message) });
-          return null;
-        }
-        return data?.file_view_link ?? null;
-      };
-
-      let lastErr: unknown = null;
-      let succeeded = false;
-      for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
-        try {
-          const link = await doUpload();
-          if (link) {
-            links.push(link);
-            succeeded = true;
-          }
-          break;
-        } catch (err: unknown) {
-          lastErr = err;
-          if (attempt > 1) console.warn('[OrderEntryItemDetail] upload-doc attempt', attempt, 'failed for', uri, err);
-          else console.warn('[OrderEntryItemDetail] upload-doc failed for', uri, err);
-          if (!isUploadNetworkError(err)) {
-            const responseData = err && typeof err === 'object' && 'response' in err
-              ? (err as { response?: { data?: { status?: string; message?: string } } }).response?.data
-              : undefined;
-            const status = responseData?.status;
-            const message = responseData?.message;
-            if (status != null && message != null) {
-              setUploadErrorPopup({ status: String(status), message: String(message) });
-            }
-            break;
-          }
-        }
-      }
-      if (!succeeded && lastErr != null && isUploadNetworkError(lastErr)) {
-        const msg = (lastErr && typeof lastErr === 'object' && 'message' in lastErr && typeof (lastErr as { message: unknown }).message === 'string')
-          ? (lastErr as { message: string }).message
-          : 'Network Error';
-        setValidationAlert({ title: 'Upload failed', message: msg });
-      }
-    }
-    return links;
-  }, [isUploadNetworkError]);
-
+  /** Handle clip option (camera/gallery/files) via S3 upload hook. */
   const handleClipOption = useCallback(
     async (optionId: ClipDocsOptionId) => {
       setClipPopupVisible(false);
-      let pickedUris: string[] = [];
-      try {
-        if (optionId === 'camera') {
-          if (Platform.OS === 'android') {
-            const granted = await PermissionsAndroid.request(
-              PermissionsAndroid.PERMISSIONS.CAMERA,
-              {
-                title: 'Camera permission',
-                message: 'DataLynkr needs camera access to take photos for attachments.',
-                buttonNeutral: 'Ask Me Later',
-                buttonNegative: 'Cancel',
-                buttonPositive: 'OK',
-              }
-            );
-            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
-          }
-          const result = await launchCamera({ mediaType: 'photo', saveToPhotos: false });
-          if (result.didCancel || result.errorCode || !result.assets?.[0]?.uri) return;
-          pickedUris = [result.assets[0].uri];
-        } else if (optionId === 'gallery') {
-          const result = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 10 });
-          if (result.didCancel || result.errorCode || !result.assets?.length) return;
-          pickedUris = result.assets.map((a: { uri?: string }) => a.uri).filter(Boolean) as string[];
-        } else if (optionId === 'files') {
-          const result = await DocumentPicker.pick({ type: [DocumentPicker.types.allFiles], allowMultiSelection: true });
-          pickedUris = result.map((f: { uri: string }) => f.uri);
-        }
-      } catch (e) {
-        if (DocumentPicker.isCancel(e)) return;
-        Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong');
-        return;
-      }
-      if (pickedUris.length === 0) return;
-      setAttachmentUris((prev) => [...prev, ...pickedUris]);
-      setUploadingAttachments(true);
-      try {
-        const links = await uploadFilesToApi(pickedUris);
-        if (links.length > 0) {
-          setAttachmentLinks((prev) => [...prev, ...links]);
-        }
-      } catch (err) {
-        console.warn('[OrderEntryItemDetail] upload failed:', err);
-      } finally {
-        setUploadingAttachments(false);
+      const newAttachments = await s3Attachment.pickAndUpload(optionId);
+      if (newAttachments.length > 0) {
+        // attachmentLinks/Uris are already updated via hook state
       }
     },
-    [uploadFilesToApi]
+    [s3Attachment.pickAndUpload]
   );
 
   return (
@@ -1909,8 +1809,7 @@ export default function OrderEntryItemDetail() {
         onCancel={() => setAttachmentDeleteIdx(null)}
         onConfirm={() => {
           if (attachmentDeleteIdx !== null) {
-            setAttachmentUris((prev) => prev.filter((_, i) => i !== attachmentDeleteIdx));
-            setAttachmentLinks((prev) => prev.filter((_, i) => i !== attachmentDeleteIdx));
+            s3Attachment.removeAttachment(attachmentDeleteIdx);
             setAttachmentDeleteIdx(null);
           }
         }}
