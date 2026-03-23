@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,10 @@ import {
   Alert,
   Image,
   Linking,
+  findNodeHandle,
+  KeyboardAvoidingView,
+  Keyboard,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -57,6 +61,11 @@ export default function ExpenseClaimsScreen() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   const s3Attachment = useS3Attachment({ type: 'others' });
+
+  const scrollRef = useRef<ScrollView | null>(null);
+  const amountFieldRef = useRef<View | null>(null);
+  const notesFieldRef = useRef<View | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const [expenseLedgerNames, setExpenseLedgerNames] = useState<string[]>([]);
   const [expenseLedgersLoading, setExpenseLedgersLoading] = useState(false);
@@ -171,6 +180,33 @@ export default function ExpenseClaimsScreen() {
     [closeSidebar],
   );
 
+  const scrollToInputRef = useCallback(
+    (targetRef: React.RefObject<View>) => {
+      const scrollNode = findNodeHandle(scrollRef.current);
+      const target = targetRef.current;
+      if (!scrollNode || !target) return;
+      requestAnimationFrame(() => {
+        target.measureLayout(
+          scrollNode,
+          (_x, y) => {
+            scrollRef.current?.scrollTo({ y: Math.max(0, y - 220), animated: true });
+          },
+          () => {},
+        );
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   const handleClipOption = useCallback(
     async (id: ClipDocsOptionId) => {
       setClipVisible(false);
@@ -248,6 +284,11 @@ export default function ExpenseClaimsScreen() {
   }, [voucherType, category, paymentMode, date, amount, notes, s3Attachment.attachments, resetForm]);
 
   return (
+    <KeyboardAvoidingView
+      style={s.root}
+      behavior="padding"
+      keyboardVerticalOffset={insets.top + 55}
+    >
     <View style={s.root}>
       <View style={[s.headerWrap, { paddingTop: insets.top }]}>
         <View style={s.headerTopRow}>
@@ -264,8 +305,11 @@ export default function ExpenseClaimsScreen() {
       </View>
 
       <ScrollView
+        ref={(r) => {
+          scrollRef.current = r;
+        }}
         style={s.scroll}
-        contentContainerStyle={[s.scrollContent, { paddingBottom: 140 + insets.bottom }]}
+        contentContainerStyle={[s.scrollContent, { paddingBottom: (keyboardVisible ? 260 : 140) + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={s.sectionTitleRow}>
@@ -386,7 +430,7 @@ export default function ExpenseClaimsScreen() {
           )}
         </View>
 
-        <View style={s.descBlock}>
+        <View style={s.descBlock} ref={notesFieldRef}>
           <View style={s.descHeaderRow}>
             <Text style={s.descLabel}>Description / Notes</Text>
             <Text style={s.descMax}>(max 500 characters)</Text>
@@ -401,6 +445,7 @@ export default function ExpenseClaimsScreen() {
               maxLength={maxChars}
               style={s.descInput}
               textAlignVertical="top"
+              onFocus={() => scrollToInputRef(notesFieldRef)}
             />
           </View>
           <Text style={s.descHint}>This will be visible to your manager. ({notesRemaining} left)</Text>
@@ -476,7 +521,7 @@ export default function ExpenseClaimsScreen() {
           )}
         </View>
 
-        <View style={s.fieldBlock}>
+        <View style={s.fieldBlock} ref={amountFieldRef}>
           <Text style={s.fieldLabel}>Amount</Text>
           <View style={s.selectBox}>
             <Text style={s.rupee}>₹</Text>
@@ -486,6 +531,7 @@ export default function ExpenseClaimsScreen() {
               placeholder=""
               keyboardType="numeric"
               style={[s.selectText, { paddingLeft: 0 }]}
+              onFocus={() => scrollToInputRef(amountFieldRef)}
             />
           </View>
         </View>
@@ -552,7 +598,7 @@ export default function ExpenseClaimsScreen() {
           </View>
         </View>
       </Modal>
-      <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 12 }]}>
+      {!keyboardVisible && <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 12 }]}>
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.8}
@@ -566,7 +612,7 @@ export default function ExpenseClaimsScreen() {
         <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8} onPress={resetForm} disabled={submitLoading}>
           <Text style={s.cancelBtnText}>Cancel</Text>
         </TouchableOpacity>
-      </View>
+      </View>}
       <ClipDocsPopup visible={clipVisible} onClose={() => setClipVisible(false)} onOptionClick={handleClipOption} />
       <Modal visible={previewAttachmentUri != null} transparent animationType="fade" onRequestClose={() => setPreviewAttachmentUri(null)}>
         <View style={s.previewOverlay}>
@@ -575,6 +621,7 @@ export default function ExpenseClaimsScreen() {
         </View>
       </Modal>
     </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -586,9 +633,9 @@ const s = StyleSheet.create({
   headerTitle: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '600', color: colors.white },
 
   scroll: { flex: 1, backgroundColor: colors.bg_page },
-  scrollContent: { padding: 16 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 12 },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  sectionTitle: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '600', color: colors.primary_blue },
+  sectionTitle: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '700', color: colors.primary_blue },
 
   fieldBlock: { backgroundColor: colors.white, gap: 4, marginBottom: 12 },
   fieldLabel: { fontFamily: 'Roboto', fontSize: 14, fontWeight: '400', color: colors.text_primary, height: 20, lineHeight: 20 },

@@ -431,6 +431,23 @@ export const apiService = {
   }) =>
     getApi().post<{ encrptyid?: string; expirydate?: string }>('api/tallydata_share/create', body),
 
+  /**
+   * Send email with invoice PDF attachment via api/tallydata_share/email/send (multipart/form-data).
+   * Used for "Order invoice email" from Order Entry.
+   */
+  sendTallydataShareEmail: (
+    formData: FormData,
+    requestConfig?: { skipUnauthorizedRedirect?: boolean }
+  ) =>
+    getApi().post<{
+      success?: boolean;
+      message?: string;
+      messageId?: string;
+    }>('api/tallydata_share/email/send', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      ...(requestConfig ?? {}),
+    } as any),
+
   /** S3 attachment: step 1 – get presigned upload URL */
   getImageUploadUrl: (body: import('./models').ImageUploadUrlRequest) =>
     getApi().post<import('./models').ImageUploadUrlResponse>('api/images/upload-url', body),

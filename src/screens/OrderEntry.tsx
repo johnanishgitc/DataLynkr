@@ -91,6 +91,7 @@ import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 import { useS3Attachment, type S3Attachment } from '../hooks/useS3Attachment';
+import { sendOrderInvoiceEmail } from '../utils/sendOrderInvoiceEmail';
 
 // OrdEnt1 exact colors - no modifications
 const HEADER_BG = '#1f3a89';
@@ -973,8 +974,19 @@ export default function OrderEntry() {
 
     const incomingLinks = route.params?.attachmentLinks;
     const incomingUris = route.params?.attachmentUris;
-    if (incomingLinks?.length) setAttachmentLinks((prev) => [...prev, ...incomingLinks]);
-    if (incomingUris?.length) setAttachmentUris((prev) => [...prev, ...incomingUris]);
+    // Draft attachments are stored in `useS3Attachment`. Route params carry legacy link/uri arrays;
+    // for payload purposes we only need the viewUrl (attachments.map(a => a.viewUrl)).
+    const incoming = incomingLinks?.length ? incomingLinks : incomingUris?.length ? incomingUris : undefined;
+    if (incoming?.length) {
+      const next = incoming.map(
+        (viewUrl, idx): S3Attachment => ({
+          viewUrl,
+          s3Key: '',
+          fileName: `order_draft_attachment_${idx + 1}`,
+        })
+      );
+      s3Attachment.setAllAttachments([...s3Attachment.attachments, ...next]);
+    }
 
     needsAutoOpenCustomerRef.current = false;
     navigation.setParams({
@@ -1904,6 +1916,16 @@ export default function OrderEntry() {
       const { data } = await apiService.placeOrder(payload);
       const res = data as { success?: boolean; message?: string; data?: { voucherNumber?: string; reference?: string; lastVchId?: string | null }; tallyResponse?: { BODY?: { DATA?: { IMPORTRESULT?: { LINEERROR?: string } } } } };
       if (res?.success && res?.data) {
+        // Fire-and-forget: send the order invoice email in background.
+        // UI should never block or show email errors.
+        const orderNumberForEmail = String(res.data.voucherNumber ?? res.data.reference ?? vouchernumber ?? reference ?? '').trim();
+        void sendOrderInvoiceEmail({
+          masterId: res.data.lastVchId ?? null,
+          orderNumber: orderNumberForEmail,
+          toEmail: ledgerField(selectedLedger, 'EMAIL'),
+          customerEmailCc: ledgerField(selectedLedger, 'EMAILCC'),
+        });
+
         setOrderItems([]);
         orderItemsNextId.current = 1;
         lastAutoFilledCustomerRef.current = '';
