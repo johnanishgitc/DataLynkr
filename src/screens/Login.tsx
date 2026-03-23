@@ -45,6 +45,8 @@ export default function Login() {
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
+  const [showOtpSentMessage, setShowOtpSentMessage] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const otpInputRef = useRef<TextInput>(null);
@@ -89,6 +91,20 @@ export default function Login() {
       subHide.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (resendCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCountdown]);
+
+  useEffect(() => {
+    if (!showOtpSentMessage) return;
+    const timer = setTimeout(() => setShowOtpSentMessage(false), 5000);
+    return () => clearTimeout(timer);
+  }, [showOtpSentMessage]);
 
   const validateEmail = (): boolean => {
     const e = email.trim();
@@ -159,6 +175,8 @@ export default function Login() {
       }
       setOtpSent(true);
       setOtp('');
+      setResendCountdown(60);
+      setShowOtpSentMessage(true);
       setTimeout(() => otpInputRef.current?.focus(), 300);
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Network error. Please try again.';
@@ -220,6 +238,8 @@ export default function Login() {
     setError('');
     setOtpSent(false);
     setOtp('');
+    setResendCountdown(0);
+    setShowOtpSentMessage(false);
   };
 
   return (
@@ -248,104 +268,91 @@ export default function Login() {
             </View>
 
             <View style={styles.form}>
-              <View style={styles.modeToggle}>
-                <TouchableOpacity
-                  style={[styles.modeTab, loginMode === 'password' && styles.modeTabActive]}
-                  onPress={() => switchLoginMode('password')}
-                  disabled={loading}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.modeTabText, loginMode === 'password' && styles.modeTabTextActive]}>
-                    {strings.login_with_password}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modeTab, loginMode === 'otp' && styles.modeTabActive]}
-                  onPress={() => switchLoginMode('otp')}
-                  disabled={loading}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.modeTabText, loginMode === 'otp' && styles.modeTabTextActive]}>
-                    {strings.login_with_otp}
-                  </Text>
-                </TouchableOpacity>
-              </View>
 
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>{strings.email_address}</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={strings.email_address_placeholder}
-                  placeholderTextColor="#9ca3af"
-                  value={email}
-                  onChangeText={(t) => { setEmail(t); if (loginMode === 'otp') setOtpSent(false); }}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  editable={!loading}
-                  accessibilityLabel={strings.email_address}
-                  onFocus={scrollFieldAboveKeyboard}
-                  returnKeyType={loginMode === 'otp' && !otpSent ? 'go' : 'next'}
-                  onSubmitEditing={
-                    loginMode === 'otp' && !otpSent
-                      ? submit
-                      : () => (loginMode === 'otp' ? otpInputRef.current?.focus() : passwordInputRef.current?.focus())
-                  }
-                  blurOnSubmit={false}
-                />
-              </View>
-
-              {loginMode === 'password' ? (
+              <View style={styles.credentialsGroup}>
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>{strings.password}</Text>
-                  <View style={styles.passwordRow}>
+                  <Text style={styles.label}>{strings.email_address}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={strings.email_address_placeholder}
+                    placeholderTextColor="#9ca3af"
+                    value={email}
+                    onChangeText={(t) => {
+                      setEmail(t);
+                      if (loginMode === 'otp') {
+                        setOtpSent(false);
+                        setResendCountdown(0);
+                        setShowOtpSentMessage(false);
+                      }
+                    }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    editable={!loading}
+                    accessibilityLabel={strings.email_address}
+                    onFocus={scrollFieldAboveKeyboard}
+                    returnKeyType={loginMode === 'otp' && !otpSent ? 'go' : 'next'}
+                    onSubmitEditing={
+                      loginMode === 'otp' && !otpSent
+                        ? submit
+                        : () => (loginMode === 'otp' ? otpInputRef.current?.focus() : passwordInputRef.current?.focus())
+                    }
+                    blurOnSubmit={false}
+                  />
+                </View>
+
+                {loginMode === 'password' ? (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>{strings.password}</Text>
+                    <View style={styles.passwordRow}>
+                      <TextInput
+                        ref={passwordInputRef}
+                        style={styles.passwordInput}
+                        placeholder={strings.password_placeholder}
+                        placeholderTextColor="#9ca3af"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry={!showPassword}
+                        editable={!loading}
+                        onFocus={scrollFieldAboveKeyboard}
+                        returnKeyType="go"
+                        onSubmitEditing={submit}
+                      />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword((v) => !v)}
+                        style={styles.eyeBtn}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        disabled={loading}
+                      >
+                        <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} color="#828D94" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : otpSent ? (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>{strings.enter_otp}</Text>
                     <TextInput
-                      ref={passwordInputRef}
-                      style={styles.passwordInput}
-                      placeholder={strings.password_placeholder}
+                      ref={otpInputRef}
+                      style={styles.input}
+                      placeholder={strings.otp_placeholder}
                       placeholderTextColor="#9ca3af"
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry={!showPassword}
+                      value={otp}
+                      onChangeText={setOtp}
+                      keyboardType="number-pad"
+                      maxLength={6}
                       editable={!loading}
                       onFocus={scrollFieldAboveKeyboard}
                       returnKeyType="go"
                       onSubmitEditing={submit}
                     />
-                    <TouchableOpacity
-                      onPress={() => setShowPassword((v) => !v)}
-                      style={styles.eyeBtn}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      disabled={loading}
-                    >
-                      <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} color="#828D94" />
-                    </TouchableOpacity>
                   </View>
-                </View>
-              ) : otpSent ? (
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>{strings.enter_otp}</Text>
-                  <TextInput
-                    ref={otpInputRef}
-                    style={styles.input}
-                    placeholder={strings.otp_placeholder}
-                    placeholderTextColor="#9ca3af"
-                    value={otp}
-                    onChangeText={setOtp}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    editable={!loading}
-                    onFocus={scrollFieldAboveKeyboard}
-                    returnKeyType="go"
-                    onSubmitEditing={submit}
-                  />
-                </View>
-              ) : null}
+                ) : null}
+              </View>
 
               {error ? <Text style={styles.err}>{error}</Text> : null}
 
               <TouchableOpacity
-                style={[styles.btn, loading && styles.btnDisabled]}
+                style={[styles.btn, loginMode === 'otp' && !otpSent && styles.btnOtp, loading && styles.btnDisabled]}
                 onPress={submit}
                 disabled={loading}
                 activeOpacity={0.8}
@@ -358,23 +365,63 @@ export default function Login() {
                   </Text>
                 )}
               </TouchableOpacity>
+              {loginMode === 'otp' && otpSent && (
+                <TouchableOpacity
+                  style={[
+                    styles.secondaryBtn,
+                    (loading || resendCountdown > 0) && styles.secondaryBtnDisabled,
+                    loading && styles.btnDisabled,
+                  ]}
+                  onPress={sendOtpRequest}
+                  disabled={loading || resendCountdown > 0}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.secondaryBtnTxt, resendCountdown > 0 && styles.secondaryBtnTxtDisabled]}>
+                    {resendCountdown > 0 ? `Resend OTP (${resendCountdown}s)` : 'Resend OTP'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {loginMode === 'otp' && otpSent && showOtpSentMessage && (
+                <View style={styles.otpSentMsgWrap}>
+                  <Text style={styles.otpSentMsgText}>OTP Sent to Email</Text>
+                </View>
+              )}
+              {loginMode === 'password' && (
+                <TouchableOpacity
+                  style={[styles.secondaryBtn, loading && styles.btnDisabled]}
+                  onPress={() => switchLoginMode('otp')}
+                  disabled={loading}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.secondaryBtnTxt}>{strings.login_with_otp}</Text>
+                </TouchableOpacity>
+              )}
 
               {!keyboardVisible && (
                 <View style={styles.linksBelowButton}>
                   {loginMode === 'password' && (
+                    <>
+                      <View style={styles.signupRow}>
+                        <Text style={styles.signupPrompt}>{strings.signup_prompt}</Text>
+                        <TouchableOpacity onPress={() => nav.navigate('Signup')} disabled={loading}>
+                          <Text style={styles.signupLink}>{strings.signup}</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.forgotResetRow}>
+                        <TouchableOpacity onPress={() => nav.navigate('ForgotPassword')} disabled={loading}>
+                          <Text style={styles.link}>{strings.forgot_password}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  {loginMode === 'otp' && (
                     <View style={styles.forgotResetRow}>
-                      <TouchableOpacity onPress={() => nav.navigate('ForgotPassword')} disabled={loading}>
-                        <Text style={styles.link}>{strings.forgot_password}</Text>
+                      <TouchableOpacity onPress={() => switchLoginMode('password')} disabled={loading}>
+                        <Text style={styles.link}>{strings.back_to_login}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
-
-                  <View style={styles.signupRow}>
-                    <Text style={styles.signupPrompt}>{strings.signup_prompt}</Text>
-                    <TouchableOpacity onPress={() => nav.navigate('Signup')} disabled={loading}>
-                      <Text style={styles.signupLink}>{strings.signup}</Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
               )}
             </View>
@@ -424,8 +471,8 @@ const styles = StyleSheet.create({
   },
   topSection: {
     alignItems: 'center',
-    marginTop: -48,
-    marginBottom: 40,
+    marginTop: 0,
+    marginBottom: 20,
   },
   topSectionKeyboardOpen: {
     marginTop: 0,
@@ -438,7 +485,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.brand,
     fontWeight: '600',
     fontSize: 30,
-    marginTop: 20,
+    marginTop: 8,
     letterSpacing: 0,
   },
   brandData: {
@@ -450,39 +497,11 @@ const styles = StyleSheet.create({
   form: {
     gap: 20,
   },
-  modeToggle: {
-    flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
-    padding: 4,
-  },
-  modeTab: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 6,
-  },
-  modeTabActive: {
-    backgroundColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  modeTabText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6a7282',
-  },
-  modeTabTextActive: {
-    color: '#1f3a89',
-    fontWeight: '600',
-  },
   fieldGroup: {
     gap: 6,
+  },
+  credentialsGroup: {
+    gap: 10,
   },
   label: {
     fontSize: 14,
@@ -524,11 +543,14 @@ const styles = StyleSheet.create({
   },
   btn: {
     backgroundColor: '#1f3a89',
-    borderRadius: 4,
-    paddingVertical: 10,
+    borderRadius: 8,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 50,
+  },
+  btnOtp: {
+    backgroundColor: '#000000',
   },
   btnDisabled: {
     opacity: 0.7,
@@ -536,10 +558,46 @@ const styles = StyleSheet.create({
   btnTxt: {
     color: '#ffffff',
     fontSize: 16,
-    fontWeight: '400',
+    fontWeight: '600',
+  },
+  secondaryBtn: {
+    backgroundColor: '#000000',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 50,
+    marginTop: -8,
+  },
+  secondaryBtnTxt: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  secondaryBtnDisabled: {
+    backgroundColor: '#9CA3AF',
+  },
+  secondaryBtnTxtDisabled: {
+    color: '#E5E7EB',
+  },
+  otpSentMsgWrap: {
+    minHeight: 50,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#A9E1D3',
+    backgroundColor: '#E8F6F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  otpSentMsgText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2B7D68',
   },
   linksBelowButton: {
-    gap: 20,
+    gap: 12,
+    marginTop: 5,
   },
   forgotResetRow: {
     flexDirection: 'row',
@@ -585,15 +643,15 @@ const styles = StyleSheet.create({
     color: '#697282',
   },
   footerIT: {
-    fontFamily: 'serif',
+    fontFamily: 'Montserrat',
     fontStyle: 'italic',
     fontWeight: '700',
-    color: '#CC7A2E',
+    color: '#697282',
   },
   footerCatalyst: {
-    fontFamily: 'serif',
+    fontFamily: 'Montserrat',
     fontStyle: 'italic',
     fontWeight: '700',
-    color: '#000000',
+    color: '#697282',
   },
 });

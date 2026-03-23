@@ -27,7 +27,7 @@ import { StatusBarTopBar } from '../components';
 import { toNum, fmtNum, getLedgerEntryAmount } from '../components/VoucherDetailsContent';
 import { strings } from '../constants/strings';
 import { IconAccountVector4 } from '../assets/bill-allocations';
-import MarkedIconSvg from '../../Icon.svg';
+import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 
 type Route = RouteProp<LedgerStackParamList, 'BillAllocations'>;
 
@@ -268,7 +268,7 @@ export default function BillAllocations() {
         {/* Bottom circled: section header – document/box icon + "Bill Allocations" (section title) */}
         <View style={styles.sectionHead}>
           <View style={styles.sectionIconWrap}>
-            <MarkedIconSvg width={20} height={20} />
+            <InventoryAllocationIcon width={20} height={20} />
           </View>
           <Text style={styles.sectionTitle}>{strings.bill_allocations}</Text>
         </View>

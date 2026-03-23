@@ -3,6 +3,7 @@ import type { OrdersStackParamList } from './types';
 import OrderEntry from '../screens/OrderEntry';
 import OrderEntryItemDetail from '../screens/OrderEntryItemDetail';
 import OrderSuccess from '../screens/OrderSuccess';
+import MasterCreation from '../screens/MasterCreation';
 import ComingSoon from '../screens/ComingSoon';
 import { strings } from '../constants/strings';
 
@@ -14,6 +15,7 @@ export default function OrdersStack() {
       <Stack.Screen name="OrderEntry" component={OrderEntry} />
       <Stack.Screen name="OrderEntryItemDetail" component={OrderEntryItemDetail} />
       <Stack.Screen name="OrderSuccess" component={OrderSuccess} />
+      <Stack.Screen name="AddCustomer" component={MasterCreation} />
       <Stack.Screen
         name="ComingSoon"
         component={ComingSoon}

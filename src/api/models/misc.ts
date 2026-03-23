@@ -233,6 +233,43 @@ export interface CreditDaysLimitResponse {
   message?: string | null;
 }
 
+/** api/tally/ledger-check request */
+export interface LedgerCheckRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  type: 'name';
+  value: string;
+}
+
+/** api/tally/ledger-check response */
+export interface LedgerCheckResponse {
+  canProceed?: boolean;
+  exists?: boolean;
+  count?: number;
+  searchType?: string;
+  searchValue?: string;
+  message?: string;
+}
+
+/** api/tally/masters request */
+export interface MastersRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** api/tally/masters response (subset used by Master Creation). */
+export interface MastersResponse {
+  GROUPLIST?: { GROUP?: Array<{ NAME?: string; ACTIONS?: Record<string, string> }> };
+  PRICELEVELLIST?: { PRICELEVEL?: Array<{ NAME?: string }> };
+  TDSDEDUCTEETYPELIST?: { TDSDEDUCTEETYPE?: Array<{ NAME?: string }> };
+  MSMEENTRPTYPELIST?: { MSMEENTRPTYPE?: Array<{ NAME?: string }> };
+  MSMEACTVTYPELIST?: { MSMEACTVTYPE?: Array<{ NAME?: string }> };
+  BANKLIST?: { BANK?: Array<{ NAME?: string }> };
+  [key: string]: unknown;
+}
+
 /** api/tally/godown-list request */
 export interface GodownListRequest {
   tallyloc_id: number;

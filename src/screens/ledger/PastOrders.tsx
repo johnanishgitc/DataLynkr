@@ -266,6 +266,7 @@ export default function PastOrders({
             contentContainerStyle={[
               sharedStyles.containerContent,
               { paddingTop: headerHeight + 25 },
+              { paddingBottom: (isTablet ? 60 : 49) + insets.bottom + -15 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}

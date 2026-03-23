@@ -35,10 +35,18 @@ import type { UserConnection } from '../api/models/connections';
 import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
+import { navigationRef } from '../navigation/navigationRef';
 import { REPORT_OPTIONS } from '../screens/ledger';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
+
+const WHITE_NAVBAR_ROUTES = new Set([
+  'DataManagement',
+  'LedgerMain', 'LedgerEntries', 'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
+  'ApprovalsScreen',
+  'StockSummary', 'StockGroupSummary', 'StockItemMonthly', 'StockItemVouchers',
+]);
 
 export interface AppSidebarMenuItem {
   id: string;
@@ -95,7 +103,7 @@ export function AppSidebar({
       case 'orders':
         return <OrdersIcon color={color} size={size} />;
       case 'ledger':
-        return <LedgerIcon color={color} size={size} />;
+        return <LedgerIcon color={color} size={size} strokeWidth={1.5} />;
       case 'approvals':
         return <ApprovalsIcon color={color} size={size} />;
       case 'summary':
@@ -224,9 +232,13 @@ export function AppSidebar({
     [onClose]);
 
   useEffect(() => {
-    // Keep navigation bar transparent app-wide (matches theme)
-    const transparent = '#00000000';
-    SystemNavigationBar.setNavigationColor(transparent, showModal ? 'light' : 'dark');
+    if (showModal) {
+      SystemNavigationBar.setNavigationColor('#00000000', 'light');
+    } else {
+      const route = navigationRef.getCurrentRoute()?.name ?? '';
+      const color = WHITE_NAVBAR_ROUTES.has(route) ? '#ffffff' : '#00000000';
+      SystemNavigationBar.setNavigationColor(color, 'dark');
+    }
   }, [showModal]);
 
   useEffect(() => {

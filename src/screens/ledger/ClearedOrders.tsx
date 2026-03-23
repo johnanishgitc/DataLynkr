@@ -333,6 +333,7 @@ export default function ClearedOrders({
             contentContainerStyle={[
               sharedStyles.containerContent,
               { paddingTop: headerHeight + 15 },
+              { paddingBottom: (isTablet ? 60 : 49) + insets.bottom + -11 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}

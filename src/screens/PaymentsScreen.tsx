@@ -29,11 +29,12 @@ import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { getCompany, getGuid, getTallylocId } from '../store/storage';
 import CalendarPicker from '../components/CalendarPicker';
 import { formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
-import MarkedIconSvg from '../../Icon.svg';
+import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { getLedgerListFromDataManagementCache } from '../cache';
 import type { LedgerItem } from '../api/models/ledger';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { useS3Attachment } from '../hooks/useS3Attachment';
+import OrderEntryStyleDropdownModal from '../components/OrderEntryStyleDropdownModal';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const formatYyyyMmDd = (d: Date) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
@@ -63,10 +64,12 @@ export default function PaymentsScreen() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   const s3Attachment = useS3Attachment({ type: 'others' });
+  const formScrollEnabled = s3Attachment.attachments.length > 0;
 
   const scrollRef = useRef<ScrollView | null>(null);
   const amountFieldRef = useRef<View | null>(null);
   const notesFieldRef = useRef<View | null>(null);
+  const paymentModeFieldRef = useRef<View | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const [vendorNames, setVendorNames] = useState<string[]>([]);
@@ -200,7 +203,7 @@ export default function PaymentsScreen() {
   );
 
   const scrollToInputRef = useCallback(
-    (targetRef: React.RefObject<View>) => {
+    (targetRef: React.RefObject<View>, marginFromTop = 220) => {
       const scrollNode = findNodeHandle(scrollRef.current);
       const target = targetRef.current;
       if (!scrollNode || !target) return;
@@ -208,7 +211,7 @@ export default function PaymentsScreen() {
         target.measureLayout(
           scrollNode,
           (_x, y) => {
-            scrollRef.current?.scrollTo({ y: Math.max(0, y - 220), animated: true });
+            scrollRef.current?.scrollTo({ y: Math.max(0, y - marginFromTop), animated: true });
           },
           () => {},
         );
@@ -225,6 +228,21 @@ export default function PaymentsScreen() {
       hideSub.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!paymentModeOpen || !formScrollEnabled) return;
+    const t = setTimeout(() => {
+      scrollToInputRef(paymentModeFieldRef, 24);
+    }, 100);
+    return () => clearTimeout(t);
+  }, [paymentModeOpen, formScrollEnabled, cashBankLedgersLoading, cashBankLedgerNames.length, scrollToInputRef]);
+  useEffect(() => {
+    if (formScrollEnabled) return;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+  }, [formScrollEnabled]);
+
 
   const handleClipOption = useCallback(
     async (id: ClipDocsOptionId) => {
@@ -328,11 +346,12 @@ export default function PaymentsScreen() {
           scrollRef.current = r;
         }}
         style={s.scroll}
+        scrollEnabled={formScrollEnabled}
         contentContainerStyle={[s.scrollContent, { paddingBottom: (keyboardVisible ? 260 : 140) + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={s.sectionTitleRow}>
-          <MarkedIconSvg width={20} height={20} />
+          <InventoryAllocationIcon width={20} height={20} />
           <Text style={s.sectionTitle}>Payment Details</Text>
         </View>
 
@@ -362,7 +381,7 @@ export default function PaymentsScreen() {
               />
             )}
           </TouchableOpacity>
-          {voucherTypeOpen && (
+          {false && voucherTypeOpen && (
             <View style={s.inlineDropdown}>
               {voucherTypesLoading ? (
                 <View style={s.inlineDropdownLoading}>
@@ -419,7 +438,7 @@ export default function PaymentsScreen() {
               <Icon name={vendorOpen ? 'chevron-up' : 'chevron-down'} size={20} color={colors.text_secondary} />
             )}
           </TouchableOpacity>
-          {vendorOpen && (
+          {false && vendorOpen && (
             <View style={s.inlineDropdown}>
               {vendorsLoading ? (
                 <View style={s.inlineDropdownLoading}>
@@ -487,7 +506,7 @@ export default function PaymentsScreen() {
         </View>
 
         {/* Payment Mode */}
-        <View style={s.fieldBlock}>
+        <View style={s.fieldBlock} ref={paymentModeFieldRef}>
           <Text style={s.fieldLabel}>Payment Mode</Text>
           <TouchableOpacity
             style={s.selectBox}
@@ -513,7 +532,7 @@ export default function PaymentsScreen() {
               />
             )}
           </TouchableOpacity>
-          {paymentModeOpen && (
+          {false && paymentModeOpen && (
             <View style={s.inlineDropdown}>
               {cashBankLedgersLoading ? (
                 <View style={s.inlineDropdownLoading}>
@@ -606,6 +625,42 @@ export default function PaymentsScreen() {
         onItemPress={onSidebarItemPress}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <OrderEntryStyleDropdownModal
+        visible={voucherTypeOpen}
+        title="Select Voucher Type"
+        options={voucherTypeNames}
+        loading={voucherTypesLoading}
+        emptyText={voucherTypesError ?? 'No voucher types found'}
+        onClose={() => setVoucherTypeOpen(false)}
+        onSelect={(item) => {
+          setVoucherType(item);
+          setVoucherTypeOpen(false);
+        }}
+      />
+      <OrderEntryStyleDropdownModal
+        visible={vendorOpen}
+        title="Select Vendor"
+        options={vendorNames}
+        loading={vendorsLoading}
+        emptyText={vendorsError ?? 'No vendors found'}
+        onClose={() => setVendorOpen(false)}
+        onSelect={(item) => {
+          setVendor(item);
+          setVendorOpen(false);
+        }}
+      />
+      <OrderEntryStyleDropdownModal
+        visible={paymentModeOpen}
+        title="Select Payment Mode"
+        options={cashBankLedgerNames}
+        loading={cashBankLedgersLoading}
+        emptyText={cashBankLedgersError ?? 'No payment modes found'}
+        onClose={() => setPaymentModeOpen(false)}
+        onSelect={(item) => {
+          setPaymentMode(item);
+          setPaymentModeOpen(false);
+        }}
+      />
 
       <Modal visible={datePickerVisible} transparent animationType="slide">
         <View style={s.calendarOverlay}>
@@ -626,7 +681,10 @@ export default function PaymentsScreen() {
           </View>
         </View>
       </Modal>
-      {!keyboardVisible && <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 12 }]}>
+      {!keyboardVisible && <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 4 }]}>
+        <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8} onPress={resetForm} disabled={submitLoading}>
+          <Text style={s.cancelBtnText}>Cancel</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={s.primaryBtn}
           activeOpacity={0.8}
@@ -636,9 +694,6 @@ export default function PaymentsScreen() {
           <Text style={s.primaryBtnText}>
             {submitLoading ? 'Submitting...' : s3Attachment.uploading ? 'Uploading...' : 'Submit for Approval'}
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8} onPress={resetForm} disabled={submitLoading}>
-          <Text style={s.cancelBtnText}>Cancel</Text>
         </TouchableOpacity>
       </View>}
       <ClipDocsPopup visible={clipVisible} onClose={() => setClipVisible(false)} onOptionClick={handleClipOption} />
@@ -669,7 +724,7 @@ const s = StyleSheet.create({
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   sectionTitle: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '700', color: colors.primary_blue },
 
-  fieldBlock: { backgroundColor: colors.white, gap: 4, marginBottom: 12 },
+  fieldBlock: { backgroundColor: colors.white, gap: 3, marginBottom: 11 },
   fieldLabel: {
     fontFamily: 'Roboto',
     fontSize: 14,
@@ -715,7 +770,7 @@ const s = StyleSheet.create({
   inlineDropdownItem: { paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eef2f7' },
   inlineDropdownItemText: { fontFamily: 'Roboto', fontSize: 14, color: colors.text_primary },
 
-  descBlock: { gap: 4, marginBottom: 12 },
+  descBlock: { gap: 3, marginBottom: 11 },
   descHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   descLabel: { fontFamily: 'Roboto', fontSize: 14, fontWeight: '400', color: colors.stock_text_dark, letterSpacing: -0.2 },
   descMax: { fontFamily: 'Roboto', fontSize: 10, fontWeight: '400', color: colors.text_secondary },
@@ -766,13 +821,13 @@ const s = StyleSheet.create({
     backgroundColor: colors.white,
     paddingHorizontal: 16,
     paddingTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border_gray,
   },
-  primaryBtn: { backgroundColor: colors.primary_blue, height: 48, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  primaryBtn: { flex: 1, backgroundColor: colors.primary_blue, height: 48, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   primaryBtnText: { fontFamily: 'Roboto', fontSize: 15, fontWeight: '500', color: colors.white },
-  cancelBtn: { backgroundColor: colors.border_gray, height: 48, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  cancelBtn: { flex: 1, backgroundColor: colors.border_gray, height: 48, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontFamily: 'Roboto', fontSize: 15, fontWeight: '500', color: colors.stock_text_dark },
 
   previewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
@@ -791,4 +846,5 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
 });
+
 

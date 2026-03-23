@@ -32,14 +32,14 @@ import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
 import FilterSvg from '../assets/approvals/filter.svg';
 import SortSvg from '../assets/approvals/sort.svg';
-import BellSvg from '../assets/approvals/bell.svg';
-import KebabSvg from '../assets/approvals/kebab.svg';
+//import BellSvg from '../assets/approvals/bell.svg';
+//import KebabSvg from '../assets/approvals/kebab.svg';
 import CalendarSvg from '../assets/approvals/calendar.svg';
 import UserPartSvg from '../assets/approvals/user.svg';
 import BoxSvg from '../assets/approvals/box.svg';
 import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
 import CloseSvg from '../assets/clipPopup/close.svg';
-import MarkedIconSvg from '../../Icon.svg';
+import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 import { colors } from '../constants/colors';
 import { apiService, isUnauthorizedError } from '../api';
@@ -790,14 +790,14 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         </TouchableOpacity>
                         <Text style={styles.headerTitle}>Approvals</Text>
                     </View>
-                    <View style={styles.headerRight}>
+                    {/*<View style={styles.headerRight}>
                         <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <BellSvg width={22} height={22} />
                         </TouchableOpacity>
                         <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                             <KebabSvg width={24} height={24} />
                         </TouchableOpacity>
-                    </View>
+                    </View>*/}
                 </View>
 
                 {/* Date pill */}
@@ -1580,7 +1580,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     <View style={popupStyles.inventoryToggleRow}>
                                         <View style={popupStyles.inventoryToggleLeft}>
                                             <View style={{ marginRight: 10 }}>
-                                                <MarkedIconSvg width={18} height={18} />
+                                                <InventoryAllocationIcon size={18} color="#1f3a89" />
                                             </View>
                                             <Text style={popupStyles.inventoryToggleTitle}>
                                                 Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})

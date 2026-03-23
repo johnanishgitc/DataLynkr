@@ -311,6 +311,7 @@ export default function LedgerVoucher({
             contentContainerStyle={[
               sharedStyles.containerContent,
               { paddingTop: headerHeight + 15 },
+              { paddingBottom: (isTablet ? 60 : 49) + insets.bottom + -15 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}

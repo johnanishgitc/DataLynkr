@@ -18,6 +18,7 @@ import OrdersIcon from '../components/footer-icons/OrdersIcon';
 import LedgerIcon from '../components/footer-icons/LedgerIcon';
 import ApprovalsIcon from '../components/footer-icons/ApprovalsIcon';
 import SummaryIcon from '../components/footer-icons/SummaryIcon';
+import StockFooterIcon from '../components/footer-icons/StockFooterIcon';
 import { StatusBarTopBar } from '../components/StatusBarTopBar';
 import { AppSidebar } from '../components/AppSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
@@ -29,7 +30,11 @@ const Tab = createBottomTabNavigator<MainTabsParamList>();
 /** Hide tab bar (footer) when OrderEntry or OrderEntryItemDetail is focused. */
 function ordersTabBarStyle({ route }: { route: Parameters<typeof getFocusedRouteNameFromRoute>[0] }) {
   const routeName = getFocusedRouteNameFromRoute(route) ?? 'OrderEntry';
-  const hideFooter = routeName === 'OrderEntry' || routeName === 'OrderEntryItemDetail' || routeName === 'OrderSuccess';
+  const hideFooter =
+    routeName === 'OrderEntry' ||
+    routeName === 'OrderEntryItemDetail' ||
+    routeName === 'OrderSuccess' ||
+    routeName === 'AddCustomer';
   return hideFooter ? { display: 'none' as const } : undefined;
 }
 
@@ -47,7 +52,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     case 'approvals':
       return <ApprovalsIcon color={iconColor} size={24} />;
     case 'summary':
-      return <SummaryIcon color={iconColor} size={24} />;
+      return <StockFooterIcon color={iconColor} size={24} />;
     default:
       return null;
   }
