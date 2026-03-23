@@ -41,7 +41,7 @@ import type {
   BillAllocation,
 } from '../api/models/ledger';
 import { colors } from '../constants/colors';
-import MarkedIconSvg from '../../Icon.svg';
+import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
 import {
@@ -1186,9 +1186,9 @@ export default function VoucherDetailView() {
           ) : (
             /* ---- Order / Invoice Voucher View (Figma 3045-55819) – footer like LedgerVoucher ---- */
             <>
-              <View style={[styles.invSectionWrap, { marginVertical: 15, paddingBottom: 0, marginBottom: 4 }]}>
+              <View style={[styles.invSectionWrap, { marginVertical: 15, paddingBottom: 0, marginBottom: 0 }]}>
                 <View style={[styles.sectionHead, styles.sectionHeadInv]}>
-                  <MarkedIconSvg width={20} height={20} />
+                  <InventoryAllocationIcon size={20} color="#1f3a89" />
                   <Text style={styles.sectionTitle}>
                     Inventory Allocations ({invAlloc.length})
                   </Text>
@@ -1199,7 +1199,7 @@ export default function VoucherDetailView() {
                 style={styles.scroll}
                 contentContainerStyle={[
                   styles.scrollContent,
-                  { paddingTop: 0, paddingBottom: TAB_BAR_OFFSET + 130 }
+                  { paddingTop: 0, paddingBottom: TAB_BAR_OFFSET + 75 }
                 ]}
                 showsVerticalScrollIndicator={true}
                 onScroll={handleScroll}
@@ -1315,6 +1315,9 @@ const styles = StyleSheet.create({
   },
   sectionHeadInv: {
     paddingLeft: 30,
+    paddingBottom: 10,
+    borderBottomColor: '#e6ecfd',
+    borderBottomWidth: 1,
   },
   accSectionHead: { paddingVertical: 8 },
   accSectionHeadSpaced: { marginTop: 8, paddingVertical: 8 },

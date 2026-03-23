@@ -9,7 +9,7 @@ import {
   Animated,
   useWindowDimensions,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
@@ -128,6 +128,21 @@ export default function SalesOrderLedgerOutstandings({
       setScrollDirection(null);
     };
   }, [setScrollDirection]);
+
+  // When returning from detail screens, force footer visible so it doesn't remain collapsed.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (localScrollDirection.current === 'down') {
+        localScrollDirection.current = 'up';
+        setScrollDirection('up');
+        Animated.timing(footerTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, [footerTranslateY, setScrollDirection])
+  );
 
   useEffect(() => {
     let cancel = false;
@@ -393,6 +408,7 @@ export default function SalesOrderLedgerOutstandings({
             contentContainerStyle={[
               sharedStyles.containerContent,
               { paddingTop: headerHeight + 10 },
+              { paddingBottom: (isTablet ? 60 : 49) + insets.bottom + -11 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}

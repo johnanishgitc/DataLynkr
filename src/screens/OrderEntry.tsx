@@ -92,6 +92,7 @@ import CalendarPicker from '../components/CalendarPicker';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 import { useS3Attachment, type S3Attachment } from '../hooks/useS3Attachment';
 import { sendOrderInvoiceEmail } from '../utils/sendOrderInvoiceEmail';
+import Svg, { Circle, Path, Line } from 'react-native-svg';
 
 // OrdEnt1 exact colors - no modifications
 const HEADER_BG = '#1f3a89';
@@ -108,6 +109,7 @@ const BALANCE_GREEN = '#0d7a3e';
 const BALANCE_PILL_BG = '#eb21221a';
 const BALANCE_PILL_BG_GREEN = '#0d7a3e1a';
 const EDIT_DETAILS_BG = '#3352B4';
+const ADD_CUSTOMER_OPTION = '__add_customer_option__';
 
 /** Class dropdown option: when selected, no class or class ledgers are sent in place order payload. */
 const NOT_APPLICABLE_CLASS = 'Not Applicable';
@@ -127,6 +129,17 @@ function isEditableDiscountLedger(name: string): boolean {
 /** Item whose name indicates "to be allocated" – show at top of dropdown with yellow background, no stock/rate. */
 function isItemToBeAllocated(name: string): boolean {
   return (name ?? '').trim().toLowerCase().includes('item to be allocated');
+}
+
+function AddCustomerOptionIcon({ size = 18, color = '#6a7282' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M2 21a8 8 0 0 1 13.292-6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx="10" cy="8" r="5" stroke={color} strokeWidth="2" />
+      <Path d="M19 16v6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M22 19h-6" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
 }
 
 type AddDetailsFormShape = {
@@ -363,7 +376,7 @@ export default function OrderEntry() {
   const isTablet = windowWidth >= 600;
   const TABLET_MODAL_MAX_HEIGHT = 1200;
   const TABLET_MODAL_LIST_MAX_HEIGHT = 1200;
-  const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderEntry'>>();
+  const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
   const { permissions, moduleAccess, transConfig } = useModuleAccess();
@@ -620,6 +633,11 @@ export default function OrderEntry() {
       .map((i) => (i.NAME ?? '').trim())
       .filter(Boolean);
   }, [ledgerItems, ledgerNames, customerSearch]);
+
+  const customerDropdownOptions = useMemo(
+    () => [ADD_CUSTOMER_OPTION, ...filteredCustomers],
+    [filteredCustomers]
+  );
 
   /** Filtered customer list for Consignee (Ship to) dropdown in Add Details. */
   const filteredConsigneeCustomers = useMemo(() => {
@@ -4201,7 +4219,7 @@ export default function OrderEntry() {
               <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
             </View>
             <FlatList
-              data={filteredCustomers}
+              data={customerDropdownOptions}
               keyExtractor={(i) => i}
               style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
               contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
@@ -4219,8 +4237,18 @@ export default function OrderEntry() {
               }
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
+                  style={[
+                    sharedStyles.modalOpt,
+                    { paddingVertical: 12, minHeight: 40 },
+                    item === ADD_CUSTOMER_OPTION && { backgroundColor: '#fef9c3' },
+                  ]}
                   onPress={async () => {
+                    if (item === ADD_CUSTOMER_OPTION) {
+                      setCustomerDropdownOpen(false);
+                      setCustomerSearch('');
+                      navigation.navigate('AddCustomer');
+                      return;
+                    }
                     setSelectedCustomer(item);
                     const ledger = ledgerItems.find((l) => (l.NAME ?? '').trim() === item) ?? null;
                     setSelectedLedger(ledger);
@@ -4261,7 +4289,16 @@ export default function OrderEntry() {
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
+                  {item === ADD_CUSTOMER_OPTION ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <AddCustomerOptionIcon />
+                      <Text style={[sharedStyles.modalOptTxt, { color: '#0e172b' }]} numberOfLines={1}>
+                        Add Customer
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
+                  )}
                 </TouchableOpacity>
               )}
             />

@@ -17,6 +17,7 @@ import { getStockItemNamesFromDataManagementCache, getLedgerListNamesFromDataMan
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import apiService from '../api/client';
 import type { SalesOrderOutstandingResponse } from '../api/models/ledger';
+import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 
 type Route = RouteProp<MainStackParamList, 'SalesOrderVoucherDetails'>;
 
@@ -326,7 +327,7 @@ export default function SalesOrderVoucherDetails() {
   );
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom + 56 }]}>
+    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
       {/* SOLO2: Header - Order Details, back, share, bell */}
       <StatusBarTopBar
         title="Order Details"
@@ -375,17 +376,21 @@ export default function SalesOrderVoucherDetails() {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.sectionTitleWrap}>
+        <View style={styles.sectionTitleRow}>
+          <View style={styles.sectionTitleIcon}>
+            <InventoryAllocationIcon size={20} color="#1f3a89" />
+          </View>
+          <Text style={styles.sectionTitle}>Sales Orders Outstanding</Text>
+        </View>
+      </View>
+
       {/* SOLO2: White content - section title + order cards */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
-        <View style={styles.sectionTitleRow}>
-          <Icon name="package-variant" size={20} color="#1f3a89" style={styles.sectionTitleIcon} />
-          <Text style={styles.sectionTitle}>Sales Orders Outstanding</Text>
-        </View>
-
         {loadingOutstanding ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>Loading outstandings…</Text>
@@ -682,13 +687,18 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 8,
+    //paddingBottom: 0,
+  },
+  sectionTitleWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 0,
+    backgroundColor: colors.white,
   },
   sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
   },
   sectionTitleIcon: {
     marginRight: 10,

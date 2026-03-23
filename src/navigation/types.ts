@@ -154,6 +154,7 @@ export type OrdersStackParamList = {
     /** True when order was placed from draft mode; New Order / back should return to cleared draft mode. */
     fromDraftMode?: boolean;
   };
+  AddCustomer: undefined;
   ComingSoon: { tab_name: string };
 };
 

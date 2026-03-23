@@ -4,7 +4,7 @@
  * Tapping a voucher entry opens the same VoucherDetailView as all other reports (ledger, bill-wise, cleared, past orders).
  */
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,8 +13,6 @@ import type { SalesOrderOutstandingRow, SalesOrderOutstandingVoucher } from '../
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
-import { getTallylocId, getCompany, getGuid } from '../store/storage';
-import apiService from '../api/client';
 
 type Route = RouteProp<MainStackParamList, 'SalesOrderOrderDetails'>;
 
@@ -79,18 +77,10 @@ export default function SalesOrderOrderDetails() {
   /** Navigate to VoucherDetailView - same screen as Ledger, Bill Wise, Cleared and Past Orders for consistent UX */
   const onEntryPress = useCallback(
     async (voucher: SalesOrderOutstandingVoucher, amount: number) => {
-      const masterId = voucher.MASTERID ?? '';
       const displayLedgerForNav = ledgerName || (row.LEDGER ?? '—');
 
-      const navToDetail = (voucherPayload: object) => {
-        (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
-          voucher: voucherPayload,
-          ledger_name: displayLedgerForNav,
-        });
-      };
-
-      if (!masterId) {
-        navToDetail({
+      (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
+        voucher: {
           DATE: voucher.DATE ?? row.DATE,
           VOUCHERTYPE: voucher.VOUCHERTYPE,
           VOUCHERNUMBER: voucher.VOUCHERNUMBER,
@@ -98,72 +88,15 @@ export default function SalesOrderOrderDetails() {
           PARTICULARS: row.STOCKITEM ?? voucher.NARRATION ?? '—',
           DEBITAMT: amount,
           CREDITAMT: 0,
-        });
-        return;
-      }
-
-      setLoadingMasterId(masterId);
-      try {
-        const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
-        if (!t || !c || !g) {
-          navToDetail({
-            DATE: voucher.DATE ?? row.DATE,
-            VOUCHERTYPE: voucher.VOUCHERTYPE,
-            VOUCHERNUMBER: voucher.VOUCHERNUMBER,
-            MASTERID: voucher.MASTERID,
-            PARTICULARS: row.STOCKITEM ?? voucher.NARRATION ?? '—',
-            DEBITAMT: amount,
-            CREDITAMT: 0,
-          });
-          return;
-        }
-        const res = await apiService.getVoucherData({
-          tallyloc_id: t,
-          company: c,
-          guid: g,
-          masterid: masterId,
-        });
-        const body = res?.data as Record<string, unknown> | undefined;
-        const fullVoucher =
-          (Array.isArray(body?.vouchers) && (body.vouchers as unknown[])[0]) ??
-          (Array.isArray(body?.data) && (body.data as unknown[])[0]) ??
-          (Array.isArray(body) && body[0]) ??
-          body?.voucher ??
-          body?.data;
-        if (fullVoucher && typeof fullVoucher === 'object') {
-          navToDetail(fullVoucher as object);
-        } else {
-          navToDetail({
-            DATE: voucher.DATE ?? row.DATE,
-            VOUCHERTYPE: voucher.VOUCHERTYPE,
-            VOUCHERNUMBER: voucher.VOUCHERNUMBER,
-            MASTERID: voucher.MASTERID,
-            PARTICULARS: row.STOCKITEM ?? voucher.NARRATION ?? '—',
-            DEBITAMT: amount,
-            CREDITAMT: 0,
-          });
-        }
-      } catch (err) {
-        if (__DEV__) console.warn('[SalesOrderOrderDetails] getVoucherData failed', err);
-        Alert.alert('', 'Could not load voucher details. Showing summary.');
-        navToDetail({
-          DATE: voucher.DATE ?? row.DATE,
-          VOUCHERTYPE: voucher.VOUCHERTYPE,
-          VOUCHERNUMBER: voucher.VOUCHERNUMBER,
-          MASTERID: voucher.MASTERID,
-          PARTICULARS: row.STOCKITEM ?? voucher.NARRATION ?? '—',
-          DEBITAMT: amount,
-          CREDITAMT: 0,
-        });
-      } finally {
-        setLoadingMasterId(null);
-      }
+        },
+        ledger_name: displayLedgerForNav,
+      });
     },
     [nav, ledgerName, row]
   );
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom + 56 }]}>
+    <View style={[styles.root, { paddingBottom: insets.bottom }]}>
       <StatusBarTopBar
         title="Order Details"
         leftIcon="back"

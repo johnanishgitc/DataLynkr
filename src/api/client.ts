@@ -45,6 +45,10 @@ import type {
   VoucherTypeResponse,
   CreditDaysLimitRequest,
   CreditDaysLimitResponse,
+  LedgerCheckRequest,
+  LedgerCheckResponse,
+  MastersRequest,
+  MastersResponse,
   GodownListRequest,
   GodownListResponse,
   ItemwiseBatchwiseBalRequest,
@@ -301,6 +305,14 @@ export const apiService = {
   /** Credit limit and closing balance for a ledger (Order Entry) */
   getCreditDaysLimit: (body: CreditDaysLimitRequest) =>
     getApi().post<CreditDaysLimitResponse>('api/tally/creditdayslimit', body),
+
+  /** Check duplicate ledger by name while typing (Master Creation). */
+  checkLedgerDuplicate: (body: LedgerCheckRequest) =>
+    getApi().post<LedgerCheckResponse>('api/tally/ledger-check', body),
+
+  /** Master options list for group/price level/tds/msme/bank dropdowns. */
+  getMasters: (body: MastersRequest) =>
+    getApi().post<MastersResponse>('api/tally/masters', body),
 
   /** Godown list for Order Entry Item Detail dropdown */
   getGodownList: (body: GodownListRequest) =>

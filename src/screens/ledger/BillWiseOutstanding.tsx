@@ -348,6 +348,7 @@ export default function BillWiseOutstanding({
             contentContainerStyle={[
               sharedStyles.containerContent,
               { paddingTop: headerHeight + 10 },
+              { paddingBottom: (isTablet ? 60 : 49) + insets.bottom + -11 },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}
