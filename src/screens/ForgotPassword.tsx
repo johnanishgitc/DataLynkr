@@ -10,7 +10,6 @@ import {
   Platform,
   ScrollView,
   StatusBar,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Logo from '../components/Logo';
@@ -52,10 +51,10 @@ export default function ForgotPassword() {
         setError(d.error);
         return;
       }
-      const message = d?.message ?? strings.forgot_password_success;
-      Alert.alert(strings.ok, message, [
-        { text: strings.ok, onPress: () => nav.navigate('Login') },
-      ]);
+      nav.navigate('Login', {
+        forgotPasswordMessage: 'A new password has been sent to your Email',
+        forgotPasswordCooldownUntil: Date.now() + 60 * 1000,
+      });
     } catch (e: unknown) {
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Request failed. Please try again.';
       setError(msg);

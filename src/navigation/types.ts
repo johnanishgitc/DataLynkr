@@ -2,7 +2,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { StockItem, LedgerItem } from '../api';
 
 export type AuthStackParamList = {
-  Login: undefined;
+  Login:
+    | {
+        forgotPasswordMessage?: string;
+        forgotPasswordCooldownUntil?: number;
+      }
+    | undefined;
   Signup: undefined;
   ForgotPassword: undefined;
   ResetPassword: { email?: string; fromFirstLogin?: boolean; name?: string | null };

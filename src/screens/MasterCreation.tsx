@@ -157,6 +157,13 @@ export default function MasterCreation() {
   const [enterpriseTypeDropdownOpen, setEnterpriseTypeDropdownOpen] = useState(false);
   const [activityTypeDropdownOpen, setActivityTypeDropdownOpen] = useState(false);
   const [bankNameDropdownOpen, setBankNameDropdownOpen] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [taxSearch, setTaxSearch] = useState('');
+  const [priceLevelSearch, setPriceLevelSearch] = useState('');
+  const [enterpriseTypeSearch, setEnterpriseTypeSearch] = useState('');
+  const [activityTypeSearch, setActivityTypeSearch] = useState('');
+  const [deducteeTypeSearch, setDeducteeTypeSearch] = useState('');
+  const [bankNameSearch, setBankNameSearch] = useState('');
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [groupNames, setGroupNames] = useState<string[]>([]);
   const [priceLevelNames, setPriceLevelNames] = useState<string[]>([]);
@@ -245,35 +252,40 @@ export default function MasterCreation() {
     return stateOptions.filter((s) => s.toLowerCase().includes(q));
   }, [stateOptions, stateSearch]);
   const filteredGroupNames = useMemo(() => {
-    const q = form.group.trim().toLowerCase();
+    const q = groupSearch.trim().toLowerCase();
     if (!q) return groupNames;
     return groupNames.filter((name) => name.toLowerCase().includes(q));
-  }, [form.group, groupNames]);
+  }, [groupSearch, groupNames]);
   const filteredPriceLevelNames = useMemo(() => {
-    const q = form.priceLevel.trim().toLowerCase();
+    const q = priceLevelSearch.trim().toLowerCase();
     if (!q) return priceLevelNames;
     return priceLevelNames.filter((name) => name.toLowerCase().includes(q));
-  }, [form.priceLevel, priceLevelNames]);
+  }, [priceLevelSearch, priceLevelNames]);
   const filteredDeducteeTypeNames = useMemo(() => {
-    const q = form.deducteeType.trim().toLowerCase();
+    const q = deducteeTypeSearch.trim().toLowerCase();
     if (!q) return deducteeTypeNames;
     return deducteeTypeNames.filter((name) => name.toLowerCase().includes(q));
-  }, [form.deducteeType, deducteeTypeNames]);
+  }, [deducteeTypeSearch, deducteeTypeNames]);
   const filteredEnterpriseTypeNames = useMemo(() => {
-    const q = form.typeOfEnterprise.trim().toLowerCase();
+    const q = enterpriseTypeSearch.trim().toLowerCase();
     if (!q) return enterpriseTypeNames;
     return enterpriseTypeNames.filter((name) => name.toLowerCase().includes(q));
-  }, [form.typeOfEnterprise, enterpriseTypeNames]);
+  }, [enterpriseTypeSearch, enterpriseTypeNames]);
   const filteredActivityTypeNames = useMemo(() => {
-    const q = form.activityType.trim().toLowerCase();
+    const q = activityTypeSearch.trim().toLowerCase();
     if (!q) return activityTypeNames;
     return activityTypeNames.filter((name) => name.toLowerCase().includes(q));
-  }, [form.activityType, activityTypeNames]);
+  }, [activityTypeSearch, activityTypeNames]);
   const filteredBankNames = useMemo(() => {
-    const q = form.bankName.trim().toLowerCase();
+    const q = bankNameSearch.trim().toLowerCase();
     if (!q) return bankNames;
     return bankNames.filter((name) => name.toLowerCase().includes(q));
-  }, [form.bankName, bankNames]);
+  }, [bankNameSearch, bankNames]);
+  const filteredTaxOptions = useMemo(() => {
+    const q = taxSearch.trim().toLowerCase();
+    if (!q) return taxOptions;
+    return taxOptions.filter((name) => name.toLowerCase().includes(q));
+  }, [taxSearch]);
 
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -557,44 +569,10 @@ export default function MasterCreation() {
       />
       <View ref={groupFieldRef} style={styles.fieldWrap}>
         <Text style={styles.label}>Group</Text>
-        <View style={styles.selectBoxLikeExpense}>
-          <TextInput
-            style={styles.searchInputLikeExpense}
-            placeholder="Search or select group"
-            placeholderTextColor="#6a7282"
-            value={form.group}
-            onChangeText={(v) => {
-              setField('group', v);
-              setGroupDropdownOpen(true);
-            }}
-            onFocus={() => {
-              setGroupDropdownOpen(true);
-              scrollToFieldRef(groupFieldRef, 220);
-            }}
-          />
-          <TouchableOpacity activeOpacity={0.8} onPress={() => setGroupDropdownOpen((v) => !v)}>
-            <Icon name={groupDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-          </TouchableOpacity>
-        </View>
-        {groupDropdownOpen && (
-          <View style={styles.inlineDropdownLikeExpense}>
-            <ScrollView nestedScrollEnabled style={styles.inlineDropdownScrollLikeExpense}>
-              {filteredGroupNames.map((name) => (
-                <TouchableOpacity
-                  key={name}
-                  style={styles.inlineDropdownItemLikeExpense}
-                  onPress={() => {
-                    setField('group', name);
-                    setGroupDropdownOpen(false);
-                  }}
-                >
-                  <Text style={styles.inlineDropdownItemTextLikeExpense}>{name}</Text>
-                </TouchableOpacity>
-              ))}
-              {filteredGroupNames.length === 0 ? <Text style={styles.emptyDropdownTextLikeExpense}>No matches found</Text> : null}
-            </ScrollView>
-          </View>
-        )}
+        <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setGroupDropdownOpen(true)}>
+          <Text style={[styles.inputText, !form.group && styles.placeholder]}>{form.group || 'Select Group'}</Text>
+          <Icon name="chevron-down" size={18} color="#6a7282" />
+        </TouchableOpacity>
       </View>
       <Field
         label="Address Type"
@@ -683,27 +661,12 @@ export default function MasterCreation() {
 
       <View style={styles.fieldWrap}>
         <Text style={styles.label}>Tax Identification Type</Text>
-        <TouchableOpacity style={styles.input} onPress={() => setTaxDropdownOpen((prev) => !prev)} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.input} onPress={() => setTaxDropdownOpen(true)} activeOpacity={0.8}>
           <Text style={[styles.inputText, !form.taxIdentificationType && styles.placeholder]}>
             {form.taxIdentificationType || 'Select Tax Type'}
           </Text>
+          <Icon name="chevron-down" size={18} color="#6a7282" />
         </TouchableOpacity>
-        {taxDropdownOpen && (
-          <View style={styles.dropdown}>
-            {taxOptions.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={styles.dropdownItem}
-                onPress={() => {
-                  setField('taxIdentificationType', option);
-                  setTaxDropdownOpen(false);
-                }}
-              >
-                <Text style={styles.inputText}>{option}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
       </View>
 
       <Field
@@ -785,44 +748,10 @@ export default function MasterCreation() {
       {form.priceLevelApplicable ? (
         <View ref={priceLevelFieldRef} style={styles.fieldWrap}>
           <Text style={styles.label}>Price Level</Text>
-          <View style={styles.selectBoxLikeExpense}>
-            <TextInput
-              style={styles.searchInputLikeExpense}
-              placeholder="Search or select price level"
-              placeholderTextColor="#6a7282"
-              value={form.priceLevel}
-              onChangeText={(v) => {
-                setField('priceLevel', v);
-                setPriceLevelDropdownOpen(true);
-              }}
-              onFocus={() => {
-                setPriceLevelDropdownOpen(true);
-                scrollToFieldRef(priceLevelFieldRef, 220);
-              }}
-            />
-            <TouchableOpacity activeOpacity={0.8} onPress={() => setPriceLevelDropdownOpen((v) => !v)}>
-              <Icon name={priceLevelDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-            </TouchableOpacity>
-          </View>
-          {priceLevelDropdownOpen && (
-            <View style={styles.inlineDropdownLikeExpense}>
-              <ScrollView nestedScrollEnabled style={styles.inlineDropdownScrollLikeExpense}>
-                {filteredPriceLevelNames.map((name) => (
-                  <TouchableOpacity
-                    key={name}
-                    style={styles.inlineDropdownItemLikeExpense}
-                    onPress={() => {
-                      setField('priceLevel', name);
-                      setPriceLevelDropdownOpen(false);
-                    }}
-                  >
-                    <Text style={styles.inlineDropdownItemTextLikeExpense}>{name}</Text>
-                  </TouchableOpacity>
-                ))}
-                {filteredPriceLevelNames.length === 0 ? <Text style={styles.emptyDropdownTextLikeExpense}>No matches found</Text> : null}
-              </ScrollView>
-            </View>
-          )}
+          <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setPriceLevelDropdownOpen(true)}>
+            <Text style={[styles.inputText, !form.priceLevel && styles.placeholder]}>{form.priceLevel || 'Select Price Level'}</Text>
+            <Icon name="chevron-down" size={18} color="#6a7282" />
+          </TouchableOpacity>
         </View>
       ) : null}
 
@@ -993,44 +922,10 @@ export default function MasterCreation() {
         <>
           <View ref={enterpriseTypeFieldRef} style={styles.fieldWrap}>
             <Text style={styles.label}>Type of Enterprise</Text>
-            <View style={styles.selectBoxLikeExpense}>
-              <TextInput
-                style={styles.searchInputLikeExpense}
-                placeholder="Search or select type"
-                placeholderTextColor="#6a7282"
-                value={form.typeOfEnterprise}
-                onChangeText={(v) => {
-                  setField('typeOfEnterprise', v);
-                  setEnterpriseTypeDropdownOpen(true);
-                }}
-                onFocus={() => {
-                  setEnterpriseTypeDropdownOpen(true);
-                  scrollToFieldRef(enterpriseTypeFieldRef, 220);
-                }}
-              />
-              <TouchableOpacity activeOpacity={0.8} onPress={() => setEnterpriseTypeDropdownOpen((v) => !v)}>
-                <Icon name={enterpriseTypeDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-              </TouchableOpacity>
-            </View>
-            {enterpriseTypeDropdownOpen && (
-              <View style={styles.inlineDropdownLikeExpense}>
-                <ScrollView nestedScrollEnabled style={styles.inlineDropdownScrollLikeExpense}>
-                  {filteredEnterpriseTypeNames.map((name) => (
-                    <TouchableOpacity
-                      key={name}
-                      style={styles.inlineDropdownItemLikeExpense}
-                      onPress={() => {
-                        setField('typeOfEnterprise', name);
-                        setEnterpriseTypeDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={styles.inlineDropdownItemTextLikeExpense}>{name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                  {filteredEnterpriseTypeNames.length === 0 ? <Text style={styles.emptyDropdownTextLikeExpense}>No matches found</Text> : null}
-                </ScrollView>
-              </View>
-            )}
+            <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setEnterpriseTypeDropdownOpen(true)}>
+              <Text style={[styles.inputText, !form.typeOfEnterprise && styles.placeholder]}>{form.typeOfEnterprise || 'Select Type'}</Text>
+              <Icon name="chevron-down" size={18} color="#6a7282" />
+            </TouchableOpacity>
           </View>
           <Field
             label="UDYAM Registration Number"
@@ -1040,44 +935,10 @@ export default function MasterCreation() {
           />
           <View ref={activityTypeFieldRef} style={styles.fieldWrap}>
             <Text style={styles.label}>Activity Type</Text>
-            <View style={styles.selectBoxLikeExpense}>
-              <TextInput
-                style={styles.searchInputLikeExpense}
-                placeholder="Search or select activity type"
-                placeholderTextColor="#6a7282"
-                value={form.activityType}
-                onChangeText={(v) => {
-                  setField('activityType', v);
-                  setActivityTypeDropdownOpen(true);
-                }}
-                onFocus={() => {
-                  setActivityTypeDropdownOpen(true);
-                  scrollToFieldRef(activityTypeFieldRef, 220);
-                }}
-              />
-              <TouchableOpacity activeOpacity={0.8} onPress={() => setActivityTypeDropdownOpen((v) => !v)}>
-                <Icon name={activityTypeDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-              </TouchableOpacity>
-            </View>
-            {activityTypeDropdownOpen && (
-              <View style={styles.inlineDropdownLikeExpense}>
-                <ScrollView nestedScrollEnabled style={styles.inlineDropdownScrollLikeExpense}>
-                  {filteredActivityTypeNames.map((name) => (
-                    <TouchableOpacity
-                      key={name}
-                      style={styles.inlineDropdownItemLikeExpense}
-                      onPress={() => {
-                        setField('activityType', name);
-                        setActivityTypeDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={styles.inlineDropdownItemTextLikeExpense}>{name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                  {filteredActivityTypeNames.length === 0 ? <Text style={styles.emptyDropdownTextLikeExpense}>No matches found</Text> : null}
-                </ScrollView>
-              </View>
-            )}
+            <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setActivityTypeDropdownOpen(true)}>
+              <Text style={[styles.inputText, !form.activityType && styles.placeholder]}>{form.activityType || 'Select Activity Type'}</Text>
+              <Icon name="chevron-down" size={18} color="#6a7282" />
+            </TouchableOpacity>
           </View>
         </>
       ) : null}
@@ -1114,44 +975,10 @@ export default function MasterCreation() {
         <>
           <View ref={deducteeTypeFieldRef} style={styles.fieldWrap}>
             <Text style={styles.label}>Deductee type</Text>
-            <View style={styles.selectBoxLikeExpense}>
-              <TextInput
-                style={styles.searchInputLikeExpense}
-                placeholder="Search or select deductee type"
-                placeholderTextColor="#6a7282"
-                value={form.deducteeType}
-                onChangeText={(v) => {
-                  setField('deducteeType', v);
-                  setDeducteeTypeDropdownOpen(true);
-                }}
-                onFocus={() => {
-                  setDeducteeTypeDropdownOpen(true);
-                  scrollToFieldRef(deducteeTypeFieldRef, 220);
-                }}
-              />
-              <TouchableOpacity activeOpacity={0.8} onPress={() => setDeducteeTypeDropdownOpen((v) => !v)}>
-                <Icon name={deducteeTypeDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-              </TouchableOpacity>
-            </View>
-            {deducteeTypeDropdownOpen && (
-              <View style={styles.inlineDropdownLikeExpense}>
-                <ScrollView nestedScrollEnabled style={styles.inlineDropdownScrollLikeExpense}>
-                  {filteredDeducteeTypeNames.map((name) => (
-                    <TouchableOpacity
-                      key={name}
-                      style={styles.inlineDropdownItemLikeExpense}
-                      onPress={() => {
-                        setField('deducteeType', name);
-                        setDeducteeTypeDropdownOpen(false);
-                      }}
-                    >
-                      <Text style={styles.inlineDropdownItemTextLikeExpense}>{name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                  {filteredDeducteeTypeNames.length === 0 ? <Text style={styles.emptyDropdownTextLikeExpense}>No matches found</Text> : null}
-                </ScrollView>
-              </View>
-            )}
+            <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setDeducteeTypeDropdownOpen(true)}>
+              <Text style={[styles.inputText, !form.deducteeType && styles.placeholder]}>{form.deducteeType || 'Select Deductee Type'}</Text>
+              <Icon name="chevron-down" size={18} color="#6a7282" />
+            </TouchableOpacity>
           </View>
           <Field
             label="Nature of Payment"
@@ -1204,44 +1031,10 @@ export default function MasterCreation() {
       <Field label="IFSC Code" placeholder="Enter IFSC code" value={form.ifscCode} onChangeText={(v) => setField('ifscCode', v.toUpperCase())} />
       <View ref={bankNameFieldRef} style={styles.fieldWrap}>
         <Text style={styles.label}>Bank Name</Text>
-        <View style={styles.selectBoxLikeExpense}>
-          <TextInput
-            style={styles.searchInputLikeExpense}
-            placeholder="Search or select bank name"
-            placeholderTextColor="#6a7282"
-            value={form.bankName}
-            onChangeText={(v) => {
-              setField('bankName', v);
-              setBankNameDropdownOpen(true);
-            }}
-            onFocus={() => {
-              setBankNameDropdownOpen(true);
-              scrollToFieldRef(bankNameFieldRef, 220);
-            }}
-          />
-          <TouchableOpacity activeOpacity={0.8} onPress={() => setBankNameDropdownOpen((v) => !v)}>
-            <Icon name={bankNameDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-          </TouchableOpacity>
-        </View>
-        {bankNameDropdownOpen && (
-          <View style={styles.inlineDropdownLikeExpense}>
-            <ScrollView nestedScrollEnabled style={styles.inlineDropdownScrollLikeExpense}>
-              {filteredBankNames.map((name) => (
-                <TouchableOpacity
-                  key={name}
-                  style={styles.inlineDropdownItemLikeExpense}
-                  onPress={() => {
-                    setField('bankName', name);
-                    setBankNameDropdownOpen(false);
-                  }}
-                >
-                  <Text style={styles.inlineDropdownItemTextLikeExpense}>{name}</Text>
-                </TouchableOpacity>
-              ))}
-              {filteredBankNames.length === 0 ? <Text style={styles.emptyDropdownTextLikeExpense}>No matches found</Text> : null}
-            </ScrollView>
-          </View>
-        )}
+        <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setBankNameDropdownOpen(true)}>
+          <Text style={[styles.inputText, !form.bankName && styles.placeholder]}>{form.bankName || 'Select Bank Name'}</Text>
+          <Icon name="chevron-down" size={18} color="#6a7282" />
+        </TouchableOpacity>
       </View>
       <Field label="SWIFT Code" placeholder="Enter SWIFT code" value={form.swiftCode} onChangeText={(v) => setField('swiftCode', v.toUpperCase())} />
       <Field
@@ -1410,6 +1203,251 @@ export default function MasterCreation() {
                     setStateSearch('');
                   }}
                 >
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={groupDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setGroupDropdownOpen(false);
+          setGroupSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setGroupDropdownOpen(false); setGroupSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Group</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setGroupDropdownOpen(false); setGroupSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search groups..." placeholderTextColor="#6a7282" value={groupSearch} onChangeText={setGroupSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredGroupNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('group', item); setGroupDropdownOpen(false); setGroupSearch(''); }}>
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={taxDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setTaxDropdownOpen(false);
+          setTaxSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setTaxDropdownOpen(false); setTaxSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Tax Type</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setTaxDropdownOpen(false); setTaxSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search tax type..." placeholderTextColor="#6a7282" value={taxSearch} onChangeText={setTaxSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredTaxOptions}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('taxIdentificationType', item); setTaxDropdownOpen(false); setTaxSearch(''); }}>
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={priceLevelDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPriceLevelDropdownOpen(false);
+          setPriceLevelSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setPriceLevelDropdownOpen(false); setPriceLevelSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Price Level</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setPriceLevelDropdownOpen(false); setPriceLevelSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search price levels..." placeholderTextColor="#6a7282" value={priceLevelSearch} onChangeText={setPriceLevelSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredPriceLevelNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('priceLevel', item); setPriceLevelDropdownOpen(false); setPriceLevelSearch(''); }}>
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={enterpriseTypeDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setEnterpriseTypeDropdownOpen(false);
+          setEnterpriseTypeSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setEnterpriseTypeDropdownOpen(false); setEnterpriseTypeSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Enterprise Type</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setEnterpriseTypeDropdownOpen(false); setEnterpriseTypeSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search enterprise types..." placeholderTextColor="#6a7282" value={enterpriseTypeSearch} onChangeText={setEnterpriseTypeSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredEnterpriseTypeNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('typeOfEnterprise', item); setEnterpriseTypeDropdownOpen(false); setEnterpriseTypeSearch(''); }}>
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={activityTypeDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setActivityTypeDropdownOpen(false);
+          setActivityTypeSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setActivityTypeDropdownOpen(false); setActivityTypeSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Activity Type</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setActivityTypeDropdownOpen(false); setActivityTypeSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search activity types..." placeholderTextColor="#6a7282" value={activityTypeSearch} onChangeText={setActivityTypeSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredActivityTypeNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('activityType', item); setActivityTypeDropdownOpen(false); setActivityTypeSearch(''); }}>
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={deducteeTypeDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setDeducteeTypeDropdownOpen(false);
+          setDeducteeTypeSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setDeducteeTypeDropdownOpen(false); setDeducteeTypeSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Deductee Type</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setDeducteeTypeDropdownOpen(false); setDeducteeTypeSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search deductee types..." placeholderTextColor="#6a7282" value={deducteeTypeSearch} onChangeText={setDeducteeTypeSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredDeducteeTypeNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('deducteeType', item); setDeducteeTypeDropdownOpen(false); setDeducteeTypeSearch(''); }}>
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={bankNameDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setBankNameDropdownOpen(false);
+          setBankNameSearch('');
+        }}
+      >
+        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setBankNameDropdownOpen(false); setBankNameSearch(''); }}>
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Bank Name</Text>
+              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setBankNameDropdownOpen(false); setBankNameSearch(''); }}>
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search banks..." placeholderTextColor="#6a7282" value={bankNameSearch} onChangeText={setBankNameSearch} />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredBankNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('bankName', item); setBankNameDropdownOpen(false); setBankNameSearch(''); }}>
                   <Text style={sharedStyles.modalOptTxt}>{item}</Text>
                 </TouchableOpacity>
               )}
