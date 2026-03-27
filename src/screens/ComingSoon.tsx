@@ -7,6 +7,7 @@ import { colors } from '../constants/colors';
 import Logo from '../components/Logo';
 import { StatusBarTopBar } from '../components/StatusBarTopBar';
 import { AppSidebar } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import type { HomeStackParamList } from '../navigation/types';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
@@ -20,6 +21,7 @@ export default function ComingSoon({ route }: { route: { params?: P } }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const onSidebarItemPress = useCallback(
@@ -69,6 +71,7 @@ export default function ComingSoon({ route }: { route: { params?: P } }) {
         onItemPress={onSidebarItemPress}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
     </View>
   );
 }

@@ -43,6 +43,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { AppSidebar, type AppSidebarMenuItem } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { StatusBarTopBar } from '../components';
 import { SIDEBAR_MENU_ORDER_ENTRY } from '../components/appSidebarMenu';
 import { StockBreakdownModal, DeleteConfirmationModal } from '../components';
@@ -284,7 +285,11 @@ function voucherToOrderEntryPrefill(
   const items: Omit<OrderEntryOrderItem, 'id'>[] = invArray.map((row: any) => {
     const name = row.stockitemname ?? row.STOCKITEMNAME ?? '';
     const qty = row.actualqty ?? row.billedqty ?? row.BILLEDQTY ?? row.ACTUALQTY ?? '1';
-    const rate = row.rate ?? row.RATE ?? '0';
+    const rateRaw = String(row.rate ?? row.RATE ?? '0');
+    const rateMatch = rateRaw.match(/[\d,]+(?:\.\d+)?/);
+    const rate = rateMatch ? rateMatch[0].replace(/,/g, '') : '0';
+    const rateUnitMatch = rateRaw.match(/\/(.+)$/);
+    const rateUnitParsed = rateUnitMatch ? rateUnitMatch[1].trim() : undefined;
     const discount = Number(row.discount ?? row.DISCOUNT ?? 0) || 0;
     const amount = Number(row.amount ?? row.AMOUNT ?? 0) || 0;
     const unit = String(row.baseunits ?? row.UNIT ?? '').trim() || '';
@@ -296,8 +301,8 @@ function voucherToOrderEntryPrefill(
       name: String(name || '').trim(),
       qty: String(qty ?? '1'),
       enteredQty: undefined,
-      rate: String(rate ?? '0'),
-      rateUnit: undefined,
+      rate,
+      rateUnit: rateUnitParsed,
       total: amount,
       unit,
       discount,
@@ -322,6 +327,55 @@ function voucherToOrderEntryPrefill(
     addDetailsForm: baseForm,
     items,
   };
+}
+
+/** Extract voucher date from voucher payload in multiple formats (YYYYMMDD, YYYY-MM-DD, DD-MMM-YY, DD/MM/YYYY). */
+function voucherDateFromVoucher(voucher: Record<string, unknown>): Date | null {
+  const raw =
+    voucherField(
+      voucher,
+      'DATE',
+      'date',
+      'VOUCHERDATE',
+      'voucherdate',
+      'EFFECTIVEDATE',
+      'effectivedate',
+      'REFERENCE_DATE',
+      'reference_date',
+    ) || '';
+  const s = String(raw).trim();
+  if (!s) return null;
+
+  // YYYYMMDD (e.g. 20260324)
+  if (/^\d{8}$/.test(s)) {
+    const y = parseInt(s.slice(0, 4), 10);
+    const m = parseInt(s.slice(4, 6), 10) - 1;
+    const d = parseInt(s.slice(6, 8), 10);
+    const dt = new Date(y, m, d);
+    if (dt.getFullYear() === y && dt.getMonth() === m && dt.getDate() === d) return dt;
+  }
+
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const y = parseInt(s.slice(0, 4), 10);
+    const m = parseInt(s.slice(5, 7), 10) - 1;
+    const d = parseInt(s.slice(8, 10), 10);
+    const dt = new Date(y, m, d);
+    if (dt.getFullYear() === y && dt.getMonth() === m && dt.getDate() === d) return dt;
+  }
+
+  // DD/MM/YYYY
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split('/').map((p) => parseInt(p, 10));
+    const dt = new Date(yyyy, mm - 1, dd);
+    if (dt.getFullYear() === yyyy && dt.getMonth() === mm - 1 && dt.getDate() === dd) return dt;
+  }
+
+  // DD-MMM-YY
+  const dmy = parseDateDmmmYy(s);
+  if (dmy) return dmy;
+
+  return null;
 }
 
 /** Read optional field from ledger (API may use different key casing). */
@@ -387,6 +441,7 @@ export default function OrderEntry() {
   }, [sidebarOpen]);
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
+  const [draftDescriptionValidationError, setDraftDescriptionValidationError] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   /** Cart "item to be allocated" attachment preview: list of uri/link per attachment, swipe between them. */
   const [cartAttachmentPreview, setCartAttachmentPreview] = useState<{ items: string[] } | null>(null);
@@ -544,6 +599,10 @@ export default function OrderEntry() {
   /** When editing an existing voucher from Approvals, store its MASTERID. */
   const [editingMasterId, setEditingMasterId] = useState<string | null>(null);
   const lastPrefilledMasterIdRef = useRef<string | null>(null);
+  /** Tracks current focused session launched from Approvals even after route params are consumed. */
+  const openedFromApprovalRef = useRef(false);
+  /** True if user has made any change after the approval prefill (add/remove items, change customer, etc.). */
+  const approvalPrefillDirtyRef = useRef(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const addDetailsPagerRef = useRef<ScrollView>(null);
   const addDetailsTabOrder: ('buyer' | 'consignee' | 'order')[] = ['buyer', 'consignee', 'order'];
@@ -868,10 +927,51 @@ export default function OrderEntry() {
 
       if (updateFromApproval) {
         // Always prefill when coming from Approvals, even if it's the same MASTERID again.
+        openedFromApprovalRef.current = true;
+        approvalPrefillDirtyRef.current = false;
         needsAutoOpenCustomerRef.current = false;
+        setIsDraftMode(false);
         setEditingMasterId(updateFromApproval.masterId ?? null);
+        // Consume approval payload once so it does not auto-fill on later fresh Order Entry opens.
+        navigation.setParams({ updateFromApproval: undefined } as any);
 
         let cancelled = false;
+        const applyPrefillFromVoucher = (voucher: Record<string, unknown> | null | undefined) => {
+          if (!voucher || typeof voucher !== 'object' || cancelled) return;
+          const { customerName, voucherType, addDetailsForm: mappedForm, items } =
+            voucherToOrderEntryPrefill(voucher, initialAddDetailsForm);
+          const voucherDate = voucherDateFromVoucher(voucher);
+
+          if (customerName) {
+            setSelectedCustomer(customerName);
+          }
+          if (voucherType) {
+            setSelectedVoucherType(voucherType);
+          }
+          if (voucherDate) {
+            setEditDetailsOrderDate(voucherDate);
+          }
+          setAddDetailsForm((prev) => ({
+            ...prev,
+            ...mappedForm,
+          }));
+          if (items.length > 0) {
+            setOrderItems(() => {
+              let nextId = orderItemsNextId.current;
+              const withIds = items.map((it) => {
+                const res: OrderEntryOrderItem = { ...it, id: nextId };
+                nextId += 1;
+                return res;
+              });
+              orderItemsNextId.current = nextId;
+              return withIds;
+            });
+          }
+        };
+
+        // Immediate fallback prefill from Approvals payload, so UI is populated even if API fails.
+        applyPrefillFromVoucher((updateFromApproval.voucher ?? null) as Record<string, unknown> | null);
+
         (async () => {
           try {
             const [tallylocId, companyName, guid] = await Promise.all([
@@ -901,36 +1001,9 @@ export default function OrderEntry() {
                 ? voucherFromApi
                 : updateFromApproval.voucher) as Record<string, unknown>;
 
-            const { customerName, voucherType, addDetailsForm: mappedForm, items } =
-              voucherToOrderEntryPrefill(sourceVoucher, initialAddDetailsForm);
-
-            if (cancelled) return;
-
-            if (customerName) {
-              setSelectedCustomer(customerName);
-            }
-            if (voucherType) {
-              setSelectedVoucherType(voucherType);
-            }
-            setAddDetailsForm((prev) => ({
-              ...prev,
-              ...mappedForm,
-            }));
-            if (items.length > 0) {
-              setOrderItems(() => {
-                let nextId = orderItemsNextId.current;
-                const withIds = items.map((it) => {
-                  const res: OrderEntryOrderItem = { ...it, id: nextId };
-                  nextId += 1;
-                  return res;
-                });
-                orderItemsNextId.current = nextId;
-                return withIds;
-              });
-            }
-
+            applyPrefillFromVoucher(sourceVoucher);
           } catch {
-            // If anything fails, leave Order Entry as-is rather than crashing.
+            // Keep fallback prefill from Approvals payload.
           }
         })();
 
@@ -976,6 +1049,7 @@ export default function OrderEntry() {
     const addedLength = added?.length ?? 0;
     if (addedLength === 0) return;
 
+    approvalPrefillDirtyRef.current = true;
     const nextId = orderItemsNextId.current;
     const withIds = (added ?? []).map((item, i) => ({ ...item, id: nextId + i, stockItem: item.stockItem }));
     if (addedLength > 0 && hasReplace) {
@@ -1023,8 +1097,8 @@ export default function OrderEntry() {
   useFocusEffect(
     React.useCallback(() => {
       const onBack = () => {
-        // If Order Entry was opened from Approvals (updateFromApproval), back should return to Approvals tab.
-        if (route.params?.updateFromApproval) {
+        // If Order Entry was opened from Approvals and user hasn't made any changes, go back to Approvals tab.
+        if (openedFromApprovalRef.current && !approvalPrefillDirtyRef.current) {
           const tabNav = navigation.getParent()?.getParent() as { navigate?: (name: string) => void } | undefined;
           tabNav?.navigate?.('ApprovalsTab');
           return true;
@@ -1062,6 +1136,7 @@ export default function OrderEntry() {
   }, []);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const goToAdminDashboard = useCallback(() => {
@@ -1414,6 +1489,7 @@ export default function OrderEntry() {
         isBatchWiseOn: isBatchWiseOnFromItem(item),
         viewOnly: route.params?.viewOnly,
         permissions,
+        isQuickOrder: isDraftMode,
         defaultQty,
         defaultGodown: orderDefaultGodown || undefined,
       });
@@ -1432,12 +1508,19 @@ export default function OrderEntry() {
   const handleQRCancel = useCallback(() => setShowQRScanner(false), []);
   const handleAttachment = () => setClipPopupVisible(true);
 
+  useEffect(() => {
+    if (draftDescriptionValidationError && (draftDescription.trim().length > 0 || attachmentLinks.length > 0)) {
+      setDraftDescriptionValidationError(false);
+    }
+  }, [draftDescriptionValidationError, draftDescription, attachmentLinks.length]);
+
   /** Handle clip option (camera/gallery/files) via S3 upload hook. After upload, create ITEM TO BE ALLOCATED cart items with viewUrl links. */
   const handleClipOption = useCallback(
     async (optionId: ClipDocsOptionId) => {
       setClipPopupVisible(false);
       const newAttachments = await s3Attachment.pickAndUpload(optionId);
       if (newAttachments.length === 0) return;
+      if (draftDescriptionValidationError) setDraftDescriptionValidationError(false);
       const links = newAttachments.map((a) => a.viewUrl);
       const uris = newAttachments.map((a) => a.viewUrl);
       // In draft mode: one "ITEM TO BE ALLOCATED" only — merge new attachments into existing alloc item or add one item with all.
@@ -1484,7 +1567,7 @@ export default function OrderEntry() {
         return [...prev, ...newItems];
       });
     },
-    [s3Attachment.pickAndUpload, isDraftMode]
+    [s3Attachment.pickAndUpload, isDraftMode, draftDescriptionValidationError]
   );
 
   const handleAddDetails = () => setAddDetailsModalVisible(true);
@@ -1782,7 +1865,7 @@ export default function OrderEntry() {
       return;
     }
     if (isDraftMode && orderItems.length === 0 && !draftDescription.trim() && attachmentLinks.length === 0) {
-      setValidationAlert({ title: 'Description or attachment required', message: 'Please enter a description or add at least one attachment.' });
+      setDraftDescriptionValidationError(true);
       return;
     }
     const [tallylocId, companyName, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
@@ -1967,6 +2050,7 @@ export default function OrderEntry() {
           reference: res.data.reference ?? reference,
           lastVchId: res.data.lastVchId ?? null,
           fromDraftMode: isDraftMode,
+          fromApprovalUpdate: !!editingMasterId,
         });
       } else {
         const lineError = res?.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LINEERROR;
@@ -2162,11 +2246,12 @@ export default function OrderEntry() {
         (route.params?.addedItems?.length ?? 0) > 0 ||
         route.params?.replaceOrderItemId != null ||
         (route.params?.replaceOrderItemIds?.length ?? 0) > 0;
-      if (prevTabNameRef.current !== ORDERS_TAB_NAME && !hasIncomingCartParams) {
+      if (prevTabNameRef.current !== ORDERS_TAB_NAME && !hasIncomingCartParams && !openedFromApprovalRef.current) {
         clearOrderEntryState();
       }
       prevTabNameRef.current = ORDERS_TAB_NAME;
       return () => {
+        openedFromApprovalRef.current = false;
         const parent = navigation.getParent();
         const runAfterTabChange = () => {
           const state = parent?.getState();
@@ -2184,7 +2269,7 @@ export default function OrderEntry() {
   useFocusEffect(
     React.useCallback(() => {
       // When navigating from Approvals (updateFromApproval), never auto-open dropdowns.
-      if (route.params?.updateFromApproval) {
+      if (route.params?.updateFromApproval || openedFromApprovalRef.current) {
         return;
       }
       if (needsAutoOpenCustomerRef.current) {
@@ -2202,21 +2287,29 @@ export default function OrderEntry() {
   const handleOrderItemEdit = useCallback(
     (oi: OrderEntryOrderItem) => {
       setOrderItemMenuId(null);
-      if (oi.stockItem) {
-        navigation.navigate('OrderEntryItemDetail', {
-          item: oi,
-          selectedLedger: selectedLedger ?? undefined,
-          editOrderItem: { ...oi },
-          isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
-          viewOnly: route.params?.viewOnly,
-          attachmentLinks: oi.attachmentLinks ?? [],
-          attachmentUris: oi.attachmentUris ?? [],
-          permissions,
-          defaultGodown: orderDefaultGodown || undefined,
-        });
-      }
+      // If stockItem is missing (e.g. prefilled from Approvals), try to find it by name from the loaded list.
+      const resolvedStockItem: StockItem | undefined =
+        oi.stockItem ??
+        (oi.name
+          ? stockItemsList.find(
+              (s) => String(s.NAME ?? '').trim().toLowerCase() === oi.name.trim().toLowerCase(),
+            ) ?? undefined
+          : undefined);
+      const oiWithStock: OrderEntryOrderItem = { ...oi, stockItem: resolvedStockItem };
+      navigation.navigate('OrderEntryItemDetail', {
+        item: oiWithStock as any,
+        selectedLedger: selectedLedger ?? undefined,
+        editOrderItem: oiWithStock as any,
+        isBatchWiseOn: isBatchWiseOnFromItem(resolvedStockItem),
+        viewOnly: route.params?.viewOnly,
+        attachmentLinks: oi.attachmentLinks ?? [],
+        attachmentUris: oi.attachmentUris ?? [],
+        permissions,
+        isQuickOrder: isDraftMode,
+        defaultGodown: orderDefaultGodown || undefined,
+      });
     },
-    [navigation, selectedLedger, route.params?.viewOnly]
+    [navigation, selectedLedger, route.params?.viewOnly, stockItemsList]
   );
 
   const handleOrderItemDelete = useCallback((oi: OrderEntryOrderItem) => {
@@ -2226,6 +2319,7 @@ export default function OrderEntry() {
 
   const confirmOrderItemDelete = useCallback(() => {
     if (itemToDelete) {
+      approvalPrefillDirtyRef.current = true;
       setOrderItems((prev) => prev.filter((i) => i.id !== itemToDelete.id));
       setItemToDelete(null);
     }
@@ -2235,6 +2329,7 @@ export default function OrderEntry() {
     if (groupToDelete) {
       const group = groupedOrderItems.find((g) => g.groupKey === groupToDelete);
       if (group) {
+        approvalPrefillDirtyRef.current = true;
         const idsToRemove = new Set(group.items.map((i) => i.id));
         setOrderItems((prev) => prev.filter((i) => !idsToRemove.has(i.id)));
       }
@@ -2404,16 +2499,25 @@ export default function OrderEntry() {
                     style={[
                       styles.draftDescriptionInput,
                       !selectedCustomer ? styles.draftDescriptionInputDisabled : styles.draftDescriptionInputActive,
+                      draftDescriptionValidationError && styles.draftDescriptionInputError,
                     ]}
                     placeholder=""
                     placeholderTextColor={selectedCustomer ? undefined : '#9ca3af'}
                     multiline
                     maxLength={500}
                     value={draftDescription}
-                    onChangeText={setDraftDescription}
+                    onChangeText={(text) => {
+                      setDraftDescription(text);
+                      if (draftDescriptionValidationError && text.trim().length > 0) {
+                        setDraftDescriptionValidationError(false);
+                      }
+                    }}
                     textAlignVertical="top"
                     editable={!!selectedCustomer}
                   />
+                  {draftDescriptionValidationError ? (
+                    <Text style={styles.draftDescriptionErrorText}>Please enter a description or add at least one attachment.</Text>
+                  ) : null}
                 </View>
 
                 {!permissions.disable_attachment && (
@@ -2866,9 +2970,12 @@ export default function OrderEntry() {
                                     onPress={() => {
                                       setOrderItemGroupMenuName(null);
                                       const first = group.items[0];
-                                      if (first?.stockItem) {
+                                      if (first) {
+                                        const resolved = first.stockItem ?? stockItemsList.find(
+                                          (s) => String(s.NAME ?? '').trim().toLowerCase() === first.name.trim().toLowerCase(),
+                                        ) ?? undefined;
                                         navigation.navigate('OrderEntryItemDetail', {
-                                          item: { ...first, stockItem: first.stockItem },
+                                          item: { ...first, stockItem: resolved } as any,
                                           selectedLedger: selectedLedger ?? undefined,
                                           editOrderItems: group.items.map((oi) => ({
                                             id: oi.id,
@@ -2889,11 +2996,12 @@ export default function OrderEntry() {
                                             attachmentLinks: oi.attachmentLinks,
                                             attachmentUris: oi.attachmentUris,
                                           })),
-                                          isBatchWiseOn: isBatchWiseOnFromItem(first.stockItem),
+                                          isBatchWiseOn: isBatchWiseOnFromItem(resolved),
                                           viewOnly: route.params?.viewOnly,
                                           attachmentLinks: first.attachmentLinks ?? [],
                                           attachmentUris: first.attachmentUris ?? [],
                                           permissions,
+                                          isQuickOrder: isDraftMode,
                                           defaultGodown: orderDefaultGodown || undefined,
                                         });
                                       }
@@ -3020,40 +3128,42 @@ export default function OrderEntry() {
                                               style={styles.orderItemMenuItem}
                                               onPress={() => {
                                                 setOrderItemMenuId(null);
-                                                if (oi.stockItem) {
-                                                  navigation.navigate('OrderEntryItemDetail', {
-                                                    item: { ...oi, stockItem: oi.stockItem },
-                                                    selectedLedger: selectedLedger ?? undefined,
-                                                    editOrderItems: group.items.map((child) => ({
-                                                      id: child.id,
-                                                      name: child.name,
-                                                      qty: child.qty,
-                                                      enteredQty: child.enteredQty,
-                                                      rate: child.rate,
-                                                      discount: child.discount,
-                                                      total: child.total,
-                                                      stock: child.stock,
-                                                      tax: child.tax,
-                                                      dueDate: child.dueDate,
-                                                      mfgDate: child.mfgDate,
-                                                      expiryDate: child.expiryDate,
-                                                      godown: child.godown,
-                                                      batch: child.batch,
-                                                      description: child.description,
-                                                      rateUnit: child.rateUnit,
-                                                      attachmentLinks: child.attachmentLinks,
-                                                      attachmentUris: child.attachmentUris,
-                                                    })),
-                                                    editOrderItem: { ...oi },
-                                                    rateUnit: oi.rateUnit,
-                                                    isBatchWiseOn: isBatchWiseOnFromItem(oi.stockItem),
-                                                    viewOnly: route.params?.viewOnly,
-                                                    attachmentLinks: oi.attachmentLinks ?? [],
-                                                    attachmentUris: oi.attachmentUris ?? [],
-                                                    permissions,
-                                                    defaultGodown: orderDefaultGodown || undefined,
-                                                  });
-                                                }
+                                                const resolvedSI = oi.stockItem ?? stockItemsList.find(
+                                                  (s) => String(s.NAME ?? '').trim().toLowerCase() === oi.name.trim().toLowerCase(),
+                                                ) ?? undefined;
+                                                navigation.navigate('OrderEntryItemDetail', {
+                                                  item: { ...oi, stockItem: resolvedSI } as any,
+                                                  selectedLedger: selectedLedger ?? undefined,
+                                                  editOrderItems: group.items.map((child) => ({
+                                                    id: child.id,
+                                                    name: child.name,
+                                                    qty: child.qty,
+                                                    enteredQty: child.enteredQty,
+                                                    rate: child.rate,
+                                                    discount: child.discount,
+                                                    total: child.total,
+                                                    stock: child.stock,
+                                                    tax: child.tax,
+                                                    dueDate: child.dueDate,
+                                                    mfgDate: child.mfgDate,
+                                                    expiryDate: child.expiryDate,
+                                                    godown: child.godown,
+                                                    batch: child.batch,
+                                                    description: child.description,
+                                                    rateUnit: child.rateUnit,
+                                                    attachmentLinks: child.attachmentLinks,
+                                                    attachmentUris: child.attachmentUris,
+                                                  })),
+                                                  editOrderItem: { ...oi, stockItem: resolvedSI } as any,
+                                                  rateUnit: oi.rateUnit,
+                                                  isBatchWiseOn: isBatchWiseOnFromItem(resolvedSI),
+                                                  viewOnly: route.params?.viewOnly,
+                                                  attachmentLinks: oi.attachmentLinks ?? [],
+                                                  attachmentUris: oi.attachmentUris ?? [],
+                                                  permissions,
+                                                  isQuickOrder: isDraftMode,
+                                                  defaultGodown: orderDefaultGodown || undefined,
+                                                });
                                               }}
                                               activeOpacity={0.7}
                                             >
@@ -4174,6 +4284,7 @@ export default function OrderEntry() {
         onConnectionsPress={goToAdminDashboard}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
 
       {/* Customer list modal - same as Ledger Book */}
       <Modal
@@ -4249,6 +4360,7 @@ export default function OrderEntry() {
                       navigation.navigate('AddCustomer');
                       return;
                     }
+                    approvalPrefillDirtyRef.current = true;
                     setSelectedCustomer(item);
                     const ledger = ledgerItems.find((l) => (l.NAME ?? '').trim() === item) ?? null;
                     setSelectedLedger(ledger);
@@ -4521,6 +4633,7 @@ export default function OrderEntry() {
                         isBatchWiseOn: isBatchWiseOnFromItem(item),
                         viewOnly: route.params?.viewOnly,
                         permissions,
+                        isQuickOrder: isDraftMode,
                         defaultQty,
                         defaultGodown: orderDefaultGodown || undefined,
                       });
@@ -6399,6 +6512,15 @@ const styles = StyleSheet.create({
   draftDescriptionInputActive: {
     backgroundColor: '#e6ecfd',
     borderColor: '#d3d3d3',
+  },
+  draftDescriptionInputError: {
+    borderColor: '#ef4444',
+  },
+  draftDescriptionErrorText: {
+    marginTop: 4,
+    fontFamily: 'Roboto',
+    fontSize: 11,
+    color: '#ef4444',
   },
   draftAttachmentsSection: {
     backgroundColor: '#ffffff',

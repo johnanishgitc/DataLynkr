@@ -718,12 +718,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Montserrat',
     fontStyle: 'italic',
     fontWeight: '700',
-    color: '#697282',
+    color: '#FF6600',
   },
   footerCatalyst: {
     fontFamily: 'Montserrat',
     fontStyle: 'italic',
     fontWeight: '700',
-    color: '#697282',
+    color: '#000000',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { View, Pressable, Text, StyleSheet, Platform, Animated, Keyboard } from 'react-native';
@@ -89,13 +89,16 @@ export default function FooterTabBar({
     }
   };
 
-  // Scroll-based collapse: use shared value from VoucherDetailView when set, else own animation
+  // Scroll-based collapse: use scrollDirection (set by ledger/approvals screens during scroll)
+  // to drive a local translateY animation. footerCollapseValue is a legacy mechanism kept for
+  // screens like VoucherDetailView that share an Animated.Value directly.
   const { scrollDirection, footerCollapseValue } = useScroll();
   const translateY = useRef(new Animated.Value(0)).current;
 
-  // Scroll-based collapse: fire animation synchronously when scrollDirection changes (avoids useEffect delay)
+  // Always respond to scrollDirection changes with our own local animation.
+  // This ensures the footer collapses regardless of what footerCollapseValue is set to.
   const prevDirection = useRef(scrollDirection);
-  if (footerCollapseValue == null && prevDirection.current !== scrollDirection) {
+  if (prevDirection.current !== scrollDirection) {
     prevDirection.current = scrollDirection;
     if (scrollDirection === 'down') {
       Animated.timing(translateY, {
@@ -112,16 +115,11 @@ export default function FooterTabBar({
     }
   }
 
-  const baseTranslateY =
-    footerCollapseValue != null
-      ? footerCollapseValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, footerHeight],
-      })
-      : translateY;
-
   // When keyboard is open (e.g. dropdown in Ledger), hide footer so it doesn't come up
-  const tabBarTranslateY = Animated.add(baseTranslateY, keyboardOffsetY);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tabBarTranslateY = useMemo(() => {
+    return Animated.add(translateY, keyboardOffsetY);
+  }, [translateY]);
 
   // Equal flex for all tabs; padding for tap target (gaps handled by tabsRow gap)
   const getTabStyle = (_routeName: string) => ({
@@ -307,7 +305,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.white,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(211, 211, 211, 0.4)', // #d3d3d366
+    borderTopColor: '#d1d5db',
     paddingVertical: 8, // py-2 = 2 * 4 = 8px
     paddingHorizontal: 20, // px-5 = 5 * 4 = 20px
     ...Platform.select({
@@ -316,9 +314,6 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: -4 },
         shadowOpacity: 0.06,
         shadowRadius: 6,
-      },
-      android: {
-        elevation: 8,
       },
     }),
   },

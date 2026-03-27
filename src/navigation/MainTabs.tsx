@@ -21,6 +21,7 @@ import SummaryIcon from '../components/footer-icons/SummaryIcon';
 import StockFooterIcon from '../components/footer-icons/StockFooterIcon';
 import { StatusBarTopBar } from '../components/StatusBarTopBar';
 import { AppSidebar } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { resetNavigationOnCompanyChange } from './companyChangeNavigation';
 import { navigationRef } from './navigationRef';
@@ -62,6 +63,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 function NoAccessScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const onSidebarItemPress = useCallback(
@@ -99,6 +101,7 @@ function NoAccessScreen() {
         onItemPress={onSidebarItemPress}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
     </View>
   );
 }

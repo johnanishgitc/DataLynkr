@@ -147,6 +147,8 @@ export type OrdersStackParamList = {
     viewOnly?: boolean;
     /** Place-order access-control permissions passed from OrderEntry */
     permissions?: import('../hooks/useUserAccess').PlaceOrderPermissions;
+    /** True when item details opened from Quick Order (draft mode). */
+    isQuickOrder?: boolean;
     /** Default godown from Edit details (applies to all items in item details). */
     defaultGodown?: string;
   };
@@ -158,13 +160,15 @@ export type OrdersStackParamList = {
     lastVchId?: string | null;
     /** True when order was placed from draft mode; New Order / back should return to cleared draft mode. */
     fromDraftMode?: boolean;
+    /** True when success screen was reached from Approvals -> Update Order flow. */
+    fromApprovalUpdate?: boolean;
   };
   AddCustomer: undefined;
   ComingSoon: { tab_name: string };
 };
 
 export type ApprovalsStackParamList = {
-  ApprovalsScreen: undefined;
+  ApprovalsScreen: { refreshToken?: number } | undefined;
   /** Voucher detail within Approvals tab so back returns to Approvals (shared component with Ledger). */
   VoucherDetailView: {
     voucher: object;

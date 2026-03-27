@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Image, Keyboard, Modal, PermissionsAndroid, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, findNodeHandle } from 'react-native';
+import { Alert, BackHandler, FlatList, Image, Keyboard, Modal, PermissionsAndroid, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, findNodeHandle } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Geolocation from 'react-native-geolocation-service';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { StatusBarTopBar } from '../components/StatusBarTopBar';
 import type { OrdersStackParamList } from '../navigation/types';
 import { apiService } from '../api';
@@ -27,6 +28,15 @@ type CountryItem = {
   stateProvinces?: CountryStateItem[];
 };
 
+type BankDetailsItem = {
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  swiftCode: string;
+  paymentFavoring: string;
+  defaultTransactionType: string;
+};
+
 type FormState = {
   // Step 1
   masterName: string;
@@ -42,6 +52,7 @@ type FormState = {
   contactPerson: string;
   emailId: string;
   phoneNumber: string;
+  countryCode: string;
   isDefaultWhatsApp: boolean;
   taxIdentificationType: string;
   gstNumber: string;
@@ -94,20 +105,21 @@ const initialForm: FormState = {
   contactPerson: '',
   emailId: '',
   phoneNumber: '',
+  countryCode: '91',
   isDefaultWhatsApp: false,
   taxIdentificationType: '',
   gstNumber: '',
   panNumber: '',
   narration: '',
   description: '',
-  maintainBillByBill: true,
+  maintainBillByBill: false,
   defaultCreditPeriod: '',
   checkCreditDaysDuringVoucherEntry: false,
-  specifyCreditLimit: true,
+  specifyCreditLimit: false,
   creditLimitAmount: '',
   overrideCreditLimitUsingPdc: false,
   inventoryValuesAffected: false,
-  priceLevelApplicable: true,
+  priceLevelApplicable: false,
   priceLevel: '',
   registrationType: '',
   assesseeOfOtherTerritory: 'No',
@@ -127,10 +139,11 @@ const initialForm: FormState = {
   bankName: '',
   swiftCode: '',
   paymentFavoring: '',
-  defaultTransactionType: 'Inter Bank Transfer',
+  defaultTransactionType: '',
 };
 
 const taxOptions = ['PAN Number', 'GST Number'];
+const DEFAULT_TRANSACTION_TYPE_OPTIONS = ['Inter Bank Transfer', 'Intra Bank Transfer', 'RTGS', 'NEFT', 'IMPS', 'UPI'];
 const COUNTRY_STATE_DATA = countryStateData as CountryItem[];
 
 export default function MasterCreation() {
@@ -139,6 +152,7 @@ export default function MasterCreation() {
   const [step, setStep] = useState<MasterStep>(1);
   const scrollRef = useRef<ScrollView>(null);
   const [form, setForm] = useState<FormState>(initialForm);
+  const [additionalBankDetails, setAdditionalBankDetails] = useState<BankDetailsItem[]>([]);
   const [taxDropdownOpen, setTaxDropdownOpen] = useState(false);
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
@@ -157,13 +171,17 @@ export default function MasterCreation() {
   const [enterpriseTypeDropdownOpen, setEnterpriseTypeDropdownOpen] = useState(false);
   const [activityTypeDropdownOpen, setActivityTypeDropdownOpen] = useState(false);
   const [bankNameDropdownOpen, setBankNameDropdownOpen] = useState(false);
+  const [extraBankNameDropdownIndex, setExtraBankNameDropdownIndex] = useState<number | null>(null);
+  const [defaultTxnTypeDropdownOpen, setDefaultTxnTypeDropdownOpen] = useState(false);
+  const [extraDefaultTxnDropdownIndex, setExtraDefaultTxnDropdownIndex] = useState<number | null>(null);
   const [groupSearch, setGroupSearch] = useState('');
-  const [taxSearch, setTaxSearch] = useState('');
   const [priceLevelSearch, setPriceLevelSearch] = useState('');
   const [enterpriseTypeSearch, setEnterpriseTypeSearch] = useState('');
   const [activityTypeSearch, setActivityTypeSearch] = useState('');
   const [deducteeTypeSearch, setDeducteeTypeSearch] = useState('');
   const [bankNameSearch, setBankNameSearch] = useState('');
+  const [gstCursorPos, setGstCursorPos] = useState(0);
+  const [panCursorPos, setPanCursorPos] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [groupNames, setGroupNames] = useState<string[]>([]);
   const [priceLevelNames, setPriceLevelNames] = useState<string[]>([]);
@@ -175,6 +193,7 @@ export default function MasterCreation() {
   const [aliasDupState, setAliasDupState] = useState<DuplicateState>('idle');
   const [masterNameCanProceed, setMasterNameCanProceed] = useState(true);
   const [aliasCanProceed, setAliasCanProceed] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [masterNameBubble, setMasterNameBubble] = useState<{ text: string; type: BubbleType } | null>(null);
   const [aliasBubble, setAliasBubble] = useState<{ text: string; type: BubbleType } | null>(null);
   const requestSeqRef = useRef({ masterName: 0, alias: 0 });
@@ -186,11 +205,14 @@ export default function MasterCreation() {
   const activityTypeFieldRef = useRef<View>(null);
   const bankNameFieldRef = useRef<View>(null);
 
-  const panFromGst = useMemo(() => {
-    const gst = form.gstNumber.trim().toUpperCase();
-    if (gst.length >= 10) return gst.slice(2, 12);
-    return '';
-  }, [form.gstNumber]);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
+    const t1 = setTimeout(() => SystemNavigationBar.setNavigationColor('#ffffff', 'dark'), 100);
+    const t2 = setTimeout(() => SystemNavigationBar.setNavigationColor('#ffffff', 'dark'), 350);
+    const t3 = setTimeout(() => SystemNavigationBar.setNavigationColor('#ffffff', 'dark'), 700);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,15 +303,41 @@ export default function MasterCreation() {
     if (!q) return bankNames;
     return bankNames.filter((name) => name.toLowerCase().includes(q));
   }, [bankNameSearch, bankNames]);
-  const filteredTaxOptions = useMemo(() => {
-    const q = taxSearch.trim().toLowerCase();
-    if (!q) return taxOptions;
-    return taxOptions.filter((name) => name.toLowerCase().includes(q));
-  }, [taxSearch]);
+  const defaultTxnTypeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return DEFAULT_TRANSACTION_TYPE_OPTIONS.filter((item) => {
+      const key = item.trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, []);
+  const selectedTaxType = form.taxIdentificationType.trim().toLowerCase();
+  const isGstTypeSelected = selectedTaxType === 'gst number';
+  const isPanTypeSelected = selectedTaxType === 'pan number';
+  const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+  const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+  const gstPanPart = form.gstNumber.trim().toUpperCase().slice(2, 12);
+  const gstIsInvalid = form.gstNumber.trim().length > 0 && !gstRegex.test(form.gstNumber.trim().toUpperCase());
+  const panIsInvalid = isPanTypeSelected && form.panNumber.trim().length > 0 && !panRegex.test(form.panNumber.trim().toUpperCase());
+  const gstNumericPositions = new Set([0, 1, 7, 8, 9, 10]);
+  const panNumericPositions = new Set([5, 6, 7, 8]);
+  const gstKeyboardType: 'default' | 'number-pad' =
+    gstCursorPos < 15 && gstNumericPositions.has(gstCursorPos) ? 'number-pad' : 'default';
+  const panKeyboardType: 'default' | 'number-pad' =
+    panCursorPos < 10 && panNumericPositions.has(panCursorPos) ? 'number-pad' : 'default';
 
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
+  const setAdditionalBankField = <K extends keyof BankDetailsItem>(index: number, key: K, value: BankDetailsItem[K]) => {
+    setAdditionalBankDetails((prev) => prev.map((item, i) => (i === index ? { ...item, [key]: value } : item)));
+  };
+
+  useEffect(() => {
+    if (!isGstTypeSelected) return;
+    setForm((prev) => ({ ...prev, panNumber: prev.gstNumber.trim().toUpperCase().slice(2, 12) }));
+  }, [isGstTypeSelected, form.gstNumber]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -303,7 +351,18 @@ export default function MasterCreation() {
   }, []);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardVisible(true);
+      const focusedInput =
+        typeof TextInput.State?.currentlyFocusedInput === 'function' ? TextInput.State.currentlyFocusedInput() : null;
+      const scrollResponder = scrollRef.current as unknown as {
+        scrollResponderScrollNativeHandleToKeyboard?: (nodeHandle: unknown, additionalOffset?: number, preventNegativeScrollOffset?: boolean) => void;
+      } | null;
+      if (!focusedInput || !scrollResponder?.scrollResponderScrollNativeHandleToKeyboard) return;
+      setTimeout(() => {
+        scrollResponder.scrollResponderScrollNativeHandleToKeyboard?.(focusedInput, 140, true);
+      }, 50);
+    });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
     return () => {
       showSub.remove();
@@ -473,7 +532,7 @@ export default function MasterCreation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.alias]);
 
-  const isSubmitDisabled = !masterNameCanProceed || !aliasCanProceed;
+  const isSubmitDisabled = !masterNameCanProceed || !aliasCanProceed || isSaving;
 
   const clearCurrentStep = () => {
     if (step === 1) {
@@ -492,6 +551,7 @@ export default function MasterCreation() {
         contactPerson: '',
         emailId: '',
         phoneNumber: '',
+        countryCode: '91',
         isDefaultWhatsApp: false,
         taxIdentificationType: '',
         gstNumber: '',
@@ -504,14 +564,14 @@ export default function MasterCreation() {
         ...prev,
         narration: '',
         description: '',
-        maintainBillByBill: true,
+        maintainBillByBill: false,
         defaultCreditPeriod: '',
         checkCreditDaysDuringVoucherEntry: false,
-        specifyCreditLimit: true,
+        specifyCreditLimit: false,
         creditLimitAmount: '',
         overrideCreditLimitUsingPdc: false,
         inventoryValuesAffected: false,
-        priceLevelApplicable: true,
+        priceLevelApplicable: false,
         priceLevel: '',
         registrationType: '',
         assesseeOfOtherTerritory: 'No',
@@ -536,8 +596,9 @@ export default function MasterCreation() {
       bankName: '',
       swiftCode: '',
       paymentFavoring: '',
-      defaultTransactionType: 'Inter Bank Transfer',
+      defaultTransactionType: '',
     }));
+    setAdditionalBankDetails([]);
   };
 
   const onHeaderBack = () => {
@@ -547,6 +608,147 @@ export default function MasterCreation() {
     }
     navigation.goBack();
   };
+
+  const yesNo = (value: boolean) => (value ? 'Yes' : 'No') as 'Yes' | 'No';
+  const toYesNoFromString = (value: string) => (value.trim().toLowerCase() === 'yes' ? 'Yes' : 'No') as 'Yes' | 'No';
+  const sanitizeIfsc = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 11);
+  const sanitizeSwift = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 11);
+
+  const handleSave = async () => {
+    if (isSaving) return;
+    try {
+      setIsSaving(true);
+      const [tallyloc_id, company, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+      if (!tallyloc_id || !company || !guid) {
+        Alert.alert('Save', 'Missing company connection details.');
+        return;
+      }
+
+      const languageNames = [form.masterName.trim(), form.alias.trim()].filter(Boolean);
+      const formattedAddress = form.address
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join('|');
+      const creditLimitNumber = Number(form.creditLimitAmount);
+      const creditLimit = Number.isFinite(creditLimitNumber) && form.creditLimitAmount.trim() !== '' ? creditLimitNumber.toFixed(2) : '';
+
+      const paymentBlocks: BankDetailsItem[] = [
+        {
+          accountNumber: form.accountNumber,
+          ifscCode: form.ifscCode,
+          bankName: form.bankName,
+          swiftCode: form.swiftCode,
+          paymentFavoring: form.paymentFavoring,
+          defaultTransactionType: form.defaultTransactionType,
+        },
+        ...additionalBankDetails,
+      ];
+
+      const paymentDetails = paymentBlocks
+        .filter((b) => [b.accountNumber, b.ifscCode, b.bankName, b.swiftCode, b.paymentFavoring, b.defaultTransactionType].some((v) => v.trim().length > 0))
+        .map((b, index) => ({
+          ifscCode: b.ifscCode.trim(),
+          swiftCode: b.swiftCode.trim(),
+          accountNumber: b.accountNumber.trim(),
+          paymentFavouring: b.paymentFavoring.trim(),
+          transactionName: index === 0 ? 'Primary' : 'Secondary',
+          bankId: b.bankName.trim(),
+          defaultTransactionType: b.defaultTransactionType.trim(),
+        }));
+
+      const msmeDetails =
+        form.setAlterMsmeRegistrationDetails.trim().toLowerCase() === 'yes'
+          ? [
+              {
+                enterpriseType: form.typeOfEnterprise.trim(),
+                udyamRegNumber: form.udyamRegistrationNumber.trim(),
+                msmeActivityType: form.activityType.trim(),
+              },
+            ]
+          : [];
+
+      const gstRegDetails =
+        form.registrationType.trim() || form.gstNumber.trim()
+          ? [
+              {
+                gstRegistrationType: form.registrationType.trim(),
+                gstin: form.gstNumber.trim(),
+              },
+            ]
+          : [];
+
+      const phone = form.phoneNumber.trim();
+      const payload = {
+        tallyloc_id,
+        company,
+        guid,
+        ledgerData: {
+          name: form.masterName.trim(),
+          languageNames,
+          group: form.group.trim(),
+          isBillWiseOn: yesNo(form.maintainBillByBill),
+          billCreditPeriod: form.defaultCreditPeriod.trim(),
+          isCreditDaysChkOn: yesNo(form.checkCreditDaysDuringVoucherEntry),
+          creditLimit,
+          overrideCreditLimit: yesNo(form.overrideCreditLimitUsingPdc),
+          affectsStock: yesNo(form.inventoryValuesAffected),
+          isCostCentresOn: 'No' as const,
+          isTdsApplicable: toYesNoFromString(form.isTdsDeductable),
+          tdsDeducteeType: form.deducteeType.trim(),
+          natureOfPayment: form.natureOfPayment.trim(),
+          address: formattedAddress,
+          pincode: form.pincode.trim(),
+          priorStateName: form.state.trim(),
+          stateName: form.state.trim(),
+          countryOfResidence: form.country.trim(),
+          mailingName: form.masterName.trim(),
+          contactPerson: form.contactPerson.trim(),
+          phoneNo: phone,
+          ...(phone ? { countryISDCode: `+${(form.countryCode || '').replace(/\D/g, '') || '91'}` } : {}),
+          mobileNo: phone,
+          email: form.emailId.trim(),
+          emailCC: '',
+          panNo: form.panNumber.trim(),
+          nameOnPan: form.masterName.trim(),
+          gstinNo: form.gstNumber.trim(),
+          priceLevel: form.priceLevelApplicable ? form.priceLevel.trim() : '',
+          narration: form.narration.trim(),
+          description: form.description.trim(),
+          doclist: { documents: [] as string[] },
+          paymentDetails,
+          msmeDetails,
+          gstRegDetails,
+        },
+      };
+
+      console.log('[MasterCreation][ledger-create] Full payload:', JSON.stringify(payload, null, 2));
+      const { data } = await apiService.createLedger(payload);
+      if (data?.success === true) {
+        Alert.alert('Save', data?.message || 'Ledger created successfully.');
+        navigation.goBack();
+        return;
+      }
+      Alert.alert('Save', data?.message || 'Failed to create ledger.');
+    } catch (e: any) {
+      Alert.alert('Save', e?.message || 'Failed to create ledger.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (step > 1) {
+        setStep((prev) => (prev - 1) as MasterStep);
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [step]);
+
 
   const renderStepOne = () => (
     <>
@@ -598,6 +800,7 @@ export default function MasterCreation() {
         placeholder="Latitude, Longitude"
         value={form.coordinates}
         onChangeText={(v) => setField('coordinates', v)}
+        editable={false}
       />
       <View style={styles.row}>
         <View style={[styles.fieldWrap, styles.halfField]}>
@@ -646,13 +849,30 @@ export default function MasterCreation() {
         onChangeText={(v) => setField('emailId', v)}
         keyboardType="email-address"
       />
-      <Field
-        label="Phone Number"
-        placeholder="Enter phone number"
-        value={form.phoneNumber}
-        onChangeText={(v) => setField('phoneNumber', v.replace(/\D/g, '').slice(0, 10))}
-        keyboardType="phone-pad"
-      />
+      <View style={styles.fieldWrap}>
+        <Text style={styles.label}>Phone Number</Text>
+        <View style={styles.phoneRow}>
+          <View style={[styles.input, styles.countryCodeBox]}>
+            <Text style={styles.countryCodePlus}>+</Text>
+            <TextInput
+              style={styles.countryCodeInput}
+              value={form.countryCode}
+              onChangeText={(v) => setField('countryCode', v.replace(/\D/g, '').slice(0, 4))}
+              keyboardType="phone-pad"
+              placeholder="91"
+              placeholderTextColor="#6a7282"
+            />
+          </View>
+          <TextInput
+            style={[styles.input, styles.phoneNumberInput]}
+            placeholder="Enter phone number"
+            placeholderTextColor="#6a7282"
+            value={form.phoneNumber}
+            onChangeText={(v) => setField('phoneNumber', v.replace(/\D/g, '').slice(0, 15))}
+            keyboardType="phone-pad"
+          />
+        </View>
+      </View>
 
       <View style={styles.whatsappRow}>
         <Switch value={form.isDefaultWhatsApp} onValueChange={(v) => setField('isDefaultWhatsApp', v)} />
@@ -661,28 +881,75 @@ export default function MasterCreation() {
 
       <View style={styles.fieldWrap}>
         <Text style={styles.label}>Tax Identification Type</Text>
-        <TouchableOpacity style={styles.input} onPress={() => setTaxDropdownOpen(true)} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.selectBoxLikeExpense} onPress={() => setTaxDropdownOpen((prev) => !prev)} activeOpacity={0.8}>
           <Text style={[styles.inputText, !form.taxIdentificationType && styles.placeholder]}>
             {form.taxIdentificationType || 'Select Tax Type'}
           </Text>
-          <Icon name="chevron-down" size={18} color="#6a7282" />
+          <Icon name={taxDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
         </TouchableOpacity>
+        {taxDropdownOpen && (
+          <View style={styles.inlineDropdownLikeExpense}>
+            {taxOptions.map((option) => (
+              <TouchableOpacity
+                key={option}
+                style={styles.inlineDropdownItemLikeExpense}
+                onPress={() => {
+                  setField('taxIdentificationType', option);
+                  setTaxDropdownOpen(false);
+                }}
+              >
+                <Text style={styles.inlineDropdownItemTextLikeExpense}>{option}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
-      <Field
-        label="GST Number"
-        placeholder="22ABCDE12341Z5"
-        value={form.gstNumber}
-        onChangeText={(v) => setField('gstNumber', v.toUpperCase())}
-        autoCapitalize="characters"
-      />
-      <Field
-        label="PAN Number (Auto filled from GST)"
-        placeholder="Will be auto-filled from GST"
-        value={form.panNumber || panFromGst}
-        onChangeText={(v) => setField('panNumber', v.toUpperCase())}
-        autoCapitalize="characters"
-      />
+      {isGstTypeSelected ? (
+        <>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>GST Number</Text>
+            <TextInput
+              style={[styles.input, gstIsInvalid && styles.invalidInput]}
+              placeholder="22ABCDE1234A1Z5"
+              placeholderTextColor="#6a7282"
+              value={form.gstNumber}
+              maxLength={15}
+              autoCapitalize="characters"
+              keyboardType={gstKeyboardType}
+              onSelectionChange={(e) => setGstCursorPos(e.nativeEvent.selection.start)}
+              onChangeText={(v) => setField('gstNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            />
+          </View>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>PAN Number (Auto filled from GST)</Text>
+            <TextInput
+              style={[styles.input, gstIsInvalid && styles.invalidInput, styles.readOnlyInput]}
+              placeholder="Will be auto-filled from GST"
+              placeholderTextColor="#6a7282"
+              value={gstPanPart}
+              editable={false}
+              selectTextOnFocus={false}
+            />
+          </View>
+        </>
+      ) : null}
+      {isPanTypeSelected ? (
+        <View style={styles.fieldWrap}>
+          <Text style={styles.label}>PAN Number</Text>
+          <TextInput
+            style={[styles.input, panIsInvalid && styles.invalidInput]}
+            placeholder="ABCDE1234F"
+            placeholderTextColor="#6a7282"
+            value={form.panNumber}
+            maxLength={10}
+            autoCapitalize="characters"
+            keyboardType={panKeyboardType}
+            onSelectionChange={(e) => setPanCursorPos(e.nativeEvent.selection.start)}
+            onChangeText={(v) => setField('panNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+          />
+        </View>
+      ) : null}
     </>
   );
 
@@ -703,6 +970,7 @@ export default function MasterCreation() {
             placeholder="Enter credit period (e.g., 30 days)"
             value={form.defaultCreditPeriod}
             onChangeText={(v) => setField('defaultCreditPeriod', v)}
+            keyboardType="number-pad"
           />
           <CheckRow
             label="Check for credit days during voucher entry"
@@ -724,6 +992,7 @@ export default function MasterCreation() {
             placeholder="Enter credit limit amount"
             value={form.creditLimitAmount}
             onChangeText={(v) => setField('creditLimitAmount', v)}
+            keyboardType="number-pad"
           />
 
           <CheckRow
@@ -744,7 +1013,6 @@ export default function MasterCreation() {
         checked={form.priceLevelApplicable}
         onToggle={() => setField('priceLevelApplicable', !form.priceLevelApplicable)}
       />
-
       {form.priceLevelApplicable ? (
         <View ref={priceLevelFieldRef} style={styles.fieldWrap}>
           <Text style={styles.label}>Price Level</Text>
@@ -1026,9 +1294,38 @@ export default function MasterCreation() {
 
   const renderStepThree = () => (
     <>
-      <Text style={styles.sectionTitle}>Bank Details</Text>
+      <View style={styles.bankHeadingRow}>
+        <Text style={styles.sectionTitle}>{additionalBankDetails.length > 0 ? 'Bank Details #1' : 'Bank Details'}</Text>
+        {additionalBankDetails.length > 0 ? (
+          <TouchableOpacity
+            onPress={() => {
+              const [first, ...rest] = additionalBankDetails;
+              if (!first) return;
+              setForm((prev) => ({
+                ...prev,
+                accountNumber: first.accountNumber,
+                ifscCode: first.ifscCode,
+                bankName: first.bankName,
+                swiftCode: first.swiftCode,
+                paymentFavoring: first.paymentFavoring,
+                defaultTransactionType: first.defaultTransactionType,
+              }));
+              setAdditionalBankDetails(rest);
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.removeBankText}>Remove</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
       <Field label="Account Number" placeholder="Enter account number" value={form.accountNumber} onChangeText={(v) => setField('accountNumber', v)} />
-      <Field label="IFSC Code" placeholder="Enter IFSC code" value={form.ifscCode} onChangeText={(v) => setField('ifscCode', v.toUpperCase())} />
+      <Field
+        label="IFSC Code"
+        placeholder="Enter IFSC code"
+        value={form.ifscCode}
+        onChangeText={(v) => setField('ifscCode', sanitizeIfsc(v))}
+        autoCapitalize="characters"
+      />
       <View ref={bankNameFieldRef} style={styles.fieldWrap}>
         <Text style={styles.label}>Bank Name</Text>
         <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setBankNameDropdownOpen(true)}>
@@ -1036,19 +1333,146 @@ export default function MasterCreation() {
           <Icon name="chevron-down" size={18} color="#6a7282" />
         </TouchableOpacity>
       </View>
-      <Field label="SWIFT Code" placeholder="Enter SWIFT code" value={form.swiftCode} onChangeText={(v) => setField('swiftCode', v.toUpperCase())} />
+      <Field
+        label="SWIFT Code"
+        placeholder="Enter SWIFT code"
+        value={form.swiftCode}
+        onChangeText={(v) => setField('swiftCode', sanitizeSwift(v))}
+        autoCapitalize="characters"
+      />
       <Field
         label="Payment Favoring"
         placeholder="Enter payment favoring name"
         value={form.paymentFavoring}
         onChangeText={(v) => setField('paymentFavoring', v)}
       />
-      <Field
-        label="Default Transaction Type"
-        placeholder="Inter Bank Transfer"
-        value={form.defaultTransactionType}
-        onChangeText={(v) => setField('defaultTransactionType', v)}
-      />
+      <View style={styles.fieldWrap}>
+        <Text style={styles.label}>Default Transaction Type</Text>
+        <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setDefaultTxnTypeDropdownOpen((v) => !v)}>
+          <Text style={[styles.inputText, !form.defaultTransactionType && styles.placeholder]}>
+            {form.defaultTransactionType || 'Select default transaction type'}
+          </Text>
+          <Icon name={defaultTxnTypeDropdownOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#6a7282" />
+        </TouchableOpacity>
+        {defaultTxnTypeDropdownOpen && (
+          <View style={styles.inlineDropdownLikeExpense}>
+            {defaultTxnTypeOptions.map((item) => (
+              <TouchableOpacity
+                key={item}
+                style={styles.inlineDropdownItemLikeExpense}
+                onPress={() => {
+                  setField('defaultTransactionType', item);
+                  setDefaultTxnTypeDropdownOpen(false);
+                }}
+              >
+                <Text style={styles.inlineDropdownItemTextLikeExpense}>{item}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+      {additionalBankDetails.map((bank, index) => (
+        <View key={`extra-bank-${index}`} style={styles.extraBankWrap}>
+          <View style={styles.bankHeadingRow}>
+            <Text style={styles.sectionTitle}>Bank Details #{index + 2}</Text>
+            <TouchableOpacity
+              onPress={() => setAdditionalBankDetails((prev) => prev.filter((_, i) => i !== index))}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.removeBankText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+          <Field
+            label="Account Number"
+            placeholder="Enter account number"
+            value={bank.accountNumber}
+            onChangeText={(v) => setAdditionalBankField(index, 'accountNumber', v)}
+          />
+          <Field
+            label="IFSC Code"
+            placeholder="Enter IFSC code"
+            value={bank.ifscCode}
+            onChangeText={(v) => setAdditionalBankField(index, 'ifscCode', sanitizeIfsc(v))}
+            autoCapitalize="characters"
+          />
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Bank Name</Text>
+            <TouchableOpacity
+              style={styles.input}
+              activeOpacity={0.8}
+              onPress={() => {
+                setExtraBankNameDropdownIndex(index);
+                setBankNameDropdownOpen(true);
+              }}
+            >
+              <Text style={[styles.inputText, !bank.bankName && styles.placeholder]}>{bank.bankName || 'Select Bank Name'}</Text>
+              <Icon name="chevron-down" size={18} color="#6a7282" />
+            </TouchableOpacity>
+          </View>
+          <Field
+            label="SWIFT Code"
+            placeholder="Enter SWIFT code"
+            value={bank.swiftCode}
+            onChangeText={(v) => setAdditionalBankField(index, 'swiftCode', sanitizeSwift(v))}
+            autoCapitalize="characters"
+          />
+          <Field
+            label="Payment Favoring"
+            placeholder="Enter payment favoring name"
+            value={bank.paymentFavoring}
+            onChangeText={(v) => setAdditionalBankField(index, 'paymentFavoring', v)}
+          />
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Default Transaction Type</Text>
+            <TouchableOpacity
+              style={styles.input}
+              activeOpacity={0.8}
+              onPress={() => setExtraDefaultTxnDropdownIndex((prev) => (prev === index ? null : index))}
+            >
+              <Text style={[styles.inputText, !bank.defaultTransactionType && styles.placeholder]}>
+                {bank.defaultTransactionType || 'Select default transaction type'}
+              </Text>
+              <Icon name={extraDefaultTxnDropdownIndex === index ? 'chevron-up' : 'chevron-down'} size={18} color="#6a7282" />
+            </TouchableOpacity>
+            {extraDefaultTxnDropdownIndex === index && (
+              <View style={styles.inlineDropdownLikeExpense}>
+                {defaultTxnTypeOptions.map((item) => (
+                  <TouchableOpacity
+                    key={`${index}-${item}`}
+                    style={styles.inlineDropdownItemLikeExpense}
+                    onPress={() => {
+                      setAdditionalBankField(index, 'defaultTransactionType', item);
+                      setExtraDefaultTxnDropdownIndex(null);
+                    }}
+                  >
+                    <Text style={styles.inlineDropdownItemTextLikeExpense}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+      ))}
+      <TouchableOpacity
+        style={styles.addBankDetailsButton}
+        activeOpacity={0.85}
+        onPress={() =>
+          setAdditionalBankDetails((prev) => [
+            ...prev,
+            {
+              accountNumber: '',
+              ifscCode: '',
+              bankName: '',
+              swiftCode: '',
+              paymentFavoring: '',
+              defaultTransactionType: '',
+            },
+          ])
+        }
+      >
+        <Icon name="plus" size={18} color="#1e488f" />
+        <Text style={styles.addBankDetailsButtonText}>Add Bank Details</Text>
+      </TouchableOpacity>
     </>
   );
 
@@ -1080,12 +1504,24 @@ export default function MasterCreation() {
         <TouchableOpacity
           style={[styles.saveButton, isSubmitDisabled && styles.saveButtonDisabled]}
           activeOpacity={0.8}
-          onPress={() => navigation.goBack()}
+          onPress={handleSave}
           disabled={isSubmitDisabled}
         >
-          <Text style={styles.saveButtonText}>Save</Text>
+          <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
         </TouchableOpacity>
       </ScrollView>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: insets.bottom,
+          height: 1,
+          backgroundColor: '#d1d5db',
+        }}
+      />
+
       <Modal
         visible={countryDropdownOpen}
         transparent
@@ -1135,6 +1571,7 @@ export default function MasterCreation() {
                   style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
                   onPress={() => {
                     setField('country', item.name ?? '');
+                    setField('countryCode', String(item.phone ?? '91').replace(/\D/g, '') || '91');
                     setField('state', '');
                     setCountryDropdownOpen(false);
                     setCountrySearch('');
@@ -1238,41 +1675,6 @@ export default function MasterCreation() {
               ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('group', item); setGroupDropdownOpen(false); setGroupSearch(''); }}>
-                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
-      <Modal
-        visible={taxDropdownOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setTaxDropdownOpen(false);
-          setTaxSearch('');
-        }}
-      >
-        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setTaxDropdownOpen(false); setTaxSearch(''); }}>
-          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
-            <View style={sharedStyles.modalHeaderRow}>
-              <Text style={sharedStyles.modalHeaderTitle}>Select Tax Type</Text>
-              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setTaxDropdownOpen(false); setTaxSearch(''); }}>
-                <Icon name="close" size={22} color="#ffffff" />
-              </TouchableOpacity>
-            </View>
-            <View style={sharedStyles.modalSearchRow}>
-              <TextInput style={sharedStyles.modalSearchInput} placeholder="Search tax type..." placeholderTextColor="#6a7282" value={taxSearch} onChangeText={setTaxSearch} />
-              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
-            </View>
-            <FlatList
-              data={filteredTaxOptions}
-              keyExtractor={(item) => item}
-              keyboardShouldPersistTaps="handled"
-              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('taxIdentificationType', item); setTaxDropdownOpen(false); setTaxSearch(''); }}>
                   <Text style={sharedStyles.modalOptTxt}>{item}</Text>
                 </TouchableOpacity>
               )}
@@ -1427,13 +1829,29 @@ export default function MasterCreation() {
         onRequestClose={() => {
           setBankNameDropdownOpen(false);
           setBankNameSearch('');
+          setExtraBankNameDropdownIndex(null);
         }}
       >
-        <TouchableOpacity style={sharedStyles.modalOverlay} activeOpacity={1} onPress={() => { setBankNameDropdownOpen(false); setBankNameSearch(''); }}>
+        <TouchableOpacity
+          style={sharedStyles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setBankNameDropdownOpen(false);
+            setBankNameSearch('');
+            setExtraBankNameDropdownIndex(null);
+          }}
+        >
           <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
             <View style={sharedStyles.modalHeaderRow}>
               <Text style={sharedStyles.modalHeaderTitle}>Select Bank Name</Text>
-              <TouchableOpacity style={sharedStyles.modalHeaderClose} onPress={() => { setBankNameDropdownOpen(false); setBankNameSearch(''); }}>
+              <TouchableOpacity
+                style={sharedStyles.modalHeaderClose}
+                onPress={() => {
+                  setBankNameDropdownOpen(false);
+                  setBankNameSearch('');
+                  setExtraBankNameDropdownIndex(null);
+                }}
+              >
                 <Icon name="close" size={22} color="#ffffff" />
               </TouchableOpacity>
             </View>
@@ -1447,7 +1865,19 @@ export default function MasterCreation() {
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
               renderItem={({ item }) => (
-                <TouchableOpacity style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]} onPress={() => { setField('bankName', item); setBankNameDropdownOpen(false); setBankNameSearch(''); }}>
+                <TouchableOpacity
+                  style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
+                  onPress={() => {
+                    if (extraBankNameDropdownIndex !== null) {
+                      setAdditionalBankField(extraBankNameDropdownIndex, 'bankName', item);
+                    } else {
+                      setField('bankName', item);
+                    }
+                    setBankNameDropdownOpen(false);
+                    setBankNameSearch('');
+                    setExtraBankNameDropdownIndex(null);
+                  }}
+                >
                   <Text style={sharedStyles.modalOptTxt}>{item}</Text>
                 </TouchableOpacity>
               )}
@@ -1458,6 +1888,23 @@ export default function MasterCreation() {
     </View>
   );
 }
+
+function MasterCreationScreen() {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={{ flex: 1 }}>
+      <MasterCreation />
+      {Platform.OS === 'android' && insets.bottom > 0 && (
+        <View
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: insets.bottom, backgroundColor: '#ffffff' }}
+          pointerEvents="none"
+        />
+      )}
+    </View>
+  );
+}
+
+export { MasterCreationScreen };
 
 type FieldProps = {
   label: string;
@@ -1471,6 +1918,7 @@ type FieldProps = {
   half?: boolean;
   status?: DuplicateState;
   bubble?: { text: string; type: BubbleType } | null;
+  editable?: boolean;
 };
 
 function Field({
@@ -1485,6 +1933,7 @@ function Field({
   half = false,
   status = 'idle',
   bubble = null,
+  editable = true,
 }: FieldProps) {
   const showStatusIcon = status === 'ok' || status === 'duplicate';
   return (
@@ -1503,6 +1952,7 @@ function Field({
           multiline={multiline}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          editable={editable}
         />
         {showStatusIcon && !multiline ? (
           <View style={styles.statusIconWrap}>
@@ -1579,6 +2029,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputText: { color: '#0e172b', fontSize: 15, fontFamily: 'Roboto' },
+  invalidInput: { borderColor: '#dc2626' },
+  readOnlyInput: { backgroundColor: '#f8fafc' },
   inputWrap: { position: 'relative' },
   statusIconWrap: { position: 'absolute', right: 12, top: 13 },
   inputWithStatus: { paddingRight: 40 },
@@ -1714,6 +2166,66 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     fontSize: 14,
     color: '#1e488f',
+    fontWeight: '600',
+  },
+  addBankDetailsButton: {
+    marginTop: 6,
+    height: 42,
+    borderWidth: 1,
+    borderColor: '#c8d6ea',
+    borderRadius: 6,
+    backgroundColor: '#eef4ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  addBankDetailsButtonText: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: '#1e488f',
+    fontWeight: '600',
+  },
+  extraBankWrap: {
+    marginTop: 12,
+  },
+  bankHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  countryCodeBox: {
+    width: 86,
+    minHeight: 44,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  countryCodePlus: {
+    fontFamily: 'Roboto',
+    fontSize: 15,
+    color: '#0e172b',
+    marginRight: 4,
+  },
+  countryCodeInput: {
+    flex: 1,
+    fontFamily: 'Roboto',
+    fontSize: 15,
+    color: '#0e172b',
+    padding: 0,
+  },
+  phoneNumberInput: {
+    flex: 1,
+  },
+  removeBankText: {
+    fontFamily: 'Roboto',
+    fontSize: 13,
+    color: '#d12f2f',
     fontWeight: '600',
   },
   countryRow: { flexDirection: 'row', alignItems: 'center' },

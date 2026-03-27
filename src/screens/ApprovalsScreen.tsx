@@ -17,6 +17,7 @@ import {
     UIManager,
     Pressable,
     Animated,
+    PanResponder,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -25,8 +26,10 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AppSidebar, SIDEBAR_MENU_APPROVALS } from '../components';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
@@ -34,7 +37,6 @@ import FilterSvg from '../assets/approvals/filter.svg';
 import SortSvg from '../assets/approvals/sort.svg';
 //import BellSvg from '../assets/approvals/bell.svg';
 //import KebabSvg from '../assets/approvals/kebab.svg';
-import CalendarSvg from '../assets/approvals/calendar.svg';
 import UserPartSvg from '../assets/approvals/user.svg';
 import BoxSvg from '../assets/approvals/box.svg';
 import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
@@ -42,25 +44,18 @@ import CloseSvg from '../assets/clipPopup/close.svg';
 import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 import { colors } from '../constants/colors';
+import { strings } from '../constants/strings';
 import { apiService, isUnauthorizedError } from '../api';
+import type { OverdueBillItem } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
 import type { Voucher } from '../api/models/voucher';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { toYyyyMmDd } from '../utils/dateUtils';
 import PeriodSelection from '../components/PeriodSelection';
+import SubmissionSuccessModal from '../components/SubmissionSuccessModal';
 import { useScroll } from '../store/ScrollContext';
-
-// Lottie animations
-const SuccessLottieSource = require('../assets/animations/Success_animation_short.json');
 const RejectedLottieSource = require('../assets/animations/Rejected_animation.json');
-
-let LottieView: React.ComponentType<{ source: object; style?: object; loop?: boolean; autoPlay?: boolean }> | null = null;
-try {
-    LottieView = require('lottie-react-native').default;
-} catch {
-    // lottie-react-native not available
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,23 +92,44 @@ function fmtDateInt(n: number): string {
 const SCROLL_UP_THRESHOLD = 10;
 
 export default function ApprovalsScreen({ navigation }: { navigation: any }) {
+    const route = useRoute<any>();
     const isTablet = Dimensions.get('window').width >= 768;
     const insets = useSafeAreaInsets();
     const { moduleAccess } = useModuleAccess();
-    const { setScrollDirection } = useScroll();
+    const { setScrollDirection, setFooterCollapseValue } = useScroll();
     const lastScrollY = useRef(0);
     const scrollDirectionRef = useRef<'up' | 'down' | null>(null);
     const bulkBarTranslateY = useRef(new Animated.Value(0)).current;
+    const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed
+    const suppressNextCardPressRef = useRef(false);
 
-    // Reset footer to visible when entering Approvals; scroll handler will update on scroll
     useEffect(() => {
-        setScrollDirection(null);
-        return () => setScrollDirection(null);
-    }, [setScrollDirection]);
+        collapseProgress.setValue(0);
+        setFooterCollapseValue(collapseProgress);
+        setScrollDirection('up');
+        const unsubscribe = navigation.addListener('focus', () => {
+            scrollDirectionRef.current = null;
+            lastScrollY.current = 0;
+            bulkBarTranslateY.setValue(0);
+            collapseProgress.setValue(0);
+            setFooterCollapseValue(collapseProgress);
+            setScrollDirection('up');
+        });
+        return () => {
+            unsubscribe();
+            setScrollDirection(null);
+            setFooterCollapseValue(null);
+        };
+    }, [navigation, setScrollDirection, setFooterCollapseValue, bulkBarTranslateY, collapseProgress]);
 
     const handleScroll = useCallback(
         (event: { nativeEvent: { contentOffset: { y: number } } }) => {
             const currentY = event.nativeEvent.contentOffset.y;
+            const shouldShowDivider = currentY > 1;
+            if (lastSearchDividerRef.current !== shouldShowDivider) {
+                lastSearchDividerRef.current = shouldShowDivider;
+                setShowSearchDivider(shouldShowDivider);
+            }
             const diff = currentY - lastScrollY.current;
             lastScrollY.current = currentY;
             let next: 'up' | 'down' | null = scrollDirectionRef.current;
@@ -126,21 +142,35 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 scrollDirectionRef.current = next;
                 setScrollDirection(next);
                 if (next === 'down') {
-                    Animated.timing(bulkBarTranslateY, {
-                        toValue: 60,
-                        duration: 250,
-                        useNativeDriver: true,
-                    }).start();
+                    Animated.parallel([
+                        Animated.timing(bulkBarTranslateY, {
+                            toValue: 60,
+                            duration: 250,
+                            useNativeDriver: true,
+                        }),
+                        Animated.timing(collapseProgress, {
+                            toValue: 1,
+                            duration: 250,
+                            useNativeDriver: true,
+                        }),
+                    ]).start();
                 } else {
-                    Animated.timing(bulkBarTranslateY, {
-                        toValue: 0,
-                        duration: 250,
-                        useNativeDriver: true,
-                    }).start();
+                    Animated.parallel([
+                        Animated.timing(bulkBarTranslateY, {
+                            toValue: 0,
+                            duration: 250,
+                            useNativeDriver: true,
+                        }),
+                        Animated.timing(collapseProgress, {
+                            toValue: 0,
+                            duration: 250,
+                            useNativeDriver: true,
+                        }),
+                    ]).start();
                 }
             }
         },
-        [setScrollDirection, bulkBarTranslateY],
+        [bulkBarTranslateY, collapseProgress, setScrollDirection],
     );
 
     // Date range – default to last 1 week (today minus 7 days → today)
@@ -187,15 +217,83 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [selectedVoucher, setSelectedVoucher] = useState<PendVchAuthItem | null>(null);
     const [voucherDetail, setVoucherDetail] = useState<Voucher | null>(null);
     const [loadingDetail, setLoadingDetail] = useState(false);
+    const [showDetailLoadingOverlay, setShowDetailLoadingOverlay] = useState(false);
     const [inventoryExpanded, setInventoryExpanded] = useState(true);
     const [ledgerExpanded, setLedgerExpanded] = useState(false);
     const [showRejectionReasonModal, setShowRejectionReasonModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [companyName, setCompanyName] = useState('DataLynkr');
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [selectedIdsByTab, setSelectedIdsByTab] = useState<Record<TabKey, Set<string>>>({
+        pending: new Set(),
+        approved: new Set(),
+        rejected: new Set(),
+    });
     const [historyVoucher, setHistoryVoucher] = useState<PendVchAuthItem | null>(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [overdueBills, setOverdueBills] = useState<OverdueBillItem[] | null>(null);
+    const [overdueBillsModalVisible, setOverdueBillsModalVisible] = useState(false);
+    const [overdueBillsLoading, setOverdueBillsLoading] = useState(false);
+    const [showSearchDivider, setShowSearchDivider] = useState(false);
     const canApproveReject = !!(moduleAccess as any).approvals_def_apprvrej;
+    const isDownloading = loading || chunkProgress !== null;
+    const lastSearchDividerRef = useRef(false);
+    const fetchRunIdRef = useRef(0);
+    const selectedIds = selectedIdsByTab[activeTab] ?? new Set<string>();
+
+    const clearSelectedForTab = useCallback((tab: TabKey) => {
+        setSelectedIdsByTab((prev) => ({
+            ...prev,
+            [tab]: new Set<string>(),
+        }));
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            // Invalidate any in-flight download loop on unmount.
+            fetchRunIdRef.current += 1;
+        };
+    }, []);
+
+    const handleTabSwitch = useCallback((nextTab: TabKey) => {
+        if (nextTab === activeTab) return;
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setActiveTab(nextTab);
+    }, [activeTab]);
+
+    const switchTabBySwipe = useCallback(
+        (direction: 'left' | 'right') => {
+            const currentIndex = TABS.findIndex((t) => t.key === activeTab);
+            if (currentIndex < 0) return;
+            const nextIndex =
+                direction === 'left'
+                    ? Math.min(TABS.length - 1, currentIndex + 1)
+                    : Math.max(0, currentIndex - 1);
+            const nextTab = TABS[nextIndex]?.key;
+            if (nextTab && nextTab !== activeTab) {
+                handleTabSwitch(nextTab);
+            }
+        },
+        [activeTab, handleTabSwitch],
+    );
+
+    const tabSwipeResponder = useMemo(
+        () =>
+            PanResponder.create({
+                onMoveShouldSetPanResponder: (_, gestureState) => {
+                    const absDx = Math.abs(gestureState.dx);
+                    const absDy = Math.abs(gestureState.dy);
+                    return absDx > 24 && absDx > absDy * 1.2;
+                },
+                onPanResponderRelease: (_, gestureState) => {
+                    if (gestureState.dx <= -50) {
+                        switchTabBySwipe('left');
+                    } else if (gestureState.dx >= 50) {
+                        switchTabBySwipe('right');
+                    }
+                },
+            }),
+        [switchTabBySwipe],
+    );
 
     useEffect(() => {
         getCompany().then(c => {
@@ -204,6 +302,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     }, []);
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
+    const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
     const onSidebarItemPress = useCallback(
@@ -266,6 +365,58 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         });
     }, [voucherDetail, selectedVoucher]);
 
+    const persistedViewRaw = String(
+        (voucherDetail as any)?.persistedview ??
+            (voucherDetail as any)?.PERSISTEDVIEW ??
+            (voucherDetail as any)?.PersistedView ??
+            (selectedVoucher as any)?.persistedview ??
+            (selectedVoucher as any)?.PERSISTEDVIEW ??
+            (selectedVoucher as any)?.PersistedView ??
+            '',
+    )
+        .trim()
+        .toLowerCase();
+    const isAccountingVoucherView = persistedViewRaw === 'accounting voucher view';
+
+    const accountingEntries = useMemo(() => {
+        const rawEntries =
+            (voucherDetail as any)?.ALLLEDGERENTRIES ??
+            (voucherDetail as any)?.allledgerentries ??
+            (voucherDetail as any)?.LEDGERENTRIES ??
+            (voucherDetail as any)?.ledgerentries ??
+            [];
+        const entries = Array.isArray(rawEntries) ? rawEntries : rawEntries ? [rawEntries] : [];
+        return entries.map((entry: any) => {
+            const label = String(entry?.LEDGERNAME ?? entry?.ledgername ?? '—');
+            const deemed = String(entry?.isdeemedpositive ?? entry?.ISDEEMEDPOSITIVE ?? '').toLowerCase();
+            const amtNum = Number(entry?.AMOUNT ?? entry?.amount ?? 0);
+            const drCr = deemed === 'yes' ? 'Dr' : deemed === 'no' ? 'Cr' : amtNum < 0 ? 'Cr' : 'Dr';
+            return { label, amount: Math.abs(amtNum), drCr };
+        });
+    }, [voucherDetail]);
+
+    const accountingCreatedBy = String(
+        (voucherDetail as any)?.CREATEDBY ??
+            (voucherDetail as any)?.createdby ??
+            (voucherDetail as any)?.USERNAME ??
+            (voucherDetail as any)?.username ??
+            selectedVoucher?.SUBMITTER ??
+            '—',
+    );
+    const accountingNameOnReceipt = String(
+        (voucherDetail as any)?.PARTICULARS ??
+            (voucherDetail as any)?.partyledgername ??
+            selectedVoucher?.SUBMITTER ??
+            '—',
+    );
+    const accountingNarration = String(
+        (voucherDetail as any)?.NARRATION ??
+            (voucherDetail as any)?.narration ??
+            (voucherDetail as any)?.ORIGINALNARRATION ??
+            selectedVoucher?.ORIGINALNARRATION ??
+            '—',
+    );
+
     const toggleLedger = () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setLedgerExpanded(!ledgerExpanded);
@@ -286,11 +437,16 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     // -----------------------------------------------------------------------
 
     const fetchData = useCallback(async () => {
+        const runId = ++fetchRunIdRef.current;
+        const isRunActive = () => fetchRunIdRef.current === runId;
         try {
             setLoading(true);
             setError(null);
+            setAllItems([]);
+            setChunkProgress(null);
 
             const [t, c, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+            if (!isRunActive()) return;
 
             // Fetch in 2-day chunks for large ranges
             const start = new Date(fromDate);
@@ -309,12 +465,15 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 totalChunks += 1;
                 tmpCurrent = new Date(tmpCurrent.getTime() + 2 * DAY_MS);
             }
-            setChunkProgress(totalChunks > 1 ? { total: totalChunks, done: 0 } : null);
+            if (isRunActive()) {
+                setChunkProgress(totalChunks > 1 ? { total: totalChunks, done: 0 } : null);
+            }
 
             let current = new Date(start.getTime());
             let doneChunks = 0;
 
             while (current.getTime() <= end.getTime()) {
+                if (!isRunActive()) return;
                 const chunkStart = new Date(current.getTime());
                 const chunkEnd = new Date(
                     Math.min(end.getTime(), current.getTime() + DAY_MS), // 2 days window: current + 1 day
@@ -328,6 +487,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     fromdate: toYyyyMmDd(chunkStart.getTime()),
                     todate: toYyyyMmDd(chunkEnd.getTime()),
                 });
+                if (!isRunActive()) return;
 
                 if (Array.isArray(data?.pendingVchAuth) && data.pendingVchAuth.length > 0) {
                     allResults.push(...data.pendingVchAuth);
@@ -341,15 +501,27 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 current = new Date(current.getTime() + 2 * DAY_MS);
             }
 
+            if (!isRunActive()) return;
             setAllItems(allResults);
         } catch (e: any) {
+            if (!isRunActive()) return;
             if (isUnauthorizedError(e)) return;
             setError(e?.message ?? 'Failed to load approvals');
         } finally {
+            if (!isRunActive()) return;
             setLoading(false);
             setChunkProgress(null);
         }
     }, [fromDate, toDate]);
+
+    useFocusEffect(
+        useCallback(() => {
+            const refreshToken = route?.params?.refreshToken;
+            if (!refreshToken) return;
+            fetchData();
+            (navigation as any).setParams?.({ refreshToken: undefined });
+        }, [route?.params?.refreshToken, fetchData, navigation]),
+    );
 
     const handleBulkApprove = useCallback(async () => {
         if (activeTab !== 'pending' || selectedIds.size === 0) return;
@@ -373,45 +545,22 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 });
             }
 
-            setSelectedIds(new Set());
+            clearSelectedForTab('pending');
             setShowApprovedModal(true);
             fetchData();
         } catch (e: any) {
             if (isUnauthorizedError(e)) return;
             Alert.alert('Error', e?.message ?? 'Approval failed');
         }
-    }, [activeTab, allItems, selectedIds, toDate, fetchData]);
+    }, [activeTab, allItems, selectedIds, toDate, fetchData, clearSelectedForTab]);
 
-    const handleBulkReject = useCallback(async () => {
+    const handleBulkReject = useCallback(() => {
         if (activeTab !== 'pending' || selectedIds.size === 0) return;
-        try {
-            const t = await getTallylocId();
-            const c = await getCompany();
-            const g = await getGuid();
-            if (!t || !c || !g) return;
-
-            // Reject every selected voucher using the same API/payload as submitReject (but without comments)
-            const itemsToReject = allItems.filter(it => selectedIds.has(it.MASTERID));
-            for (const item of itemsToReject) {
-                await apiService.rejectVoucher({
-                    tallyloc_id: t,
-                    company: c,
-                    guid: g,
-                    date: toYyyyMmDd(toDate),
-                    masterid: Number(item.MASTERID),
-                    narration: item.ORIGINALNARRATION ?? '',
-                    comments: '',
-                });
-            }
-
-            setSelectedIds(new Set());
-            setShowRejectedModal(true);
-            fetchData();
-        } catch (e: any) {
-            if (isUnauthorizedError(e)) return;
-            Alert.alert('Error', e?.message ?? 'Rejection failed');
-        }
-    }, [activeTab, allItems, selectedIds, toDate, fetchData]);
+        // Open reason dialog first; submission happens in submitReject.
+        setRejectingItem(null);
+        setRejectComment('');
+        setShowRejectInput(true);
+    }, [activeTab, selectedIds]);
 
     useEffect(() => {
         fetchData();
@@ -461,11 +610,32 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     );
 
     // Unique persons and voucher types for filter dropdowns
+    const getPersonDisplayValue = useCallback((it: PendVchAuthItem): string => {
+        const history = (it as any)?.VOUCHER_ACTIVITY_HISTORY;
+        if (Array.isArray(history) && history.length > 0) {
+            const created = history.find(
+                (h: any) =>
+                    String(h?.activity_type ?? '')
+                        .trim()
+                        .toLowerCase() === 'created',
+            );
+            const pick = created ?? history[0];
+            const nameRaw = typeof pick?.name === 'string' ? pick.name.trim() : '';
+            const emailRaw = typeof pick?.email === 'string' ? pick.email.trim() : '';
+            if (nameRaw) return nameRaw;
+            if (emailRaw) return emailRaw;
+        }
+        return String((it as any)?.SUBMITTER ?? '').trim();
+    }, []);
+
     const uniquePersons = useMemo(() => {
         const set = new Set<string>();
-        allItems.forEach(i => { if (i.SUBMITTER) set.add(i.SUBMITTER); });
+        allItems.forEach((i) => {
+            const p = getPersonDisplayValue(i);
+            if (p) set.add(p);
+        });
         return Array.from(set).sort();
-    }, [allItems]);
+    }, [allItems, getPersonDisplayValue]);
 
     const uniqueVoucherTypes = useMemo(() => {
         const set = new Set<string>();
@@ -479,15 +649,34 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             const q = search.toLowerCase();
             items = items.filter(
                 (i) =>
-                    (i.VCHNO ?? '').toLowerCase().includes(q) ||
-                    (i.SUBMITTER ?? '').toLowerCase().includes(q) ||
-                    (i.ORIGINALNARRATION ?? '').toLowerCase().includes(q) ||
-                    (i.VCHTYPE ?? '').toLowerCase().includes(q),
+                        String(i.VCHNO ?? '')
+                            .toLowerCase()
+                            .includes(q) ||
+                        String((i as any).PARTICULARS ?? '')
+                            .toLowerCase()
+                            .includes(q) ||
+                        String(i.SUBMITTER ?? '')
+                            .toLowerCase()
+                            .includes(q) ||
+                        String((i as any).ORIGINALNARRATION ?? '').toLowerCase().includes(q) ||
+                        String(i.VCHTYPE ?? '')
+                            .toLowerCase()
+                            .includes(q) ||
+                        (Array.isArray((i as any)?.VOUCHER_ACTIVITY_HISTORY) &&
+                            (i as any).VOUCHER_ACTIVITY_HISTORY.some((h: any) => {
+                                const name = String(h?.name ?? '').toLowerCase();
+                                const email = String(h?.email ?? '').toLowerCase();
+                                const at = String(h?.activity_type ?? '')
+                                    .trim()
+                                    .toLowerCase();
+                                if (at !== 'created') return false;
+                                return name.includes(q) || email.includes(q);
+                            })),
             );
         }
         // Apply filters
         if (filterPerson) {
-            items = items.filter(i => i.SUBMITTER === filterPerson);
+            items = items.filter((i) => getPersonDisplayValue(i) === filterPerson);
         }
         if (filterVoucher) {
             items = items.filter(i => i.VCHTYPE === filterVoucher);
@@ -495,15 +684,72 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         // Apply sort
         if (sortBy) {
             const parseDate = (d: string) => {
-                if (!d) return 0;
-                const parsed = new Date(d);
-                return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+                const raw = String(d ?? '').trim();
+                if (!raw) return 0;
+
+                const datePart = raw.split(' ')[0].trim();
+                const maybeIso = Date.parse(datePart);
+                if (!isNaN(maybeIso)) return maybeIso;
+
+                // Expected card format like: "20-Mar-26"
+                const m = datePart.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+                if (m) {
+                    const day = Number(m[1]);
+                    const mon = m[2].toLowerCase();
+                    let year = Number(m[3]);
+                    if (year < 100) year += 2000;
+
+                    const monthMap: Record<string, number> = {
+                        jan: 0,
+                        feb: 1,
+                        mar: 2,
+                        apr: 3,
+                        may: 4,
+                        jun: 5,
+                        jul: 6,
+                        aug: 7,
+                        sep: 8,
+                        oct: 9,
+                        nov: 10,
+                        dec: 11,
+                    };
+                    const monthIdx = monthMap[mon] ?? 0;
+                    const dt = new Date(year, monthIdx, day);
+                    const t = dt.getTime();
+                    return isNaN(t) ? 0 : t;
+                }
+
+                return 0;
             };
             items = [...items].sort((a, b) => {
                 if (sortBy === 'newest') return parseDate(b.DATE) - parseDate(a.DATE);
                 if (sortBy === 'oldest') return parseDate(a.DATE) - parseDate(b.DATE);
-                const amtA = parseFloat((a.DEBITAMT ?? '0').replace(/,/g, '')) + parseFloat((a.CREDITAMT ?? '0').replace(/,/g, ''));
-                const amtB = parseFloat((b.DEBITAMT ?? '0').replace(/,/g, '')) + parseFloat((b.CREDITAMT ?? '0').replace(/,/g, ''));
+
+                const parseMoney = (raw: unknown): number => {
+                    const s0 = String(raw ?? '').trim();
+                    if (!s0) return 0;
+                    // Remove thousand separators
+                    let s = s0.replace(/,/g, '');
+
+                    // Handle "(-)123.45" → "-123.45"
+                    s = s.replace(/^\(\s*-\s*\)/, '-');
+                    // Fallback: convert any "(-)" occurrence to a leading "-"
+                    s = s.replace(/\(\s*-\s*\)/g, '-');
+
+                    // Handle "(123.45)" → "-123.45" (whole number wrapped in parentheses)
+                    if (/^\(.*\)$/.test(s)) s = `-${s.slice(1, -1)}`;
+
+                    const n = parseFloat(s);
+                    return isNaN(n) ? 0 : n;
+                };
+
+                // Use signed values so "(-)X" participates correctly in highest/lowest sorting.
+                const amtA = parseMoney((a as any).DEBITAMT) + parseMoney((a as any).CREDITAMT);
+                const amtB = parseMoney((b as any).DEBITAMT) + parseMoney((b as any).CREDITAMT);
+
+                // Per requirement:
+                // - "Highest Amount" should be decreasing (high → low)
+                // - "Lowest Amount" should be increasing (low → high)
                 if (sortBy === 'highest') return amtB - amtA;
                 if (sortBy === 'lowest') return amtA - amtB;
                 return 0;
@@ -544,12 +790,35 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     }, [toDate, fetchData]);
 
     const handleCardPress = useCallback(async (item: PendVchAuthItem) => {
+        const normalizePersistedView = (raw: unknown) =>
+            String(raw ?? '')
+                .trim()
+                .toLowerCase();
+
+        const itemPersistedView = normalizePersistedView(
+            (item as any)?.persistedview ??
+                (item as any)?.PERSISTEDVIEW ??
+                (item as any)?.PersistedView,
+        );
+
+        // For accounting voucher view, do not open the order popup.
+        if (itemPersistedView === 'accounting voucher view') {
+            (navigation as any).navigate('VoucherDetailView', {
+                voucher: item,
+                ledger_name: (item as any)?.partyledgername ?? item?.SUBMITTER,
+            });
+            return;
+        }
+
+        // Fetch voucher first; pending list items sometimes don't carry persistedview yet.
         setSelectedVoucher(item);
-        setShowDetailModal(true);
         setLoadingDetail(true);
         setVoucherDetail(null);
         setInventoryExpanded(true);
         setLedgerExpanded(false);
+        // Show spinner overlay first; open popup only after API returns.
+        setShowDetailModal(false);
+        setShowDetailLoadingOverlay(true);
 
         try {
             const tId = await getTallylocId();
@@ -564,17 +833,45 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             });
 
             const vData = res.data?.vouchers?.[0] || res.data?.data?.[0];
+
             if (vData) {
+                const fetchedPersistedView = normalizePersistedView(
+                    (vData as any)?.persistedview ??
+                        (vData as any)?.PERSISTEDVIEW ??
+                        (vData as any)?.PersistedView,
+                );
+
+                if (fetchedPersistedView === 'accounting voucher view') {
+                    setShowDetailLoadingOverlay(false);
+                    setShowDetailModal(false);
+                    (navigation as any).navigate('VoucherDetailView', {
+                        voucher: vData,
+                        ledger_name: (vData as any)?.partyledgername ?? item?.SUBMITTER,
+                    });
+                    return;
+                }
+
+                // Non-accounting: now open the popup.
+                setShowDetailLoadingOverlay(false);
                 setVoucherDetail(vData);
+                setLoadingDetail(false);
+                setShowDetailModal(true);
             } else {
-                console.warn('Voucher detail fetch failed or empty:', res.data?.message);
+                // Fallback: if nothing returned, still open popup (so user can see close/actions).
+                setShowDetailLoadingOverlay(false);
+                setLoadingDetail(false);
+                setShowDetailModal(true);
             }
         } catch (e) {
             console.error('Error fetching voucher detail:', e);
+            setShowDetailLoadingOverlay(false);
+            setLoadingDetail(false);
+            setShowDetailModal(true);
         } finally {
             setLoadingDetail(false);
+            setShowDetailLoadingOverlay(false);
         }
-    }, []);
+    }, [navigation]);
 
     const handleReject = useCallback((item: PendVchAuthItem) => {
         setRejectingItem(item);
@@ -582,35 +879,85 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         setShowRejectInput(true);
     }, []);
 
+    const fetchOverdueBills = useCallback(
+        async (ledgerNameRaw: string) => {
+            const ledgerName = String(ledgerNameRaw ?? '').trim();
+            try {
+                setOverdueBillsLoading(true);
+                setOverdueBillsModalVisible(false);
+
+                const t = await getTallylocId();
+                const c = await getCompany();
+                const g = await getGuid();
+                if (!t || !c || !g) {
+                    setOverdueBills([]);
+                    setOverdueBillsModalVisible(true);
+                    return;
+                }
+
+                // Same API used in OrderEntry to fetch overdue bills
+                const { data } = await apiService.getCreditDaysLimit({
+                    tallyloc_id: t,
+                    company: c,
+                    guid: g,
+                    ledgername: ledgerName,
+                });
+
+                const bills = (data as { overdueBills?: OverdueBillItem[] | null })?.overdueBills ?? null;
+                setOverdueBills(Array.isArray(bills) ? bills : []);
+            } catch (e: any) {
+                if (isUnauthorizedError(e)) return;
+                setOverdueBills([]);
+            } finally {
+                setOverdueBillsLoading(false);
+                setOverdueBillsModalVisible(true);
+            }
+        },
+        [getCompany, getGuid, apiService],
+    );
+
     const submitReject = useCallback(async () => {
-        if (!rejectingItem) return;
         try {
             const t = await getTallylocId();
             const c = await getCompany();
             const g = await getGuid();
             if (!t || !c || !g) return;
-            const { data } = await apiService.rejectVoucher({
-                tallyloc_id: t,
-                company: c,
-                guid: g,
-                date: toYyyyMmDd(toDate),
-                masterid: Number(rejectingItem.MASTERID),
-                narration: rejectingItem.ORIGINALNARRATION ?? '',
-                comments: rejectComment,
-            });
-            setShowRejectInput(false);
-            if (data?.success) {
-                setShowRejectedModal(true);
-                fetchData();
-            } else {
-                Alert.alert('Error', data?.message ?? 'Rejection failed');
+
+            const itemsToReject = rejectingItem
+                ? [rejectingItem]
+                : allItems.filter((it) => selectedIds.has(it.MASTERID));
+
+            if (itemsToReject.length === 0) {
+                setShowRejectInput(false);
+                return;
             }
+
+            for (const item of itemsToReject) {
+                const { data } = await apiService.rejectVoucher({
+                    tallyloc_id: t,
+                    company: c,
+                    guid: g,
+                    date: toYyyyMmDd(toDate),
+                    masterid: Number(item.MASTERID),
+                    narration: item.ORIGINALNARRATION ?? '',
+                    comments: rejectComment,
+                });
+                if (!data?.success) {
+                    Alert.alert('Error', data?.message ?? 'Rejection failed');
+                    return;
+                }
+            }
+
+            setShowRejectInput(false);
+            clearSelectedForTab(activeTab);
+            setShowRejectedModal(true);
+            fetchData();
         } catch (e: any) {
             setShowRejectInput(false);
             if (isUnauthorizedError(e)) return;
             Alert.alert('Error', e?.message ?? 'Rejection failed');
         }
-    }, [rejectingItem, rejectComment, toDate, fetchData]);
+    }, [rejectingItem, rejectComment, allItems, selectedIds, toDate, fetchData, clearSelectedForTab, activeTab]);
 
     const [showResentModal, setShowResentModal] = useState(false);
 
@@ -664,16 +1011,20 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     };
 
     const toggleSelect = useCallback((id: string) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
+        setSelectedIdsByTab((prev) => {
+            const currentSet = prev[activeTab] ?? new Set<string>();
+            const next = new Set(currentSet);
             if (next.has(id)) {
                 next.delete(id);
             } else {
                 next.add(id);
             }
-            return next;
+            return {
+                ...prev,
+                [activeTab]: next,
+            };
         });
-    }, []);
+    }, [activeTab]);
 
     // -----------------------------------------------------------------------
     // Renderers
@@ -699,26 +1050,39 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             return (
                 <TouchableOpacity
                     style={styles.card}
-                    onPress={() => handleCardPress(item)}
+                        onPress={() => {
+                            if (suppressNextCardPressRef.current) return;
+                            handleCardPress(item);
+                        }}
                     activeOpacity={0.9}
                 >
                     {/* Row 1: checkbox + type badge + amount */}
                     <View style={styles.cardRow}>
-                        {canApproveReject && (isPendingTab || isApprovedTab || isRejectedTab) && (
-                            <TouchableOpacity
-                                style={styles.cardCheckbox}
-                                onPress={(e) => { e.stopPropagation(); toggleSelect(item.MASTERID); }}
-                                activeOpacity={0.7}
-                            >
-                                <Icon
-                                    name={isSelected ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                                    size={20}
-                                    color={isSelected ? colors.primary_blue : '#9ca3af'}
-                                />
-                            </TouchableOpacity>
-                        )}
-                        <View style={styles.typeBadge}>
-                            <Text style={styles.typeBadgeText}>{item.VCHTYPE}</Text>
+                        <View style={styles.cardRowLeft}>
+                            {canApproveReject && (isPendingTab || isApprovedTab || isRejectedTab) && (
+                                <TouchableOpacity
+                                    style={styles.cardCheckbox}
+                                    onPress={(e) => {
+                                        e.stopPropagation();
+                                        suppressNextCardPressRef.current = true;
+                                        setTimeout(() => {
+                                            suppressNextCardPressRef.current = false;
+                                        }, 150);
+                                        toggleSelect(item.MASTERID);
+                                    }}
+                                    hitSlop={10}
+                                    activeOpacity={0.7}
+                                >
+                                    <Icon
+                                        name={isSelected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                                        size={20}
+                                        color={isSelected ? colors.primary_blue : '#9ca3af'}
+                                    />
+                                </TouchableOpacity>
+                            )}
+                            <View style={styles.typeBadge}>
+                                <Text style={styles.typeBadgeText}>{item.VCHTYPE}</Text>
+                            </View>
                         </View>
                         <Text style={styles.amount}>
                             {Number(item.DEBITAMT || 0) !== 0
@@ -730,17 +1094,130 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     </View>
 
                 {/* Row 2: code, first ledger name, date */}
-                <View style={styles.cardRow}>
-                    <Text style={styles.cardText} numberOfLines={1}>
-                        {item.VCHNO}, By {getFirstLedgerName(item)}
-                    </Text>
-                    <Text style={styles.cardTextLight}>{item.DATE}</Text>
-                </View>
+                {(() => {
+                    const createdEntry = Array.isArray((item as any).VOUCHER_ACTIVITY_HISTORY)
+                        ? (item as any).VOUCHER_ACTIVITY_HISTORY.find(
+                              (e: any) =>
+                                  String(e?.activity_type ?? '').trim().toLowerCase() === 'created',
+                          )
+                        : null;
+                    const hasCreated = !!createdEntry;
+                    // Always show the "From" line in the card.
+                    // If name/email is missing (or activity history is blank), we display a fallback.
+                    const showFromRow = true;
+                    const pickStr = (v: any) => (typeof v === 'string' ? v.trim() : '');
+                    const fromName =
+                        pickStr(createdEntry?.name) ||
+                        pickStr(createdEntry?.NAME) ||
+                        pickStr(createdEntry?.user_name) ||
+                        pickStr(createdEntry?.USER_NAME) ||
+                        pickStr(createdEntry?.username) ||
+                        pickStr(createdEntry?.USERNAME);
+                    const fromEmail =
+                        pickStr(createdEntry?.email) || pickStr(createdEntry?.EMAIL);
+                    const fromVal = fromName || fromEmail || '';
+                    return (
+                        <>
+                            <View style={styles.cardRow}>
+                                <Text style={styles.cardText} numberOfLines={1}>
+                                    {item.VCHNO}, By {getFirstLedgerName(item)}
+                                </Text>
+                                {!showFromRow && (
+                                    <Text style={styles.cardTextLight}>{item.DATE}</Text>
+                                )}
+                            </View>
+                            {showFromRow ? (
+                                <View style={styles.cardRow}>
+                                    <Text style={styles.cardTextLight} numberOfLines={1}>
+                                        From {fromVal || '[User Not Found]'}
+                                    </Text>
+                                    <Text style={styles.cardTextLight}>{item.DATE}</Text>
+                                </View>
+                            ) : null}
+                        </>
+                    );
+                })()}
 
-                {/* Row 3: description */}
-                <Text style={styles.cardText} numberOfLines={2}>
-                    {item.ORIGINALNARRATION}
-                </Text>
+                {/* Row 3: description (hidden in Pending tab) */}
+                {null}
+
+                {/* View history link (must be above Reject/Approve for Pending) */}
+                {isPendingTab ? (
+                    <View style={styles.cardHistoryRow}>
+                        {/* Receivable / Advance pill placeholder (dummy for now) */}
+                        <TouchableOpacity
+                            style={styles.closingBalancePill}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                suppressNextCardPressRef.current = true;
+                                setTimeout(() => {
+                                    suppressNextCardPressRef.current = false;
+                                }, 150);
+                                fetchOverdueBills(String((item as any).PARTICULARS ?? ''));
+                            }}
+                            hitSlop={10}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.closingBalanceLabel}>Closing balance:</Text>
+                            <Text style={styles.closingBalanceValue} numberOfLines={1}>
+                                --
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                suppressNextCardPressRef.current = true;
+                                setTimeout(() => {
+                                    suppressNextCardPressRef.current = false;
+                                }, 150);
+                                setHistoryVoucher(item);
+                                setShowHistoryModal(true);
+                            }}
+                            hitSlop={10}
+                            activeOpacity={0.7}
+                            style={styles.historyBtn}
+                        >
+                            <Text style={styles.historyBtnText}>View History</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : null}
+
+                {/* Pending tab: per-voucher quick actions (hide when bulk select starts) */}
+                {isPendingTab && canApproveReject && selectedIds.size === 0 ? (
+                    <View style={styles.actionRow}>
+                        <TouchableOpacity
+                            style={styles.rejectBtn}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                suppressNextCardPressRef.current = true;
+                                setTimeout(() => {
+                                    suppressNextCardPressRef.current = false;
+                                }, 150);
+                                handleReject(item);
+                            }}
+                            hitSlop={10}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.rejectBtnText}>Reject</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.approveBtn}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                suppressNextCardPressRef.current = true;
+                                setTimeout(() => {
+                                    suppressNextCardPressRef.current = false;
+                                }, 150);
+                                handleApprove(item);
+                            }}
+                            hitSlop={10}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.approveBtnText}>Approve</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : null}
 
                 {/* Rejected tab: rejection reason */}
                 {activeTab === 'rejected' && item.REJECTION_REASON ? (
@@ -751,22 +1228,81 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 ) : null}
 
                 {/* View history link */}
-                <View style={styles.cardHistoryRow}>
+                {!isPendingTab ? (
+                    <View style={styles.cardHistoryRow}>
+                    {/* Receivable / Advance pill placeholder (dummy for now) */}
+                    <TouchableOpacity
+                        style={styles.closingBalancePill}
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            suppressNextCardPressRef.current = true;
+                            setTimeout(() => {
+                                suppressNextCardPressRef.current = false;
+                            }, 150);
+                            fetchOverdueBills(String((item as any).PARTICULARS ?? ''));
+                        }}
+                        hitSlop={10}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={styles.closingBalanceLabel}>Closing balance:</Text>
+                        <Text style={styles.closingBalanceValue} numberOfLines={1}>
+                            --
+                        </Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity
                         onPress={(e) => {
                             e.stopPropagation();
+                            suppressNextCardPressRef.current = true;
+                            setTimeout(() => {
+                                suppressNextCardPressRef.current = false;
+                            }, 150);
                             setHistoryVoucher(item);
                             setShowHistoryModal(true);
                         }}
+                        hitSlop={10}
                         activeOpacity={0.7}
+                        style={styles.historyBtn}
                     >
-                        <Text style={styles.cardHistoryLink}>View History</Text>
+                        <Text style={styles.historyBtnText}>View History</Text>
                     </TouchableOpacity>
-                </View>
+                    </View>
+                ) : null}
+
+                {/* Approved/Rejected tabs: per-voucher resend (hide when bulk select starts) */}
+                {(isApprovedTab || isRejectedTab) && canApproveReject && selectedIds.size === 0 ? (
+                    <View style={styles.actionRow}>
+                        <TouchableOpacity
+                            style={styles.resendBtn}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                suppressNextCardPressRef.current = true;
+                                setTimeout(() => {
+                                    suppressNextCardPressRef.current = false;
+                                }, 150);
+                                handleResendMany([item]);
+                            }}
+                            hitSlop={10}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.resendBtnText}>Resend</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : null}
                 </TouchableOpacity>
             );
         },
-        [activeTab, allItems, handleCardPress, handleResendMany, selectedIds, toggleSelect],
+        [
+            activeTab,
+            allItems,
+            canApproveReject,
+            handleApprove,
+            handleCardPress,
+            handleReject,
+            handleResendMany,
+            selectedIds,
+            toggleSelect,
+        ],
     );
 
     // -----------------------------------------------------------------------
@@ -800,40 +1336,35 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     </View>*/}
                 </View>
 
-                {/* Date pill */}
+            </View>
+
+            {/* Voucher detail loading overlay (before opening order popup) */}
+            {showDetailLoadingOverlay && (
+                <View style={styles.detailLoadingOverlay}>
+                    <ActivityIndicator size="large" color={colors.primary_blue} />
+                </View>
+            )}
+
+            {/* Overdue bills loading overlay */}
+            {overdueBillsLoading && (
+                <View style={styles.overdueBillsLoadingOverlay}>
+                    <ActivityIndicator size="large" color={colors.primary_blue} />
+                </View>
+            )}
+
+            {/* -------- Body -------- */}
+            <View style={styles.body} {...tabSwipeResponder.panHandlers}>
+                {/* Period selector (ledger-style row) */}
                 <View style={styles.datePillRow}>
                     <TouchableOpacity
                         style={styles.datePill}
                         onPress={() => setShowPeriodPicker(true)}
                         activeOpacity={0.7}
                     >
-                        <CalendarSvg width={12} height={12} />
+                        <Icon name="calendar" size={18} color="#131313" />
                         <Text style={styles.datePillText}>
                             {fmtDateInt(toYyyyMmDd(fromDate))} – {fmtDateInt(toYyyyMmDd(toDate))}
                         </Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-            {/* -------- Body -------- */}
-            <View style={styles.body}>
-                {/* Search bar */}
-                <View style={styles.searchRow}>
-                    <View style={styles.searchBox}>
-                        <UnionSvg width={14} height={15} />
-                        <TextInput
-                            style={styles.searchInput}
-                            placeholder="Search Files..."
-                            placeholderTextColor={colors.text_secondary}
-                            value={search}
-                            onChangeText={setSearch}
-                        />
-                    </View>
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => setShowFilterModal(true)}>
-                        <FilterSvg width={22} height={21} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSortModal(true)}>
-                        <SortSvg width={20} height={18} />
                     </TouchableOpacity>
                 </View>
 
@@ -848,7 +1379,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 )}
                                 <TouchableOpacity
                                     style={[styles.tab, isActive && styles.tabActive]}
-                                    onPress={() => setActiveTab(tab.key)}
+                                    onPress={() => handleTabSwitch(tab.key)}
                                     activeOpacity={0.7}
                                     accessibilityRole="tab"
                                     accessibilityState={{ selected: isActive }}
@@ -856,14 +1387,54 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
                                         {tab.key === 'pending' && !canApproveReject ? 'Waiting' : tab.label}
                                     </Text>
-                                    <View style={styles.tabCount}>
-                                        <Text style={styles.tabCountText}>{counts[tab.key]}</Text>
-                                    </View>
+                                    <Text style={[styles.tabCountInline, isActive && styles.tabCountInlineActive]}>
+                                        ({counts[tab.key]})
+                                    </Text>
                                 </TouchableOpacity>
                             </React.Fragment>
                         );
                     })}
                 </View>
+                <View style={styles.tabBarDividerLine} />
+
+                {/* Search bar */}
+                <View style={styles.searchRow}>
+                    <View style={styles.searchBox}>
+                        <UnionSvg width={14} height={15} />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Search Files..."
+                            placeholderTextColor={colors.text_secondary}
+                            value={search}
+                            onChangeText={setSearch}
+                        />
+                        {search.trim().length > 0 ? (
+                            <TouchableOpacity
+                                onPress={() => setSearch('')}
+                                hitSlop={10}
+                                accessibilityLabel="Clear search"
+                            >
+                                <Text style={styles.clearSearchBtnText}>×</Text>
+                            </TouchableOpacity>
+                        ) : null}
+                    </View>
+                    <TouchableOpacity
+                        style={[styles.iconBtn, isDownloading && styles.iconBtnDisabled]}
+                        onPress={() => !isDownloading && setShowFilterModal(true)}
+                        disabled={isDownloading}
+                    >
+                        <FilterSvg width={22} height={21} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.iconBtn, isDownloading && styles.iconBtnDisabled]}
+                        onPress={() => !isDownloading && setShowSortModal(true)}
+                        disabled={isDownloading}
+                    >
+                        <SortSvg width={20} height={18} />
+                    </TouchableOpacity>
+                </View>
+
+                {showSearchDivider && <View style={styles.searchDividerLine} />}
 
                 {/* Content */}
                 {loading ? (
@@ -903,6 +1474,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     </View>
                 ) : (
                     <FlatList
+                        style={{ flex: 1 }}
                         data={filteredItems}
                         keyExtractor={(item) => item.MASTERID}
                         renderItem={renderCard}
@@ -915,12 +1487,22 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             </View>
 
             {/* Bulk actions bar above footer (pending tab only, collapses with scroll) */}
-            {activeTab === 'pending' && canApproveReject && (
+            {activeTab === 'pending' && canApproveReject && selectedIds.size > 0 && (
                 <Animated.View
                     style={[
                         styles.bulkBar,
                         {
-                            transform: [{ translateY: bulkBarTranslateY }],
+                            transform: [
+                                {
+                                    translateY: Animated.add(
+                                        bulkBarTranslateY,
+                                        collapseProgress.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: [0, -12],
+                                        }),
+                                    ),
+                                },
+                            ],
                             // Lift the bar above the bottom tab bar (FooterTabBar)
                             bottom: (isTablet ? 60 : 49) + insets.bottom,
                         },
@@ -948,12 +1530,22 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             )}
 
             {/* Bulk Resend bar above footer for Approved / Rejected (collapses with scroll) */}
-            {(activeTab === 'approved' || activeTab === 'rejected') && (
+            {(activeTab === 'approved' || activeTab === 'rejected') && selectedIds.size > 0 && (
                 <Animated.View
                     style={[
                         styles.bulkBar,
                         {
-                            transform: [{ translateY: bulkBarTranslateY }],
+                            transform: [
+                                {
+                                    translateY: Animated.add(
+                                        bulkBarTranslateY,
+                                        collapseProgress.interpolate({
+                                            inputRange: [0, 1],
+                                            outputRange: [0, -12],
+                                        }),
+                                    ),
+                                },
+                            ],
                             bottom: (isTablet ? 60 : 49) + insets.bottom,
                         },
                     ]}
@@ -961,29 +1553,38 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                     <View style={styles.bulkBarActions}>
                         <TouchableOpacity
                             style={[
-                                styles.bulkApproveBtn,
+                                styles.bulkResendBtn,
                                 selectedIds.size === 0 && styles.bulkBtnDisabled,
                             ]}
                             onPress={() => {
-                                const status = activeTab.toLowerCase();
                                 const itemsToResend =
                                     selectedIds.size > 0
-                                        ? allItems.filter(
-                                              (it) =>
-                                                  selectedIds.has(it.MASTERID) &&
-                                                  String(it.STATUS ?? '').toLowerCase() === status,
-                                          )
+                                        ? filteredItems.filter((it) => selectedIds.has(it.MASTERID))
                                         : [];
                                 handleResendMany(itemsToResend);
                             }}
                             activeOpacity={0.8}
                             disabled={selectedIds.size === 0}
                         >
-                            <Text style={styles.bulkApproveText}>Resend</Text>
+                            <Text style={styles.bulkResendText}>Resend</Text>
                         </TouchableOpacity>
                     </View>
                 </Animated.View>
             )}
+
+            {/* Line above system nav bar — fades in when footer collapses */}
+            <Animated.View
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: insets.bottom,
+                    height: 1,
+                    backgroundColor: '#d1d5db',
+                    opacity: collapseProgress,
+                    pointerEvents: 'none',
+                }}
+            />
 
             <PeriodSelection
                 visible={showPeriodPicker}
@@ -996,6 +1597,136 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 }}
             />
 
+            {/* Overdue Bills Details modal - shown when closing balance is tapped */}
+            <Modal
+                visible={overdueBillsModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setOverdueBillsModalVisible(false)}
+            >
+                <View style={styles.overdueBillsOverlay}>
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => setOverdueBillsModalVisible(false)}
+                        activeOpacity={1}
+                    />
+                    <View
+                        style={[
+                            styles.overdueBillsCard,
+                            {
+                                maxHeight: Dimensions.get('window').height * 0.95,
+                                paddingBottom: insets.bottom ? insets.bottom + 5 : 20,
+                            },
+                        ]}
+                    >
+                        <View style={styles.overdueBillsDragHandleWrap}>
+                            <View style={styles.overdueBillsDragHandle} />
+                        </View>
+
+                        <View style={styles.overdueBillsHeader}>
+                            <Text style={styles.overdueBillsTitle}>{strings.overdue_bills_details}</Text>
+                            <TouchableOpacity
+                                onPress={() => setOverdueBillsModalVisible(false)}
+                                style={styles.overdueBillsCloseBtn}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                            >
+                                <Icon name="close" size={24} color="#0e172b" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.overdueBillsHeaderLine} />
+
+                        <ScrollView
+                            style={styles.overdueBillsScroll}
+                            contentContainerStyle={styles.overdueBillsScrollContent}
+                            showsVerticalScrollIndicator={true}
+                        >
+                            <View style={styles.overdueBillsBanner}>
+                                <View style={styles.overdueBillsBannerIconWrap}>
+                                    <Icon name="alert" size={16} color="#9f0712" />
+                                </View>
+                                <View style={styles.overdueBillsBannerTextWrap}>
+                                    <Text style={styles.overdueBillsBannerTitle}>
+                                        {(overdueBills?.length ?? 0)} {strings.overdue_bills_found}
+                                    </Text>
+                                    <Text style={styles.overdueBillsBannerMessage}>{strings.overdue_bills_message}</Text>
+                                </View>
+                            </View>
+
+                            {(overdueBills?.length ?? 0) > 0 ? (
+                                <>
+                                    <View style={styles.overdueBillsList}>
+                                        {(overdueBills ?? []).map((row, idx) => {
+                                            const openBal = row.OPENINGBALANCE != null ? Number(row.OPENINGBALANCE) : NaN;
+                                            const closeBal = row.CLOSINGBALANCE != null ? Number(row.CLOSINGBALANCE) : NaN;
+                                            const openStr = Number.isFinite(openBal)
+                                                ? `₹${Math.abs(openBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${openBal < 0 ? 'Dr' : 'Cr'}`
+                                                : '—';
+                                            const closeStr = Number.isFinite(closeBal)
+                                                ? `₹${Math.abs(closeBal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${closeBal < 0 ? 'Dr' : 'Cr'}`
+                                                : '—';
+                                            const daysOverdue = row.OVERDUEDAYS != null ? Number(row.OVERDUEDAYS) : 0;
+                                            return (
+                                                <View key={idx} style={styles.overdueBillsCardItem}>
+                                                    <View style={styles.overdueBillsCardTop}>
+                                                        <View style={styles.overdueBillsCardTopLeft}>
+                                                            <Text style={styles.overdueBillsCardRef} numberOfLines={1}>
+                                                                {row.REFNO ?? '—'}
+                                                            </Text>
+                                                            <View style={styles.overdueBillsCardDateRow}>
+                                                                <Text style={styles.overdueBillsCardDateLabel}>{strings.bill_date}: </Text>
+                                                                <Text style={styles.overdueBillsCardDateValue}>{row.DATE ?? '—'}</Text>
+                                                            </View>
+                                                        </View>
+                                                        <View style={styles.overdueBillsCardDaysPill}>
+                                                            <Text style={styles.overdueBillsCardDaysText}>
+                                                                {Number.isFinite(daysOverdue) ? `${daysOverdue} Days` : '—'}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+
+                                                    <View style={styles.overdueBillsCardBalRow}>
+                                                        <Text style={styles.overdueBillsCardBalLabel}>{strings.opening_balance}: </Text>
+                                                        <Text style={styles.overdueBillsCardBalValue}>{openStr}</Text>
+                                                    </View>
+
+                                                    <View style={styles.overdueBillsCardBalRow}>
+                                                        <Text style={styles.overdueBillsCardBalLabel}>{strings.closing_balance}: </Text>
+                                                        <Text style={styles.overdueBillsCardBalValue}>{closeStr}</Text>
+                                                    </View>
+
+                                                    <View style={styles.overdueBillsCardDueRow}>
+                                                        <Text style={styles.overdueBillsCardDueLabel}>{strings.due_date}: </Text>
+                                                        <Text style={styles.overdueBillsCardDueValue}>{row.DUEON ?? '—'}</Text>
+                                                    </View>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+
+                                    <View style={styles.overdueBillsTotalWrap}>
+                                        <Icon
+                                            name="information"
+                                            size={20}
+                                            color="#1f3a89"
+                                            style={styles.overdueBillsTotalIcon}
+                                        />
+                                        <View style={styles.overdueBillsTotalTextWrap}>
+                                            <Text style={styles.overdueBillsTotalLabel}>{strings.total_overdue_amount}</Text>
+                                            <Text style={styles.overdueBillsTotalAmt}>
+                                                ₹{(overdueBills ?? []).reduce((sum, b) => sum + Math.abs(Number(b.CLOSINGBALANCE) || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </>
+                            ) : (
+                                <Text style={styles.overdueBillsEmpty}>No overdue bills</Text>
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+
             {/* -------- Voucher Activity History Modal -------- */}
             <Modal
                 visible={showHistoryModal && !!historyVoucher}
@@ -1003,126 +1734,165 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 animationType="fade"
                 onRequestClose={() => setShowHistoryModal(false)}
             >
-                <View style={historyStyles.overlay}>
-                    <View style={historyStyles.container}>
-                        <View style={historyStyles.header}>
-                            <View>
-                                <Text style={historyStyles.title}>Voucher Activity History</Text>
+                <View style={styles.overdueBillsOverlay}>
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => setShowHistoryModal(false)}
+                        activeOpacity={1}
+                    />
+
+                    <View
+                        style={[
+                            styles.overdueBillsCard,
+                            {
+                                maxHeight: Dimensions.get('window').height * 0.95,
+                                paddingBottom: insets.bottom ? insets.bottom + 5 : 20,
+                            },
+                        ]}
+                    >
+                        <View style={styles.overdueBillsDragHandleWrap}>
+                            <View style={styles.overdueBillsDragHandle} />
+                        </View>
+
+                        <View style={styles.overdueBillsHeader}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.overdueBillsTitle}>Voucher Activity History</Text>
                                 {historyVoucher && (
-                                    <Text style={historyStyles.subtitle}>
+                                    <Text style={styles.overdueBillsBannerMessage}>
                                         {historyVoucher.VCHNO} - {historyVoucher.VCHTYPE}
                                     </Text>
                                 )}
                             </View>
-                            <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
-                                <Text style={historyStyles.closeText}>X</Text>
+                            <TouchableOpacity
+                                onPress={() => setShowHistoryModal(false)}
+                                style={styles.overdueBillsCloseBtn}
+                                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                            >
+                                <Icon name="close" size={24} color="#0e172b" />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView contentContainerStyle={historyStyles.list}>
+                        <View style={styles.overdueBillsHeaderLine} />
+
+                        <ScrollView
+                            style={styles.overdueBillsScroll}
+                            contentContainerStyle={styles.overdueBillsScrollContent}
+                            showsVerticalScrollIndicator={true}
+                        >
                             {Array.isArray((historyVoucher as any)?.VOUCHER_ACTIVITY_HISTORY) &&
                             (historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.length > 0 ? (
-                                (historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.map(
-                                    (entry: any, idx: number) => {
-                                        const rawStatus: string | null | undefined =
-                                            (entry.apprv_status as string | null | undefined) ?? null;
-                                        const statusLower = rawStatus
-                                            ? String(rawStatus).toLowerCase()
-                                            : null;
-                                        let statusLabel = '';
-                                        let statusType: 'approved' | 'rejected' | 'resend' | 'other' =
-                                            'other';
-                                        if (statusLower === 'approved') {
-                                            statusLabel = 'Approved';
-                                            statusType = 'approved';
-                                        } else if (statusLower === 'rejected') {
-                                            statusLabel = 'Rejected';
-                                            statusType = 'rejected';
-                                        } else if (
-                                            !rawStatus &&
-                                            String(entry.activity_type ?? '').toLowerCase() ===
-                                                'resend'
-                                        ) {
-                                            statusLabel = 'Resend';
-                                            statusType = 'resend';
-                                        } else {
-                                            const actType = String(entry.activity_type ?? '').trim();
-                                            statusLabel =
-                                                actType.toLowerCase() === 'modified'
-                                                    ? 'Created'
-                                                    : actType || '—';
-                                            statusType = 'other';
-                                        }
+                                <View style={styles.overdueBillsList}>
+                                    {(historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.map(
+                                        (entry: any, idx: number) => {
+                                            const rawStatus: string | null | undefined =
+                                                (entry.apprv_status as string | null | undefined) ?? null;
+                                            const statusLower = rawStatus ? String(rawStatus).toLowerCase() : null;
+                                            let statusLabel = '';
+                                            let statusType: 'approved' | 'rejected' | 'resend' | 'other' =
+                                                'other';
+                                            if (statusLower === 'approved') {
+                                                statusLabel = 'Approved';
+                                                statusType = 'approved';
+                                            } else if (statusLower === 'rejected') {
+                                                statusLabel = 'Rejected';
+                                                statusType = 'rejected';
+                                            } else if (
+                                                !rawStatus &&
+                                                String(entry.activity_type ?? '').toLowerCase() === 'resend'
+                                            ) {
+                                                statusLabel = 'Resend';
+                                                statusType = 'resend';
+                                            } else {
+                                                const actType = String(entry.activity_type ?? '').trim();
+                                                statusLabel =
+                                                    actType.toLowerCase() === 'modified'
+                                                        ? 'Created'
+                                                        : actType || '—';
+                                                statusType = 'other';
+                                            }
 
-                                        const createdAt = entry.created_at
-                                            ? new Date(entry.created_at)
-                                            : null;
-                                        const dateStr = createdAt
-                                            ? createdAt.toLocaleDateString('en-GB')
-                                            : '—';
-                                        const timeStr = createdAt
-                                            ? createdAt.toLocaleTimeString('en-GB', {
-                                                  hour: '2-digit',
-                                                  minute: '2-digit',
-                                                  second: '2-digit',
-                                              })
-                                            : '';
+                                            const entryDate = entry.created_at ? new Date(entry.created_at) : null;
+                                            const entryDateStr = entryDate
+                                                ? `${entryDate.toLocaleDateString('en-GB')}, ${entryDate.toLocaleTimeString('en-GB', {
+                                                      hour: '2-digit',
+                                                      minute: '2-digit',
+                                                      second: '2-digit',
+                                                  })}`
+                                                : '—';
 
-                                        return (
-                                            <View key={idx} style={historyStyles.card}>
-                                                <View style={historyStyles.row}>
-                                                    <Text style={historyStyles.label}>
-                                                        USER EMAIL
-                                                    </Text>
-                                                    <Text style={historyStyles.email}>
-                                                        {entry.email || '—'}
-                                                    </Text>
-                                                </View>
-                                                <View style={historyStyles.row}>
-                                                    <Text style={historyStyles.label}>STATUS</Text>
-                                                    <View
-                                                        style={[
-                                                            historyStyles.statusPill,
-                                                            statusType === 'approved' &&
-                                                                historyStyles.statusApproved,
-                                                            statusType === 'rejected' &&
-                                                                historyStyles.statusRejected,
-                                                            statusType === 'resend' &&
-                                                                historyStyles.statusResend,
-                                                        ]}
-                                                    >
-                                                        <Text style={historyStyles.statusText}>
-                                                            {statusLabel}
-                                                        </Text>
-                                                    </View>
-                                                </View>
-                                                <View style={historyStyles.row}>
-                                                    <Text style={historyStyles.label}>
-                                                        DATE &amp; TIME
-                                                    </Text>
-                                                    <Text style={historyStyles.date}>
-                                                        {dateStr}
-                                                        {timeStr ? `, ${timeStr}` : ''}
-                                                    </Text>
-                                                </View>
-                                                {entry.comments ? (
+                                            const isCreatedEntry =
+                                                String(entry.activity_type ?? '').trim().toLowerCase() === 'created';
+
+                                            const entryName =
+                                                typeof (entry as any).name === 'string'
+                                                    ? (entry as any).name.trim()
+                                                    : '';
+                                            const entryEmail =
+                                                typeof entry.email === 'string' ? entry.email.trim() : '';
+
+                                            const fromValue = isCreatedEntry ? (entryName || entryEmail) : '';
+                                            const byValue = isCreatedEntry ? '' : (entryEmail || '—');
+
+                                            return (
+                                                <View key={idx} style={styles.overdueBillsCardItem}>
+                                                    {isCreatedEntry && fromValue ? (
+                                                        <View style={historyStyles.row}>
+                                                            <Text style={historyStyles.label}>FROM</Text>
+                                                            <Text style={historyStyles.email}>
+                                                                {fromValue}
+                                                            </Text>
+                                                            <Text style={historyStyles.date}>
+                                                                {entryDateStr}
+                                                            </Text>
+                                                        </View>
+                                                    ) : (
+                                                        <View style={historyStyles.row}>
+                                                            <Text style={historyStyles.label}>BY</Text>
+                                                            <Text style={historyStyles.email}>
+                                                                {byValue}
+                                                            </Text>
+                                                            <Text style={historyStyles.date}>
+                                                                {entryDateStr}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+
                                                     <View style={historyStyles.row}>
-                                                        <Text style={historyStyles.label}>
-                                                            COMMENTS
-                                                        </Text>
-                                                        <View style={historyStyles.commentBox}>
-                                                            <Text style={historyStyles.comments}>
-                                                                {entry.comments}
+                                                        <Text style={historyStyles.label}>STATUS</Text>
+                                                        <View
+                                                            style={[
+                                                                historyStyles.statusPill,
+                                                                statusType === 'approved' &&
+                                                                    historyStyles.statusApproved,
+                                                                statusType === 'rejected' &&
+                                                                    historyStyles.statusRejected,
+                                                                statusType === 'resend' &&
+                                                                    historyStyles.statusResend,
+                                                            ]}
+                                                        >
+                                                            <Text style={historyStyles.statusText}>
+                                                                {statusLabel}
                                                             </Text>
                                                         </View>
                                                     </View>
-                                                ) : null}
-                                            </View>
-                                        );
-                                    },
-                                )
+
+                                                    {entry.comments ? (
+                                                        <View style={historyStyles.row}>
+                                                            <Text style={historyStyles.label}>COMMENTS</Text>
+                                                            <View style={historyStyles.commentBox}>
+                                                                <Text style={historyStyles.comments}>
+                                                                    {entry.comments}
+                                                                </Text>
+                                                            </View>
+                                                        </View>
+                                                    ) : null}
+                                                </View>
+                                            );
+                                        },
+                                    )}
+                                </View>
                             ) : (
-                                <Text style={historyStyles.emptyText}>
+                                <Text style={styles.overdueBillsEmpty}>
                                     No activity history found.
                                 </Text>
                             )}
@@ -1131,157 +1901,27 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 </View>
             </Modal>
 
-            {/* -------- Approved Popup -------- */}
-            <Modal
+            <SubmissionSuccessModal
                 visible={showApprovedModal}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowApprovedModal(false)}
-            >
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.sheet}>
-                        {/* Drag handle */}
-                        <View style={popupStyles.handleRow}>
-                            <View style={popupStyles.handle} />
-                        </View>
+                onClose={() => setShowApprovedModal(false)}
+                title="Approved!"
+                subtitle="The Voucher was Successfully Approved"
+            />
 
-                        {/* Close button */}
-                        <TouchableOpacity
-                            style={popupStyles.closeBtn}
-                            onPress={() => setShowApprovedModal(false)}
-                            hitSlop={12}
-                        >
-                            <Text style={popupStyles.closeBtnText}>✕</Text>
-                        </TouchableOpacity>
-
-                        {/* Animation */}
-                        <View style={popupStyles.animationWrap}>
-                            {LottieView ? (
-                                <LottieView source={SuccessLottieSource} style={popupStyles.lottie} loop={false} autoPlay />
-                            ) : (
-                                <View style={popupStyles.fallbackIcon}>
-                                    <Text style={{ fontSize: 64 }}>✅</Text>
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Text */}
-                        <Text style={popupStyles.title}>Approved!</Text>
-                        <Text style={popupStyles.subtitle}>The Voucher was Successfully Approved</Text>
-
-                        {/* Continue button */}
-                        <TouchableOpacity
-                            style={popupStyles.continueBtn}
-                            onPress={() => setShowApprovedModal(false)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={popupStyles.continueBtnText}>Continue</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* -------- Resent Popup (same design as Approved) -------- */}
-            <Modal
+            <SubmissionSuccessModal
                 visible={showResentModal}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowResentModal(false)}
-            >
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.sheet}>
-                        {/* Drag handle */}
-                        <View style={popupStyles.handleRow}>
-                            <View style={popupStyles.handle} />
-                        </View>
+                onClose={() => setShowResentModal(false)}
+                title="Resent!"
+                subtitle="The Voucher was sent again successfully"
+            />
 
-                        {/* Close button */}
-                        <TouchableOpacity
-                            style={popupStyles.closeBtn}
-                            onPress={() => setShowResentModal(false)}
-                            hitSlop={12}
-                        >
-                            <Text style={popupStyles.closeBtnText}>✕</Text>
-                        </TouchableOpacity>
-
-                        {/* Animation */}
-                        <View style={popupStyles.animationWrap}>
-                            {LottieView ? (
-                                <LottieView source={SuccessLottieSource} style={popupStyles.lottie} loop={false} autoPlay />
-                            ) : (
-                                <View style={popupStyles.fallbackIcon}>
-                                    <Text style={{ fontSize: 64 }}>✅</Text>
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Text */}
-                        <Text style={popupStyles.title}>Resent!</Text>
-                        <Text style={popupStyles.subtitle}>The Voucher was sent again successfully</Text>
-
-                        {/* Continue button */}
-                        <TouchableOpacity
-                            style={popupStyles.continueBtn}
-                            onPress={() => setShowResentModal(false)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={popupStyles.continueBtnText}>Continue</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* -------- Rejected Popup -------- */}
-            <Modal
+            <SubmissionSuccessModal
                 visible={showRejectedModal}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowRejectedModal(false)}
-            >
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.sheet}>
-                        {/* Drag handle */}
-                        <View style={popupStyles.handleRow}>
-                            <View style={popupStyles.handle} />
-                        </View>
-
-                        {/* Close button */}
-                        <TouchableOpacity
-                            style={popupStyles.closeBtn}
-                            onPress={() => setShowRejectedModal(false)}
-                            hitSlop={12}
-                        >
-                            <Text style={popupStyles.closeBtnText}>✕</Text>
-                        </TouchableOpacity>
-
-                        {/* Animation */}
-                        <View style={popupStyles.animationWrap}>
-                            {LottieView ? (
-                                <LottieView source={RejectedLottieSource} style={popupStyles.lottie} loop={false} autoPlay />
-                            ) : (
-                                <View style={popupStyles.rejectedIconWrap}>
-                                    <View style={popupStyles.rejectedCircle}>
-                                        <Text style={popupStyles.rejectedX}>✕</Text>
-                                    </View>
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Text */}
-                        <Text style={[popupStyles.title, { color: '#eb2122' }]}>Rejected!</Text>
-                        <Text style={popupStyles.subtitle}>The Voucher was Successfully Rejected</Text>
-
-                        {/* Continue button */}
-                        <TouchableOpacity
-                            style={popupStyles.continueBtn}
-                            onPress={() => setShowRejectedModal(false)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={popupStyles.continueBtnText}>Continue</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+                onClose={() => setShowRejectedModal(false)}
+                title="Rejected!"
+                subtitle="The Voucher was Successfully Rejected"
+                lottieSource={RejectedLottieSource}
+            />
 
             {/* -------- Reject Reason Input Modal -------- */}
             <Modal
@@ -1343,8 +1983,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 animationType="slide"
                 onRequestClose={() => setShowFilterModal(false)}
             >
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.filterSheet}>
+                <Pressable style={popupStyles.overlay} onPress={() => setShowFilterModal(false)}>
+                    <Pressable style={popupStyles.filterSheet} onPress={(e) => e.stopPropagation()}>
                         {/* Handle */}
                         <View style={popupStyles.handleRow}>
                             <View style={popupStyles.handle} />
@@ -1359,7 +1999,18 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         </View>
 
                         {/* Filter by Person */}
-                        <Text style={popupStyles.filterLabel}>Filter by Person</Text>
+                        <View style={popupStyles.sortLabelRow}>
+                            <Text style={popupStyles.sortLabel}>Filter by Person</Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setFilterPerson('');
+                                    setPersonDropOpen(false);
+                                    setVoucherDropOpen(false);
+                                }}
+                            >
+                                <Text style={popupStyles.sortClearLink}>Clear</Text>
+                            </TouchableOpacity>
+                        </View>
                         <View style={popupStyles.filterDropdown}>
                             <TouchableOpacity
                                 style={popupStyles.filterDropdownInner}
@@ -1369,7 +2020,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 <Text style={[popupStyles.filterDropdownText, !filterPerson && { color: '#999' }]}>
                                     {filterPerson || 'Select'}
                                 </Text>
-                                <Text style={popupStyles.filterDropdownArrow}>⌄</Text>
+                                <Icon
+                                    name={personDropOpen ? 'chevron-up' : 'chevron-down'}
+                                    size={20}
+                                    color="#6a7282"
+                                />
                             </TouchableOpacity>
                             {personDropOpen && uniquePersons.length > 0 && (
                                 <ScrollView style={popupStyles.filterPickerWrap} nestedScrollEnabled>
@@ -1393,7 +2048,18 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         </View>
 
                         {/* Filter by Voucher */}
-                        <Text style={popupStyles.filterLabel}>Filter by Voucher</Text>
+                        <View style={popupStyles.sortLabelRow}>
+                            <Text style={popupStyles.sortLabel}>Filter by Voucher</Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setFilterVoucher('');
+                                    setVoucherDropOpen(false);
+                                    setPersonDropOpen(false);
+                                }}
+                            >
+                                <Text style={popupStyles.sortClearLink}>Clear</Text>
+                            </TouchableOpacity>
+                        </View>
                         <View style={popupStyles.filterDropdown}>
                             <TouchableOpacity
                                 style={popupStyles.filterDropdownInner}
@@ -1403,7 +2069,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 <Text style={[popupStyles.filterDropdownText, !filterVoucher && { color: '#999' }]}>
                                     {filterVoucher || 'Select'}
                                 </Text>
-                                <Text style={popupStyles.filterDropdownArrow}>⌄</Text>
+                                <Icon
+                                    name={voucherDropOpen ? 'chevron-up' : 'chevron-down'}
+                                    size={20}
+                                    color="#6a7282"
+                                />
                             </TouchableOpacity>
                             {voucherDropOpen && uniqueVoucherTypes.length > 0 && (
                                 <ScrollView style={popupStyles.filterPickerWrap} nestedScrollEnabled>
@@ -1426,25 +2096,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             )}
                         </View>
 
-                        {/* Apply button */}
-                        <TouchableOpacity
-                            style={popupStyles.applyBtn}
-                            onPress={() => setShowFilterModal(false)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={popupStyles.applyBtnText}>Apply Filters</Text>
-                        </TouchableOpacity>
-
-                        {/* Clear All */}
-                        <TouchableOpacity
-                            style={popupStyles.clearAllBtn}
-                            onPress={() => { setFilterPerson(''); setFilterVoucher(''); }}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={popupStyles.clearAllText}>Clear All</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                    </Pressable>
+                </Pressable>
             </Modal>
 
             {/* -------- Sort By Modal -------- */}
@@ -1454,8 +2107,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 animationType="slide"
                 onRequestClose={() => setShowSortModal(false)}
             >
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.filterSheet}>
+                <Pressable style={popupStyles.overlay} onPress={() => setShowSortModal(false)}>
+                    <Pressable style={popupStyles.filterSheet} onPress={(e) => e.stopPropagation()}>
                         {/* Handle */}
                         <View style={popupStyles.handleRow}>
                             <View style={popupStyles.handle} />
@@ -1473,7 +2126,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         <View style={popupStyles.sortLabelRow}>
                             <Text style={popupStyles.sortLabel}>Sort By</Text>
                             <TouchableOpacity onPress={() => setSortBy('')}>
-                                <Text style={popupStyles.sortClearLink}>Clear all</Text>
+                                <Text style={popupStyles.sortClearLink}>Clear</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -1498,33 +2151,37 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             ))}
                         </View>
 
-                        {/* Apply button */}
-                        <TouchableOpacity
-                            style={popupStyles.applyBtn}
-                            onPress={() => setShowSortModal(false)}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={popupStyles.applyBtnText}>Apply Filters</Text>
-                        </TouchableOpacity>
-
-                        {/* Clear All */}
-                        <TouchableOpacity
-                            style={popupStyles.clearAllBtn}
-                            onPress={() => setSortBy('')}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={popupStyles.clearAllText}>Clear All</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                    </Pressable>
+                </Pressable>
             </Modal>
 
             {/* Voucher Detail Modal */}
-            <Modal visible={showDetailModal} transparent animationType="slide">
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.detailSheet}>
+            <Modal
+                visible={showDetailModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => {
+                    setShowDetailModal(false);
+                    setShowDetailLoadingOverlay(false);
+                    setLoadingDetail(false);
+                }}
+            >
+                <Pressable
+                    style={popupStyles.centerOverlay}
+                    onPress={() => {
+                        setShowDetailModal(false);
+                        setShowDetailLoadingOverlay(false);
+                        setLoadingDetail(false);
+                    }}
+                >
+                    <Pressable
+                        style={popupStyles.detailSheet}
+                        onPress={(e) => (e as any).stopPropagation?.()}
+                    >
                         <View style={popupStyles.detailHeader}>
-                            <Text style={popupStyles.detailHeaderTitle}>Order</Text>
+                            <Text style={popupStyles.detailHeaderTitle}>
+                                {isAccountingVoucherView ? 'Accounting Voucher' : 'Order'}
+                            </Text>
                             <TouchableOpacity onPress={() => setShowDetailModal(false)} style={popupStyles.detailCloseBtn}>
                                 <Text style={popupStyles.detailCloseX}>✕</Text>
                             </TouchableOpacity>
@@ -1538,7 +2195,13 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             <View style={popupStyles.detailSubheader}>
                                 <View style={popupStyles.detailSubheaderInner}>
                                     <UserPartSvg width={18} height={18} style={{ marginRight: 6 }} />
-                                    <Text style={popupStyles.detailPartyName}>{voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}</Text>
+                                    <Text
+                                        style={popupStyles.detailPartyName}
+                                        numberOfLines={1}
+                                        ellipsizeMode="tail"
+                                    >
+                                        {voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}
+                                    </Text>
                                 </View>
                             </View>
 
@@ -1551,7 +2214,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     {/* Main Basic Info - Constant */}
                                     <View style={popupStyles.detailMainInfo}>
                                         <View style={popupStyles.detailMainRow}>
-                                            <Text style={popupStyles.detailMainLedger} numberOfLines={1}>
+                                                    <Text
+                                                        style={popupStyles.detailMainLedger}
+                                                        numberOfLines={1}
+                                                        ellipsizeMode="tail"
+                                                    >
                                                 {voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}
                                             </Text>
                                             <View style={popupStyles.detailMainAmtRow}>
@@ -1576,68 +2243,116 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                         </View>
                                     </View>
 
-                                    {/* Inventory Toggle - Constant */}
-                                    <View style={popupStyles.inventoryToggleRow}>
-                                        <View style={popupStyles.inventoryToggleLeft}>
-                                            <View style={{ marginRight: 10 }}>
-                                                <InventoryAllocationIcon size={18} color="#1f3a89" />
+                                    {!isAccountingVoucherView ? (
+                                        <>
+                                            {/* Inventory Toggle - Constant */}
+                                            <View style={popupStyles.inventoryToggleRow}>
+                                                <View style={popupStyles.inventoryToggleLeft}>
+                                                    <View style={{ marginRight: 10 }}>
+                                                        <InventoryAllocationIcon size={18} color="#1f3a89" />
+                                                    </View>
+                                                    <Text style={popupStyles.inventoryToggleTitle}>
+                                                        Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})
+                                                    </Text>
+                                                </View>
+                                                <TouchableOpacity
+                                                    onPress={() => setInventoryExpanded(!inventoryExpanded)}
+                                                    activeOpacity={0.8}
+                                                >
+                                                    <View style={[popupStyles.switchTrack, inventoryExpanded && popupStyles.switchTrackOn]}>
+                                                        <View style={[popupStyles.switchThumb, inventoryExpanded && popupStyles.switchThumbOn]} />
+                                                    </View>
+                                                </TouchableOpacity>
                                             </View>
-                                            <Text style={popupStyles.inventoryToggleTitle}>
-                                                Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})
-                                            </Text>
-                                        </View>
-                                        <TouchableOpacity
-                                            onPress={() => setInventoryExpanded(!inventoryExpanded)}
-                                            activeOpacity={0.8}
-                                        >
-                                            <View style={[popupStyles.switchTrack, inventoryExpanded && popupStyles.switchTrackOn]}>
-                                                <View style={[popupStyles.switchThumb, inventoryExpanded && popupStyles.switchThumbOn]} />
-                                            </View>
-                                        </TouchableOpacity>
-                                    </View>
 
-                                    {/* Scrollable Inventory List */}
-                                    <ScrollView style={popupStyles.detailContent} bounces={false}>
-                                        {inventoryExpanded && (
-                                            <View style={popupStyles.inventoryList}>
-                                                {(voucherDetail?.allinventoryentries || voucherDetail?.INVENTORYALLOCATIONS) ? (
-                                                    (voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries : (Array.isArray(voucherDetail?.INVENTORYALLOCATIONS) ? voucherDetail?.INVENTORYALLOCATIONS : [voucherDetail?.INVENTORYALLOCATIONS])).map((item: any, idx) => (
-                                                        <View key={idx} style={popupStyles.inventoryItem}>
-                                                            <View style={popupStyles.inventoryItemTop}>
-                                                                <Text style={popupStyles.inventoryItemName} numberOfLines={1}>{item.stockitemname ?? item.STOCKITEMNAME}</Text>
-                                                                <Text style={popupStyles.inventoryItemAmt}>₹{item.amount ?? item.AMOUNT}</Text>
-                                                            </View>
-                                                            <View style={popupStyles.inventoryItemDetails}>
-                                                                <View style={popupStyles.invDetailCol}>
-                                                                    <Text style={popupStyles.inventoryDetailText}>Qty : <Text style={popupStyles.inventoryDetailValue}>{item.actualqty ?? item.ACTUALQTY}</Text></Text>
+                                            {/* Scrollable Inventory List */}
+                                            <ScrollView style={popupStyles.detailContent} bounces={false}>
+                                                {inventoryExpanded && (
+                                                    <View style={popupStyles.inventoryList}>
+                                                        {(voucherDetail?.allinventoryentries || voucherDetail?.INVENTORYALLOCATIONS) ? (
+                                                            (voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries : (Array.isArray(voucherDetail?.INVENTORYALLOCATIONS) ? voucherDetail?.INVENTORYALLOCATIONS : [voucherDetail?.INVENTORYALLOCATIONS])).map((item: any, idx) => (
+                                                                <View key={idx} style={popupStyles.inventoryItem}>
+                                                                    <View style={popupStyles.inventoryItemTop}>
+                                                                        <Text style={popupStyles.inventoryItemName} numberOfLines={1}>{item.stockitemname ?? item.STOCKITEMNAME}</Text>
+                                                                        <Text style={popupStyles.inventoryItemAmt}>₹{item.amount ?? item.AMOUNT}</Text>
+                                                                    </View>
+                                                                    <View style={popupStyles.inventoryItemDetails}>
+                                                                        <View style={popupStyles.invDetailCol}>
+                                                                            <Text style={popupStyles.inventoryDetailText}>Qty : <Text style={popupStyles.inventoryDetailValue}>{item.actualqty ?? item.ACTUALQTY}</Text></Text>
+                                                                        </View>
+                                                                        <View style={popupStyles.invDetailCol}>
+                                                                            <Text style={popupStyles.inventoryDetailText}>Rate : <Text style={popupStyles.inventoryDetailValue}>{item.rate ?? item.RATE}</Text></Text>
+                                                                        </View>
+                                                                        <View style={popupStyles.invDetailCol}>
+                                                                            <Text style={popupStyles.inventoryDetailText}>Discount : <Text style={popupStyles.inventoryDetailValue}>{item.discount ?? item.DISCOUNT ?? 0}</Text></Text>
+                                                                        </View>
+                                                                    </View>
                                                                 </View>
-                                                                <View style={popupStyles.invDetailCol}>
-                                                                    <Text style={popupStyles.inventoryDetailText}>Rate : <Text style={popupStyles.inventoryDetailValue}>{item.rate ?? item.RATE}</Text></Text>
-                                                                </View>
-                                                                <View style={popupStyles.invDetailCol}>
-                                                                    <Text style={popupStyles.inventoryDetailText}>Discount : <Text style={popupStyles.inventoryDetailValue}>{item.discount ?? item.DISCOUNT ?? 0}</Text></Text>
-                                                                </View>
-                                                            </View>
-                                                        </View>
-                                                    ))
-                                                ) : (
-                                                    <Text style={popupStyles.noInventoryText}>No inventory allocations found.</Text>
+                                                            ))
+                                                        ) : (
+                                                            <Text style={popupStyles.noInventoryText}>No inventory allocations found.</Text>
+                                                        )}
+                                                    </View>
                                                 )}
-                                            </View>
-                                        )}
-                                    </ScrollView>
+                                            </ScrollView>
 
-                                    {/* Summary Footer Section - Constant */}
-                                    <View style={popupStyles.detailSummary}>
-                                        <View style={popupStyles.summaryRow}>
-                                            <Text style={popupStyles.summaryLabel}>ITEM TOTAL</Text>
-                                            <Text style={popupStyles.summaryValue}>
-                                                {voucherDetail?.amount ?? (voucherDetail
-                                                    ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT} Dr` : `${voucherDetail.CREDITAMT} Cr`)
-                                                    : (selectedVoucher?.AMOUNT))}
-                                            </Text>
+                                            {/* Summary Footer Section - Constant */}
+                                            <View style={popupStyles.detailSummary}>
+                                                <View style={popupStyles.summaryRow}>
+                                                    <Text style={popupStyles.summaryLabel}>ITEM TOTAL</Text>
+                                                    <Text style={popupStyles.summaryValue}>
+                                                        {voucherDetail?.amount ?? (voucherDetail
+                                                            ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT} Dr` : `${voucherDetail.CREDITAMT} Cr`)
+                                                            : (selectedVoucher?.AMOUNT))}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        </>
+                                    ) : (
+                                        <View style={popupStyles.detailContent}>
+                                            <View style={popupStyles.accSectionHead}>
+                                                <Icon name="earth" size={20} color="#1f3a89" />
+                                                <Text style={popupStyles.accSectionTitle}>Accounting Entries</Text>
+                                            </View>
+                                            <View style={popupStyles.accSectionBlock}>
+                                                {accountingEntries.map((entry, i) => (
+                                                    <View key={`${entry.label}-${i}`} style={popupStyles.accEntryRow}>
+                                                        <Text style={popupStyles.accEntryName} numberOfLines={1}>
+                                                            {entry.label}
+                                                        </Text>
+                                                        <Text style={popupStyles.accEntryAmount}>
+                                                            ₹{entry.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {entry.drCr}
+                                                        </Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+
+                                            <View style={[popupStyles.accSectionHead, popupStyles.accSectionHeadSpaced]}>
+                                                <Icon name="earth" size={20} color="#1f3a89" />
+                                                <Text style={popupStyles.accSectionTitle}>More Details</Text>
+                                            </View>
+                                            <View style={popupStyles.accSectionBlock}>
+                                                <View style={popupStyles.accEntryRow}>
+                                                    <Text style={popupStyles.accEntryName}>Created by</Text>
+                                                    <Text style={popupStyles.accEntryAmount} numberOfLines={1}>
+                                                        {accountingCreatedBy}
+                                                    </Text>
+                                                </View>
+                                                <View style={popupStyles.accEntryRow}>
+                                                    <Text style={popupStyles.accEntryName}>Name on receipt</Text>
+                                                    <Text style={popupStyles.accEntryAmount} numberOfLines={1}>
+                                                        {accountingNameOnReceipt}
+                                                    </Text>
+                                                </View>
+                                                <View style={popupStyles.accNarrationWrap}>
+                                                    <Text style={popupStyles.accNarrationLabel}>Narration</Text>
+                                                    <View style={popupStyles.accNarrationBox}>
+                                                        <Text style={popupStyles.accNarrationText}>{accountingNarration}</Text>
+                                                    </View>
+                                                </View>
+                                            </View>
                                         </View>
-                                    </View>
+                                    )}
                                 </>
                             )}
                         </TouchableOpacity>
@@ -1725,7 +2440,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                         <Text style={popupStyles.updateOrderBtnText}>Update Order</Text>
                                     </TouchableOpacity>
                                 </View>
-                            ) : (
+                            ) : activeTab === 'approved' ? null : (
                                 <TouchableOpacity
                                     style={popupStyles.updateOrderBtn}
                                     onPress={() => {
@@ -1755,8 +2470,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 </TouchableOpacity>
                             )}
                         </View>
-                    </View>
-                </View>
+                    </Pressable>
+                </Pressable>
             </Modal>
 
             {/* Rejection Reason Modal */}
@@ -1802,6 +2517,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 }}
                 onCompanyChange={() => resetNavigationOnCompanyChange()}
             />
+            <EdgeSwipe />
         </View>
     );
 }
@@ -1826,11 +2542,12 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: 16,
         paddingVertical: 3,
+        minHeight: 47,
     },
     headerLeft: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 5,
+        gap: 10,
     },
     headerTitle: {
         fontFamily: 'Roboto',
@@ -1844,23 +2561,28 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     datePillRow: {
+        backgroundColor: '#E6ECFD',
+        marginHorizontal: -12,
+        marginTop: -12,
         paddingHorizontal: 16,
-        paddingBottom: 8,
+        overflow: 'hidden',
     },
     datePill: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 8,
-        alignSelf: 'flex-start',
+        minHeight: 10,
+        paddingVertical: 5,
+        paddingBottom: 8,
+        paddingHorizontal: 2,
+        backgroundColor: '#ffffff1a',
+        borderBottomWidth: 1,
+        borderBottomColor: '#C4D4FF',
     },
     datePillText: {
-        fontFamily: 'Roboto',
-        fontSize: 11,
-        color: colors.white,
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#131313',
     },
 
     // Body
@@ -1876,18 +2598,20 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
+        paddingVertical: 4,
     },
     searchBox: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 6,
         backgroundColor: colors.white,
         borderRadius: 56,
         borderWidth: 1,
         borderColor: '#D3D3D3',
         paddingHorizontal: 10,
-        paddingVertical: 7,
+        paddingVertical: 5,
+        minHeight: 38,
     },
     searchInput: {
         flex: 1,
@@ -1896,8 +2620,48 @@ const styles = StyleSheet.create({
         color: colors.text_primary,
         padding: 0,
     },
+    searchDividerLine: {
+        height: 1,
+        backgroundColor: '#D1D5DB',
+        marginTop: 2,
+        marginBottom: -8,
+        marginHorizontal: -12,
+    },
+    clearSearchBtnText: {
+        fontSize: 22,
+        color: '#9ca3af',
+        fontWeight: '600',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
     iconBtn: {
         padding: 6,
+    },
+    iconBtnDisabled: {
+        opacity: 0.4,
+    },
+    detailLoadingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 999,
+        backgroundColor: 'rgba(0,0,0,0.15)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+
+    overdueBillsLoadingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 998,
+        backgroundColor: 'rgba(0,0,0,0.15)',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 
     // Tab bar
@@ -1905,9 +2669,21 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.bg_light_blue,
+        alignSelf: 'stretch',
+        // Body has padding: 12. Use negative margins to make the bar end-to-end.
+        marginLeft: -12,
+        marginRight: -12,
+        marginTop: -8,
+        paddingHorizontal: 12,
         borderRadius: 4,
         padding: 2,
         overflow: 'hidden',
+    },
+    tabBarDividerLine: {
+        height: 1,
+        backgroundColor: '#C4D4FF',
+        marginHorizontal: 2,
+        marginTop: -9,
     },
     tab: {
         flex: 1,
@@ -1916,7 +2692,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 4,
         paddingHorizontal: 6,
-        paddingVertical: 4,
+        paddingVertical: 5,
         borderRadius: 4,
     },
     tabActive: {
@@ -1931,7 +2707,7 @@ const styles = StyleSheet.create({
     },
     tabDivider: {
         width: 1,
-        height: 16,
+        height: 18,
         backgroundColor: colors.text_secondary,
         borderRadius: 0.5,
     },
@@ -1945,25 +2721,20 @@ const styles = StyleSheet.create({
     tabLabelActive: {
         color: colors.white,
     },
-    tabCount: {
-        width: 14,
-        height: 14,
-        borderRadius: 50,
-        backgroundColor: colors.white,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    tabCountText: {
+    tabCountInline: {
         fontFamily: 'Roboto',
-        fontSize: 9,
+        fontSize: 11,
         color: '#0E172B',
         textAlign: 'center',
         letterSpacing: -0.08,
     },
+    tabCountInlineActive: {
+        color: colors.white,
+    },
 
     // Cards
     list: {
-        gap: 8,
+        gap: 12,
         // Extra bottom padding so last voucher is visible above bulk action bar + footer
         paddingBottom: (Dimensions.get('window').width >= 768 ? 60 : 49) + 47 + 20, 
     },
@@ -1983,8 +2754,12 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
     },
+    cardRowLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     typeBadge: {
-        backgroundColor: colors.yellow_accent,
+        backgroundColor: '#000000',
         borderRadius: 50,
         paddingHorizontal: 8,
         paddingVertical: 1,
@@ -1992,7 +2767,7 @@ const styles = StyleSheet.create({
     typeBadgeText: {
         fontFamily: 'Roboto',
         fontSize: 10,
-        color: '#0E172B',
+        color: '#ffffff',
     },
     amount: {
         fontFamily: 'Roboto',
@@ -2070,13 +2845,71 @@ const styles = StyleSheet.create({
     },
     cardHistoryRow: {
         marginTop: 4,
-        alignItems: 'flex-end',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
     },
-    cardHistoryLink: {
+    historyBtn: {
+        borderWidth: 1,
+        borderColor: colors.primary_blue,
+        backgroundColor: colors.white,
+        borderRadius: 4,
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    historyBtnText: {
         fontFamily: 'Roboto',
-        fontSize: 11,
+        fontSize: 12,
+        fontWeight: '500',
         color: colors.primary_blue,
+    },
+
+    // Closing balance pill (Receivable/Advance) – red dummy for now
+    closingBalancePill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: '#eb21221a',
+        borderRadius: 4,
+        borderWidth: 0.5,
+        borderColor: colors.reject_red ?? '#eb2122',
+    },
+    closingBalanceLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '400',
+        fontSize: 13,
+        color: '#0e172b',
+    },
+    closingBalanceValue: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 13,
+        color: colors.reject_red ?? '#eb2122',
         textDecorationLine: 'underline',
+    },
+
+    receivableAdvancePillDummy: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor: '#fafafd',
+        borderRadius: 4,
+        borderWidth: 0.5,
+        borderColor: '#d3d3d3',
+        minWidth: 110,
+        justifyContent: 'center',
+    },
+    receivableAdvancePillDummyInner: {
+        width: 52,
+        height: 12,
+        backgroundColor: '#e5e7eb',
+        borderRadius: 2,
     },
     bulkBar: {
         flexDirection: 'row',
@@ -2085,8 +2918,8 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderTopWidth: 1,
-        borderTopColor: '#d1d5db',
-        backgroundColor: '#ffffff',
+        borderTopColor: '#C4D4FF',
+        backgroundColor: '#F5F5F5',
         position: 'absolute',
         left: 0,
         right: 0,
@@ -2106,7 +2939,8 @@ const styles = StyleSheet.create({
     },
     bulkRejectBtn: {
         flex: 1,
-        paddingVertical: 5,
+        minHeight: 30,
+        paddingVertical: 7,
         paddingHorizontal: 12,
         borderRadius: 4,
         borderWidth: 1,
@@ -2117,13 +2951,14 @@ const styles = StyleSheet.create({
     },
     bulkRejectText: {
         fontFamily: 'Roboto',
-        fontSize: 13,
-        fontWeight: '500',
+        fontSize: 14,
+        fontWeight: '600',
         color: colors.reject_red,
     },
     bulkApproveBtn: {
         flex: 1,
-        paddingVertical: 5,
+        minHeight: 35,
+        paddingVertical: 7,
         paddingHorizontal: 12,
         borderRadius: 4,
         backgroundColor: '#4caf7b',
@@ -2132,8 +2967,24 @@ const styles = StyleSheet.create({
     },
     bulkApproveText: {
         fontFamily: 'Roboto',
-        fontSize: 13,
-        fontWeight: '500',
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.white,
+    },
+    bulkResendBtn: {
+        flex: 1,
+        minHeight: 25,
+        paddingVertical: 7,
+        paddingHorizontal: 14,
+        borderRadius: 4,
+        backgroundColor: '#4caf7b',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    bulkResendText: {
+        fontFamily: 'Roboto',
+        fontSize: 15,
+        fontWeight: '600',
         color: colors.white,
     },
     bulkBtnDisabled: {
@@ -2141,8 +2992,8 @@ const styles = StyleSheet.create({
     },
     resendBtn: {
         flex: 1,
-        paddingVertical: 5,
-        paddingHorizontal: 12,
+        paddingVertical: 6,
+        paddingHorizontal: 14,
         borderRadius: 4,
         backgroundColor: '#4caf7b',
         alignItems: 'center' as const,
@@ -2150,9 +3001,221 @@ const styles = StyleSheet.create({
     },
     resendBtnText: {
         fontFamily: 'Roboto',
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '500',
         color: colors.white,
+    },
+
+    // Overdue Bills Details modal (copied UI/structure from OrderEntry)
+    overdueBillsOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    overdueBillsCard: {
+        width: '100%',
+        backgroundColor: colors.white,
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        paddingTop: 8,
+    },
+    overdueBillsDragHandleWrap: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 8,
+    },
+    overdueBillsDragHandle: {
+        width: 48,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: '#d3d3d3',
+    },
+    overdueBillsHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingBottom: 8,
+    },
+    overdueBillsTitle: {
+        fontFamily: 'Roboto',
+        fontWeight: '700',
+        fontSize: 14,
+        color: '#131313',
+    },
+    overdueBillsCloseBtn: { padding: 4 },
+    overdueBillsHeaderLine: {
+        height: 1,
+        backgroundColor: '#c4d4ff',
+        width: '100%',
+    },
+    overdueBillsScroll: { flexShrink: 1 },
+    overdueBillsScrollContent: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        gap: 14,
+    },
+    overdueBillsBanner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#fef2f2',
+        borderWidth: 1.18,
+        borderColor: '#ffc9c9',
+        borderRadius: 10,
+        padding: 12,
+        gap: 6,
+    },
+    overdueBillsBannerIconWrap: {
+        marginTop: 2,
+    },
+    overdueBillsBannerTextWrap: {
+        flex: 1,
+        gap: 4,
+    },
+    overdueBillsBannerTitle: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 14,
+        color: '#9f0712',
+    },
+    overdueBillsBannerMessage: {
+        fontFamily: 'Roboto',
+        fontWeight: '400',
+        fontSize: 12,
+        color: '#c10007',
+        lineHeight: 16,
+    },
+    overdueBillsList: {
+        gap: 14,
+    },
+    overdueBillsCardItem: {
+        backgroundColor: colors.white,
+        borderWidth: 1,
+        borderColor: '#d3d3d3',
+        borderRadius: 8,
+        padding: 12,
+        gap: 6,
+    },
+    overdueBillsCardTop: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+    },
+    overdueBillsCardTopLeft: {
+        flex: 1,
+        gap: 6,
+    },
+    overdueBillsCardRef: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 13,
+        color: '#0e172b',
+    },
+    overdueBillsCardDateRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 4,
+    },
+    overdueBillsCardDateLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '400',
+        fontSize: 12,
+        color: '#6a7282',
+    },
+    overdueBillsCardDateValue: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 12,
+        color: '#101828',
+    },
+    overdueBillsCardDaysPill: {
+        backgroundColor: '#fef2f2',
+        borderRadius: 50,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        marginLeft: 8,
+    },
+    overdueBillsCardDaysText: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 13,
+        color: '#9f0712',
+    },
+    overdueBillsCardBalRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    overdueBillsCardBalLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '400',
+        fontSize: 13,
+        color: '#6a7282',
+    },
+    overdueBillsCardBalValue: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 13,
+        color: '#0e172b',
+    },
+    overdueBillsCardDueRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderTopWidth: 1,
+        borderTopColor: '#d3d3d3',
+        paddingTop: 6,
+    },
+    overdueBillsCardDueLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '400',
+        fontSize: 12,
+        color: '#6a7282',
+    },
+    overdueBillsCardDueValue: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 12,
+        color: '#0e172b',
+    },
+    overdueBillsTotalWrap: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#e6ecfd',
+        borderWidth: 1.18,
+        borderColor: '#d3d3d3',
+        borderRadius: 10,
+        padding: 12,
+        gap: 6,
+        marginTop: 10,
+    },
+    overdueBillsTotalIcon: {
+        marginTop: 2,
+    },
+    overdueBillsTotalTextWrap: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    overdueBillsTotalLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '400',
+        fontSize: 14,
+        color: '#1f3a89',
+    },
+    overdueBillsTotalAmt: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 15,
+        color: colors.reject_red ?? '#eb2122',
+    },
+    overdueBillsEmpty: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        color: '#6a7282',
+        textAlign: 'center',
+        paddingVertical: 20,
     },
 
     // States
@@ -2217,6 +3280,12 @@ const styles = StyleSheet.create({
 
 const popupStyles = StyleSheet.create({
     overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'flex-end',
+        alignItems: 'stretch',
+    },
+    centerOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.6)',
         justifyContent: 'center',
@@ -2507,6 +3576,14 @@ const popupStyles = StyleSheet.create({
         color: '#333',
     },
 
+    clearSearchBtnText: {
+        fontSize: 22,
+        color: '#9ca3af',
+        fontWeight: '600',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+
     // Sort
     sortLabelRow: {
         flexDirection: 'row' as const,
@@ -2602,6 +3679,9 @@ const popupStyles = StyleSheet.create({
         fontWeight: '500',
         fontSize: 13,
         color: '#131313',
+        flex: 1,
+        flexShrink: 1,
+        minWidth: 0,
     },
     detailContent: {
         flex: 1,
@@ -2662,6 +3742,73 @@ const popupStyles = StyleSheet.create({
         height: 14,
         backgroundColor: '#d3d3d3',
         marginHorizontal: 8,
+    },
+    accSectionHead: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        gap: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+    },
+    accSectionHeadSpaced: {
+        marginTop: 4,
+    },
+    accSectionTitle: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 17,
+        color: '#1f3a89',
+    },
+    accSectionBlock: {
+        backgroundColor: '#fff',
+    },
+    accEntryRow: {
+        flexDirection: 'row' as const,
+        justifyContent: 'space-between' as const,
+        alignItems: 'center' as const,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#e6ecfd',
+    },
+    accEntryName: {
+        flex: 1,
+        marginRight: 12,
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 13,
+        color: '#131313',
+    },
+    accEntryAmount: {
+        fontFamily: 'Roboto',
+        fontWeight: '600',
+        fontSize: 13,
+        color: '#131313',
+        maxWidth: '55%',
+        textAlign: 'right' as const,
+    },
+    accNarrationWrap: {
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+    },
+    accNarrationLabel: {
+        fontFamily: 'Roboto',
+        fontWeight: '500',
+        fontSize: 13,
+        color: '#131313',
+        marginBottom: 8,
+    },
+    accNarrationBox: {
+        borderWidth: 1,
+        borderColor: '#C4D4FF',
+        backgroundColor: '#E6ECFD',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+    },
+    accNarrationText: {
+        fontFamily: 'Roboto',
+        fontSize: 13,
+        color: '#131313',
     },
     inventoryToggleRow: {
         backgroundColor: '#fafafd',
@@ -2760,11 +3907,8 @@ const popupStyles = StyleSheet.create({
         paddingHorizontal: 14,
         paddingVertical: 8,
         backgroundColor: '#fff',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 2,
+        borderTopWidth: 1,
+        borderTopColor: '#d1d5db',
     },
     summaryLabel: {
         fontFamily: 'Roboto',

@@ -7,6 +7,7 @@ import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { CustNamesDropdown, StatusBarTopBar, AppSidebar, BankUpiDetailsModal } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { colors } from '../constants/colors';
@@ -40,6 +41,7 @@ export default function LedgerMain() {
   const [bankUpiError, setBankUpiError] = useState<string | null>(null);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const openBankUpi = useCallback(async () => {
@@ -185,6 +187,7 @@ export default function LedgerMain() {
           onConnectionsPress={goToAdminDashboard}
           onCompanyChange={() => resetNavigationOnCompanyChange()}
         />
+        <EdgeSwipe />
       </View>
     );
   }
@@ -225,6 +228,7 @@ export default function LedgerMain() {
         onConnectionsPress={goToAdminDashboard}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
     </View>
   );
 }

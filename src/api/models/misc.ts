@@ -270,6 +270,73 @@ export interface MastersResponse {
   [key: string]: unknown;
 }
 
+/** api/tally/ledger-create request */
+export interface LedgerCreateRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  ledgerData: {
+    name: string;
+    languageNames: string[];
+    group: string;
+    isBillWiseOn: 'Yes' | 'No';
+    billCreditPeriod: string;
+    isCreditDaysChkOn: 'Yes' | 'No';
+    creditLimit: string;
+    overrideCreditLimit: 'Yes' | 'No';
+    affectsStock: 'Yes' | 'No';
+    isCostCentresOn: 'Yes' | 'No';
+    isTdsApplicable: 'Yes' | 'No';
+    tdsDeducteeType: string;
+    natureOfPayment: string;
+    address: string;
+    pincode: string;
+    priorStateName: string;
+    stateName: string;
+    countryOfResidence: string;
+    mailingName: string;
+    contactPerson: string;
+    phoneNo: string;
+    countryISDCode?: string;
+    mobileNo: string;
+    email: string;
+    emailCC: string;
+    panNo: string;
+    nameOnPan: string;
+    gstinNo: string;
+    priceLevel: string;
+    narration: string;
+    description: string;
+    doclist: { documents: string[] };
+    paymentDetails: Array<{
+      ifscCode: string;
+      swiftCode: string;
+      accountNumber: string;
+      paymentFavouring: string;
+      transactionName: string;
+      bankId: string;
+      defaultTransactionType: string;
+    }>;
+    msmeDetails: Array<{
+      enterpriseType: string;
+      udyamRegNumber: string;
+      msmeActivityType: string;
+    }>;
+    gstRegDetails: Array<{
+      gstRegistrationType: string;
+      gstin: string;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+/** api/tally/ledger-create response */
+export interface LedgerCreateResponse {
+  success?: boolean;
+  message?: string;
+  [key: string]: unknown;
+}
+
 /** api/tally/godown-list request */
 export interface GodownListRequest {
   tallyloc_id: number;

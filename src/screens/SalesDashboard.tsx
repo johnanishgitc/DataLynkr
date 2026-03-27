@@ -35,6 +35,7 @@ import { colors } from '../constants/colors';
 
 import { KPICard, BarChart, PieChart, LineChart } from '../components/charts';
 import { AppSidebar } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import PeriodSelection from '../components/PeriodSelection';
 import { cacheManager, getCorruptedCacheKeys } from '../cache';
@@ -191,6 +192,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
     );
 
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
+    const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
     const goToAdminDashboard = useCallback(() => {
@@ -450,6 +452,7 @@ const SalesDashboard: React.FC<SalesDashboardProps> = ({ navigation: navigationP
                 onConnectionsPress={goToAdminDashboard}
                 onCompanyChange={() => resetNavigationOnCompanyChange()}
             />
+            <EdgeSwipe />
 
             {/* Period Selection Modal */}
             <PeriodSelection

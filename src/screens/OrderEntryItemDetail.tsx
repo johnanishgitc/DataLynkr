@@ -128,6 +128,7 @@ export default function OrderEntryItemDetail() {
   const editOrderItem = route.params?.editOrderItem ?? null;
   const editOrderItems = route.params?.editOrderItems ?? null;
   const viewOnly = route.params?.viewOnly ?? false;
+  const isQuickOrder = route.params?.isQuickOrder ?? false;
 
   // Use permissions passed from Order Entry so the user-access API is only called once when Order Entry opens, not on every item selection.
   const perms = route.params?.permissions ?? DEFAULT_PLACE_ORDER_PERMISSIONS;
@@ -245,8 +246,8 @@ export default function OrderEntryItemDetail() {
   const [attachmentDeleteIdx, setAttachmentDeleteIdx] = useState<number | null>(null);
   const [uploadErrorPopup, setUploadErrorPopup] = useState<{ status: string; message: string } | null>(null);
   const [validationAlert, setValidationAlert] = useState<{ title: string; message: string } | null>(null);
-  const [quantityWarningVisible, setQuantityWarningVisible] = useState(false);
-  const [descriptionRequiredVisible, setDescriptionRequiredVisible] = useState(false);
+  const [qtyValidationError, setQtyValidationError] = useState(false);
+  const [descriptionValidationError, setDescriptionValidationError] = useState(false);
 
   /** Fetch units from api/tally/stockitem for UOM (shared across items). */
   useEffect(() => {
@@ -326,7 +327,9 @@ export default function OrderEntryItemDetail() {
       const qtyNum = typeof source.qty === 'number' ? source.qty : parseFloat(String(source.qty)) || 0;
       setQuantityInput(source.enteredQty ?? String(source.qty));
       setItemQuantity(qtyNum);
-      setRate(String(source.rate));
+      const rawRate = String(source.rate ?? '0');
+      const rateNumMatch = rawRate.match(/[\d,]+(?:\.\d+)?/);
+      setRate(rateNumMatch ? rateNumMatch[0].replace(/,/g, '') : '0');
       setDiscount(String(source.discount ?? 0));
       setDueDate(source.dueDate ?? formatDateDmmmYy(Date.now()));
       setValue(String(source.total.toFixed(2)));
@@ -334,6 +337,13 @@ export default function OrderEntryItemDetail() {
       setExpiryDate(source.expiryDate ?? '');
       if (source.rateUnit && selectedItemUnitConfig) {
         setRateUOM(getRateUOMFromUnitName(source.rateUnit, selectedItemUnitConfig, units));
+      } else if (!source.rateUnit && rawRate.includes('/')) {
+        const unitPart = rawRate.split('/').slice(1).join('/').trim();
+        if (unitPart && selectedItemUnitConfig) {
+          setRateUOM(getRateUOMFromUnitName(unitPart, selectedItemUnitConfig, units));
+        } else {
+          setRateUOM('base');
+        }
       } else {
         setRateUOM('base');
       }
@@ -379,7 +389,9 @@ export default function OrderEntryItemDetail() {
       const rateNum = typeof editOrderItem.rate === 'number' ? editOrderItem.rate : parseFloat(String(editOrderItem.rate)) || 0;
       setQuantityInput(editOrderItem.enteredQty ?? String(editOrderItem.qty));
       setItemQuantity(qtyNum);
-      setRate(String(editOrderItem.rate));
+      const rawEditRate = String(editOrderItem.rate ?? '0');
+      const editRateMatch = rawEditRate.match(/[\d,]+(?:\.\d+)?/);
+      setRate(editRateMatch ? editRateMatch[0].replace(/,/g, '') : '0');
       setDiscount(String(editOrderItem.discount ?? 0));
       setDueDate(editOrderItem.dueDate ?? formatDateDmmmYy(Date.now()));
       setValue(String(editOrderItem.total.toFixed(2)));
@@ -388,6 +400,13 @@ export default function OrderEntryItemDetail() {
       setDescription(editOrderItem.description ?? '');
       if (editOrderItem.rateUnit && selectedItemUnitConfig) {
         setRateUOM(getRateUOMFromUnitName(editOrderItem.rateUnit, selectedItemUnitConfig, units));
+      } else if (!editOrderItem.rateUnit && rawEditRate.includes('/')) {
+        const unitPart = rawEditRate.split('/').slice(1).join('/').trim();
+        if (unitPart && selectedItemUnitConfig) {
+          setRateUOM(getRateUOMFromUnitName(unitPart, selectedItemUnitConfig, units));
+        } else {
+          setRateUOM('base');
+        }
       } else {
         setRateUOM('base');
       }
@@ -463,6 +482,18 @@ export default function OrderEntryItemDetail() {
       setCustomConversion(null);
     }
   }, [quantityInput, selectedItemUnitConfig, units]);
+
+  useEffect(() => {
+    if (qtyValidationError && (isToBeAllocated || itemQuantity > 0)) {
+      setQtyValidationError(false);
+    }
+  }, [qtyValidationError, isToBeAllocated, itemQuantity]);
+
+  useEffect(() => {
+    if (descriptionValidationError && description.trim().length > 0) {
+      setDescriptionValidationError(false);
+    }
+  }, [descriptionValidationError, description]);
 
   /** Compute value (amount after discount) from quantityInRateUOM * rate * (1 - discount/100). */
   useEffect(() => {
@@ -660,8 +691,8 @@ export default function OrderEntryItemDetail() {
     const hasAttachment = lineItems.length === 0 || isSingleLineEdit
       ? attachmentLinks.length > 0
       : lineItems.some((l) => (l.attachmentLinks?.length ?? 0) > 0);
-    if (isToBeAllocated && !hasDescription && !hasAttachment) {
-      setDescriptionRequiredVisible(true);
+    if ((isToBeAllocated || isQuickOrder) && !hasDescription && !hasAttachment) {
+      setDescriptionValidationError(true);
       return;
     }
     if (!isToBeAllocated) {
@@ -675,7 +706,7 @@ export default function OrderEntryItemDetail() {
               ? itemQuantity === 0
               : lineItems.some((l) => l.qty <= 0);
       if (hasZeroQty) {
-        setQuantityWarningVisible(true);
+        setQtyValidationError(true);
         return;
       }
     }
@@ -759,7 +790,7 @@ export default function OrderEntryItemDetail() {
       ...(allLinks.length > 0 ? { attachmentLinks: allLinks } : {}),
       ...(allUris.length > 0 ? { attachmentUris: allUris } : {}),
     });
-  }, [navigation, lineItems, name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [navigation, lineItems, name, isToBeAllocated, isQuickOrder, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const populateFormFromLine = useCallback((line: OrderLineItem, allLineItems?: OrderLineItem[]) => {
     setQuantityInput(line.enteredQty ?? String(line.qty));
@@ -790,12 +821,12 @@ export default function OrderEntryItemDetail() {
   const handleAddItem = useCallback(() => {
     const hasDescription = (description ?? '').trim().length > 0;
     const hasAttachment = attachmentLinks.length > 0;
-    if (isToBeAllocated && !hasDescription && !hasAttachment) {
-      setDescriptionRequiredVisible(true);
+    if ((isToBeAllocated || isQuickOrder) && !hasDescription && !hasAttachment) {
+      setDescriptionValidationError(true);
       return;
     }
     if (!isToBeAllocated && itemQuantity === 0) {
-      setQuantityWarningVisible(true);
+      setQtyValidationError(true);
       return;
     }
     const r = Math.max(0, parseFloat(rate) || 0);
@@ -836,12 +867,16 @@ export default function OrderEntryItemDetail() {
     setBatchDropdownOpen(false);
     // Clear attachments for new batch
     s3Attachment.setAllAttachments([]);
-  }, [name, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris, route.params?.defaultGodown]);
+  }, [name, isToBeAllocated, isQuickOrder, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, nextId, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris, route.params?.defaultGodown]);
 
   const handleUpdateItem = useCallback(() => {
     if (selectedLineId == null) return;
+    if ((isToBeAllocated || isQuickOrder) && (description ?? '').trim().length === 0 && attachmentLinks.length === 0) {
+      setDescriptionValidationError(true);
+      return;
+    }
     if (!isToBeAllocated && itemQuantity === 0) {
-      setQuantityWarningVisible(true);
+      setQtyValidationError(true);
       return;
     }
     const r = Math.max(0, parseFloat(rate) || 0);
@@ -892,7 +927,7 @@ export default function OrderEntryItemDetail() {
     setAttachmentLinks([]);
     setAttachmentUris([]);
     lastUpdateWasBatchRef.current = true;
-  }, [selectedLineId, isToBeAllocated, itemQuantity, quantityInput, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [selectedLineId, isToBeAllocated, isQuickOrder, itemQuantity, quantityInput, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
   const handleRemoveLineItem = useCallback((id: number) => {
     setLineItems((prev) => prev.filter((i) => i.id !== id));
@@ -1035,11 +1070,15 @@ export default function OrderEntryItemDetail() {
                     <TextInput
                       style={[
                         styles.textArea,
+                        (isToBeAllocated || isQuickOrder) && descriptionValidationError && styles.inputError,
                         isToBeAllocated && styles.textAreaToBeAllocated,
                         isToBeAllocated && styles.textAreaWithAttachButton,
                       ]}
                       value={description}
-                      onChangeText={setDescription}
+                      onChangeText={(text) => {
+                        setDescription(text);
+                        if (descriptionValidationError) setDescriptionValidationError(false);
+                      }}
                       placeholder=""
                       placeholderTextColor={LABEL_GRAY}
                       multiline
@@ -1066,6 +1105,9 @@ export default function OrderEntryItemDetail() {
                       </TouchableOpacity>
                     )}
                   </View>
+                  {(isToBeAllocated || isQuickOrder) && descriptionValidationError ? (
+                    <Text style={styles.fieldError}>Please enter a description.</Text>
+                  ) : null}
                 </View>
               ) : null}
 
@@ -1076,18 +1118,27 @@ export default function OrderEntryItemDetail() {
                       <Text style={styles.label}>Qty</Text>
                       <TextInput
                         ref={qtyInputRef}
-                        style={[styles.input, styles.inputRowField]}
+                        style={[styles.input, styles.inputRowField, qtyValidationError && styles.inputError]}
                         value={quantityInput}
                         onChangeText={(text) => {
                           const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
                           setQuantityInput(validated);
+                          if (qtyValidationError) setQtyValidationError(false);
                         }}
                         onFocus={() => {
                           const s = quantityInput;
                           const spaceIdx = s.indexOf(' ');
                           // When empty or no space yet, use default keyboard so user can type numbers or unit names
-                          if (s.trim() === '' || spaceIdx < 0) {
+                          if (s.trim() === '') {
                             setQtyKeyboardType('default');
+                            setQtySelection(undefined);
+                            return;
+                          }
+                          if (spaceIdx < 0) {
+                            // If only unit text remains (e.g. after backspacing numeric part), keep numeric keyboard
+                            // so user can re-enter quantity without keyboard mode switching.
+                            const hasLettersOnly = /^[A-Za-z]+$/.test(s.trim());
+                            setQtyKeyboardType(hasLettersOnly ? 'numeric' : 'default');
                             setQtySelection(undefined);
                             return;
                           }
@@ -1183,7 +1234,9 @@ export default function OrderEntryItemDetail() {
                           const spaceIdx = quantityInput.indexOf(' ');
                           // Empty or no space: default keyboard (allow numbers and letters)
                           if (spaceIdx < 0) {
-                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
+                            const hasLettersOnly = /^[A-Za-z]+$/.test(quantityInput.trim());
+                            const desiredKeyboard = hasLettersOnly && cursorPos === 0 ? 'numeric' : 'default';
+                            if (qtyKeyboardType !== desiredKeyboard) setQtyKeyboardType(desiredKeyboard);
                             return;
                           }
                           if (cursorPos > spaceIdx) {
@@ -1195,25 +1248,32 @@ export default function OrderEntryItemDetail() {
                         placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
                         placeholderTextColor={LABEL_GRAY}
                       />
-                      {showAlternateQty ? (
-                        (() => {
-                          if (enteredAddlQty != null) {
-                            const baseDec = selectedItemUnitConfig?.BASEUNIT_DECIMAL ?? 0;
-                            const fmt = baseDec === 0 ? String(Math.round(itemQuantity)) : itemQuantity.toFixed(Number(baseDec));
-                            return (
-                              <Text style={[styles.labelHint, { marginTop: 2 }]}>
-                                ({fmt} {selectedItemUnitConfig?.BASEUNITS})
-                              </Text>
-                            );
-                          }
-                          const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-                          return (
-                            <Text style={[styles.labelHint, { marginTop: 2 }]}>
-                              ({formatAlternateQtyDisplay(alt.qty, selectedItemUnitConfig)} {alt.unit})
+                      {(() => {
+                        const altQtyText = showAlternateQty
+                          ? (() => {
+                            if (enteredAddlQty != null) {
+                              const baseDec = selectedItemUnitConfig?.BASEUNIT_DECIMAL ?? 0;
+                              const fmt = baseDec === 0 ? String(Math.round(itemQuantity)) : itemQuantity.toFixed(Number(baseDec));
+                              return `(${fmt} ${selectedItemUnitConfig?.BASEUNITS})`;
+                            }
+                            const alt = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
+                            return `(${formatAlternateQtyDisplay(alt.qty, selectedItemUnitConfig)} ${alt.unit})`;
+                          })()
+                          : '';
+
+                        if (!altQtyText && !qtyValidationError) return null;
+
+                        return (
+                          <View style={styles.qtyMetaRow}>
+                            <Text style={[styles.labelHint, styles.qtyMetaLeft]} numberOfLines={1}>
+                              {altQtyText}
                             </Text>
-                          );
-                        })()
-                      ) : null}
+                            {qtyValidationError ? (
+                              <Text style={styles.fieldError} numberOfLines={1}>Please specify Qty</Text>
+                            ) : null}
+                          </View>
+                        );
+                      })()}
                     </View>
                     {perms.show_rateamt_Column ? (
                       <View style={styles.half}>
@@ -1894,65 +1954,6 @@ export default function OrderEntryItemDetail() {
         </View>
       </Modal>
 
-      {/* Quantity warning popup – same design as upload error (dark blue header, white body) */}
-      <Modal
-        visible={quantityWarningVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setQuantityWarningVisible(false)}
-      >
-        <View style={styles.uploadErrorOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setQuantityWarningVisible(false)} activeOpacity={1} />
-          <View style={styles.uploadErrorCard}>
-            <View style={styles.uploadErrorHeader}>
-              <Text style={styles.uploadErrorTitle} numberOfLines={1}>
-                Warning
-              </Text>
-              <TouchableOpacity
-                onPress={() => setQuantityWarningVisible(false)}
-                style={styles.uploadErrorCloseBtn}
-                hitSlop={12}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.uploadErrorCloseX}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.uploadErrorBody}>
-              <Text style={styles.uploadErrorMessage}>Please specify the quantity</Text>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Description required popup – same design as quantity warning (dark blue header, white body) */}
-      <Modal
-        visible={descriptionRequiredVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDescriptionRequiredVisible(false)}
-      >
-        <View style={styles.uploadErrorOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setDescriptionRequiredVisible(false)} activeOpacity={1} />
-          <View style={styles.uploadErrorCard}>
-            <View style={styles.uploadErrorHeader}>
-              <Text style={styles.uploadErrorTitle} numberOfLines={1}>
-                Description Required
-              </Text>
-              <TouchableOpacity
-                onPress={() => setDescriptionRequiredVisible(false)}
-                style={styles.uploadErrorCloseBtn}
-                hitSlop={12}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.uploadErrorCloseX}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.uploadErrorBody}>
-              <Text style={styles.uploadErrorMessage}>Please enter a description.</Text>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View >
   );
 }
@@ -2150,6 +2151,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f0f0',
     borderColor: '#e0e0e0',
     justifyContent: 'center',
+  },
+  inputError: {
+    borderColor: '#ef4444',
+  },
+  fieldError: {
+    fontFamily: 'Roboto',
+    fontSize: 11,
+    color: '#ef4444',
+  },
+  qtyMetaRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  qtyMetaLeft: {
+    flex: 1,
   },
   calIcon: {
     marginLeft: 4,
