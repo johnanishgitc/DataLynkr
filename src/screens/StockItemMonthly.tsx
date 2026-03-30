@@ -11,7 +11,7 @@ import {
     TextInput,
     useWindowDimensions,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { StatusBarTopBar } from '../components';
@@ -157,7 +157,7 @@ export default function StockItemMonthly() {
         [scrollY]
     );
 
-    const { setFooterCollapseValue } = useScroll();
+    const { setScrollDirection, setFooterCollapseValue } = useScroll();
     const footerCollapseProgress = useRef(new Animated.Value(0)).current;
     
     // Collapsible bar logic
@@ -178,6 +178,7 @@ export default function StockItemMonthly() {
             if (diff > 0 && value > 10) {
                 if (localScrollDirection.current !== 'down') {
                     localScrollDirection.current = 'down';
+                    setScrollDirection('down');
                     Animated.timing(footerTranslateY, {
                         toValue: 60,
                         duration: 300,
@@ -187,7 +188,7 @@ export default function StockItemMonthly() {
             } else if (diff < -SCROLL_UP_THRESHOLD || value <= 10) {
                 if (localScrollDirection.current !== 'up') {
                     localScrollDirection.current = 'up';
-                    localScrollDirection.current = 'up';
+                    setScrollDirection('up');
                     Animated.timing(footerTranslateY, {
                         toValue: 0,
                         duration: 300,
@@ -199,9 +200,24 @@ export default function StockItemMonthly() {
         });
         return () => {
             scrollY.removeListener(listenerId);
+            setScrollDirection(null);
             setFooterCollapseValue(null);
         };
-    }, [scrollY, footerCollapseProgress, setFooterCollapseValue, SCROLL_RANGE]);
+    }, [scrollY, footerCollapseProgress, setScrollDirection, setFooterCollapseValue, SCROLL_RANGE]);
+
+    useFocusEffect(
+        useCallback(() => {
+            localScrollDirection.current = 'up';
+            lastScrollY.current = 0;
+            footerCollapseProgress.setValue(0);
+            setScrollDirection('up');
+            Animated.timing(footerTranslateY, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+            }).start();
+        }, [setScrollDirection, footerTranslateY, footerCollapseProgress])
+    );
 
     useEffect(() => {
         let cancel = false;

@@ -44,6 +44,7 @@ import { getDB } from '../database/SQLiteManager';
 import { getString, getField, normalizeDate } from '../utils/salesTransformer';
 import { AppSidebar } from '../components/AppSidebar';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { invalidateLedgerListCache } from '../cache';
 import { subscribeToDataManagementSync } from '../cache/dataManagementAutoSync';
@@ -1108,6 +1109,7 @@ export default function DataManagement() {
   }, []);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const goToAdminDashboard = useCallback(() => {
@@ -3249,6 +3251,7 @@ export default function DataManagement() {
         onConnectionsPress={goToAdminDashboard}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
 
       {/* Info Bar */}
       <View style={styles.infoBar}>
@@ -3565,6 +3568,18 @@ export default function DataManagement() {
         </View>
 
       </ScrollView>
+
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: insets.bottom,
+          height: 1,
+          backgroundColor: '#d1d5db',
+        }}
+      />
 
       {/* Modals */}
       <PeriodSelection

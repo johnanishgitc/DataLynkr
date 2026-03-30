@@ -49,6 +49,8 @@ import type {
   LedgerCheckResponse,
   MastersRequest,
   MastersResponse,
+  LedgerCreateRequest,
+  LedgerCreateResponse,
   GodownListRequest,
   GodownListResponse,
   ItemwiseBatchwiseBalRequest,
@@ -313,6 +315,10 @@ export const apiService = {
   /** Master options list for group/price level/tds/msme/bank dropdowns. */
   getMasters: (body: MastersRequest) =>
     getApi().post<MastersResponse>('api/tally/masters', body),
+
+  /** Create ledger from Master Creation form. */
+  createLedger: (body: LedgerCreateRequest) =>
+    getApi().post<LedgerCreateResponse>('api/tally/ledger-create', body),
 
   /** Godown list for Order Entry Item Detail dropdown */
   getGodownList: (body: GodownListRequest) =>

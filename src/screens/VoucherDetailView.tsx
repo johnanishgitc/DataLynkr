@@ -392,7 +392,6 @@ export default function VoucherDetailView() {
   };
 
   useEffect(() => {
-    setScrollDirection('up');
     collapseProgress.setValue(0);
     footerTranslateY.setValue(0);
     setFooterCollapseValue(collapseProgress);
@@ -407,7 +406,8 @@ export default function VoucherDetailView() {
     React.useCallback(() => {
       if (localScrollDirection.current === 'down') {
         localScrollDirection.current = 'up';
-        setScrollDirection('up');
+        collapseProgress.setValue(0);
+        setFooterCollapseValue(collapseProgress);
         if (!isAccountingView) {
           Animated.parallel([
             Animated.timing(footerTranslateY, {
@@ -429,7 +429,7 @@ export default function VoucherDetailView() {
           }).start();
         }
       }
-    }, [isAccountingView, footerTranslateY, collapseProgress, setScrollDirection])
+    }, [isAccountingView, footerTranslateY, collapseProgress, setFooterCollapseValue])
   );
 
   // Accounting: footer via translateY (native driver); Order/Invoice: fixed bottom + translateY
@@ -1301,7 +1301,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 999,
-    elevation: 10,
   },
   invSectionWrap: {
     marginHorizontal: -16,

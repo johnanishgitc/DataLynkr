@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import Logo from '../components/Logo';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../navigation/types';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -25,15 +25,18 @@ import { strings } from '../constants/strings';
 import { fonts } from '../constants/fonts';
 
 type Nav = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+type LoginRoute = RouteProp<AuthStackParamList, 'Login'>;
 
 function hasError(r: { error?: string | null; token?: string | null }): boolean {
   return !!(r?.error && (r.error as string).trim().length > 0);
 }
 
 type LoginMode = 'password' | 'otp';
+type ForgotPasswordMessageType = 'success' | 'wait' | null;
 
 export default function Login() {
   const nav = useNavigation<Nav>();
+  const route = useRoute<LoginRoute>();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const [loginMode, setLoginMode] = useState<LoginMode>('password');
@@ -47,6 +50,9 @@ export default function Login() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
   const [showOtpSentMessage, setShowOtpSentMessage] = useState(false);
+  const [forgotPasswordCooldown, setForgotPasswordCooldown] = useState(0);
+  const [forgotPasswordMessage, setForgotPasswordMessage] = useState('');
+  const [forgotPasswordMessageType, setForgotPasswordMessageType] = useState<ForgotPasswordMessageType>(null);
   const scrollRef = useRef<ScrollView>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const otpInputRef = useRef<TextInput>(null);
@@ -105,6 +111,36 @@ export default function Login() {
     const timer = setTimeout(() => setShowOtpSentMessage(false), 5000);
     return () => clearTimeout(timer);
   }, [showOtpSentMessage]);
+
+  useEffect(() => {
+    const cooldownUntil = route.params?.forgotPasswordCooldownUntil;
+    const incomingMessage = route.params?.forgotPasswordMessage;
+    if (incomingMessage) {
+      setForgotPasswordMessage(incomingMessage);
+      setForgotPasswordMessageType('success');
+    }
+    if (typeof cooldownUntil !== 'number') return;
+    const secondsLeft = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+    setForgotPasswordCooldown(secondsLeft);
+  }, [route.params?.forgotPasswordCooldownUntil, route.params?.forgotPasswordMessage]);
+
+  useEffect(() => {
+    if (forgotPasswordCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setForgotPasswordCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [forgotPasswordCooldown]);
+
+  useEffect(() => {
+    if (!forgotPasswordMessageType) return;
+    const timer = setTimeout(() => setForgotPasswordMessage(''), 5000);
+    const typeTimer = setTimeout(() => setForgotPasswordMessageType(null), 5000);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(typeTimer);
+    };
+  }, [forgotPasswordMessageType]);
 
   const validateEmail = (): boolean => {
     const e = email.trim();
@@ -240,6 +276,17 @@ export default function Login() {
     setOtp('');
     setResendCountdown(0);
     setShowOtpSentMessage(false);
+  };
+
+  const handleForgotPasswordPress = () => {
+    if (loading) return;
+    if (forgotPasswordCooldown > 0) {
+      setForgotPasswordMessageType('wait');
+      return;
+    }
+    setForgotPasswordMessage('');
+    setForgotPasswordMessageType(null);
+    nav.navigate('ForgotPassword');
   };
 
   return (
@@ -408,10 +455,19 @@ export default function Login() {
                         </TouchableOpacity>
                       </View>
                       <View style={styles.forgotResetRow}>
-                        <TouchableOpacity onPress={() => nav.navigate('ForgotPassword')} disabled={loading}>
+                        <TouchableOpacity onPress={handleForgotPasswordPress} disabled={loading}>
                           <Text style={styles.link}>{strings.forgot_password}</Text>
                         </TouchableOpacity>
                       </View>
+                      {(forgotPasswordMessageType === 'success' && forgotPasswordMessage) || forgotPasswordMessageType === 'wait' ? (
+                        <View style={styles.forgotPasswordMsgWrap}>
+                          <Text style={styles.forgotPasswordMsgText}>
+                            {forgotPasswordMessageType === 'wait'
+                              ? `Please wait for ${forgotPasswordCooldown} seconds`
+                              : forgotPasswordMessage}
+                          </Text>
+                        </View>
+                      ) : null}
                     </>
                   )}
 
@@ -605,6 +661,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 16,
   },
+  forgotPasswordMsgWrap: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  forgotPasswordMsgText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    textAlign: 'center',
+  },
   forgotWrap: {
     alignSelf: 'center',
   },
@@ -646,12 +718,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Montserrat',
     fontStyle: 'italic',
     fontWeight: '700',
-    color: '#697282',
+    color: '#FF6600',
   },
   footerCatalyst: {
     fontFamily: 'Montserrat',
     fontStyle: 'italic',
     fontWeight: '700',
-    color: '#697282',
+    color: '#000000',
   },
 });

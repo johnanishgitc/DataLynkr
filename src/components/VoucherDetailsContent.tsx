@@ -814,11 +814,20 @@ export function ExpandableInventoryRow({
   const [expanded, setExpanded] = useState(false);
   const [qtyPopupBody, setQtyPopupBody] = useState<string | null>(null);
   const [ratePopup, setRatePopup] = useState<string | null>(null);
+  const [descriptionPopup, setDescriptionPopup] = useState<string | null>(null);
+  const [hasDescriptionOverflow, setHasDescriptionOverflow] = useState(false);
   /** 'main' when qty/rate popup opened from main row, number = sub-row index, null when popup closed */
   const [popupSource, setPopupSource] = useState<null | 'main' | number>(null);
   const subAllocs = getSubAllocations(item);
   const itemRaw = item as Record<string, unknown>;
   const name = (item.STOCKITEMNAME ?? itemRaw.stockitemname ?? '—') as string;
+  const basicUserDescriptionRaw =
+    itemRaw.BASICUSERDESCRIPTION ??
+    itemRaw.basicuserdescription ??
+    itemRaw.BASICDESCRIPTION ??
+    itemRaw.basicdescription;
+  const basicUserDescription =
+    basicUserDescriptionRaw != null ? String(basicUserDescriptionRaw).trim() : '';
   const isItemToBeAllocated = String(name).trim().toUpperCase() === ITEM_TO_BE_ALLOCATED_NAME;
   const attachmentLinks = getAttachmentLinksFromItem(item);
   const rateVal = itemRaw.rate ?? item.RATE;
@@ -961,6 +970,32 @@ export function ExpandableInventoryRow({
       </TouchableOpacity>
       {expanded && (
         <View style={styles.invSubAllocWrap}>
+          {basicUserDescription !== '' && (
+            <View style={styles.invBasicDescriptionBox}>
+              <Text style={styles.invBasicDescriptionText} numberOfLines={3} ellipsizeMode="tail">
+                {basicUserDescription}
+              </Text>
+              <Text
+                style={styles.invBasicDescriptionMeasure}
+                onTextLayout={(e) => {
+                  const lineCount = e.nativeEvent.lines?.length ?? 0;
+                  if (lineCount > 3 && !hasDescriptionOverflow) setHasDescriptionOverflow(true);
+                  if (lineCount <= 3 && hasDescriptionOverflow) setHasDescriptionOverflow(false);
+                }}
+              >
+                {basicUserDescription}
+              </Text>
+              {hasDescriptionOverflow && (
+                <TouchableOpacity
+                  style={styles.invBasicDescriptionMoreWrap}
+                  onPress={() => setDescriptionPopup(basicUserDescription)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.invBasicDescriptionMore}>...</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
           {subAllocs.map((sub, idx) => {
             const hasQty = sub.qty !== '' && sub.qty !== '—';
             const hasMfg = sub.mfgDate != null && sub.mfgDate !== '';
@@ -1087,6 +1122,12 @@ export function ExpandableInventoryRow({
         title="Rate"
         body={ratePopup ?? ''}
         onClose={closePopups}
+      />
+      <DetailPopup
+        visible={descriptionPopup != null}
+        title="Basic User Description"
+        body={descriptionPopup ?? ''}
+        onClose={() => setDescriptionPopup(null)}
       />
     </View>
   );
@@ -1434,6 +1475,41 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e6ecfd',
   },
+  invBasicDescriptionBox: {
+    backgroundColor: '#eef1f5',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 6,
+    marginBottom: 6,
+  },
+  invBasicDescriptionText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#0e172b',
+    fontWeight: '400',
+  },
+  invBasicDescriptionMeasure: {
+    position: 'absolute',
+    opacity: 0,
+    left: 10,
+    right: 10,
+    top: 8,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '400',
+    zIndex: -1,
+  },
+  invBasicDescriptionMoreWrap: {
+    alignSelf: 'flex-end',
+    marginTop: 1,
+  },
+  invBasicDescriptionMore: {
+    fontSize: 14,
+    lineHeight: 16,
+    color: '#1f3a89',
+    fontWeight: '600',
+  },
   invSubAllocRow: {
     paddingTop: 6,
     paddingBottom: 6,
@@ -1654,13 +1730,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#e5e7eb',
     paddingBottom: 0,
   },
-  footerWrapInvoiceOrder: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
-  },
+  footerWrapInvoiceOrder: {},
   itemTotalBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',

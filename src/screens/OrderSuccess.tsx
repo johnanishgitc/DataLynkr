@@ -4,8 +4,8 @@
  * Lottie: Success_animation_short from PlaceOrder_FigmaScreens/success short.
  */
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Alert, ActivityIndicator } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Alert, ActivityIndicator, BackHandler } from 'react-native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import type { OrdersStackParamList } from '../navigation/types';
@@ -42,7 +42,48 @@ export default function OrderSuccess() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList, 'OrderSuccess'>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderSuccess'>>();
-  const { voucherNumber, reference, lastVchId, fromDraftMode } = route.params ?? {};
+  const { voucherNumber, reference, lastVchId, fromDraftMode, fromApprovalUpdate } = route.params ?? {};
+  const goToApprovalsAndRefresh = React.useCallback(() => {
+    const tabNav =
+      (navigation.getParent()?.getParent() as { navigate?: (name: string, params?: object) => void } | undefined) ??
+      (navigation.getParent() as { navigate?: (name: string, params?: object) => void } | undefined);
+
+    // Reset the Orders stack to a clean OrderEntry so next visit doesn't show stale OrderSuccess.
+    tabNav?.navigate?.('OrdersTab', {
+      state: {
+        routes: [{ name: 'OrderEntry', params: { clearOrder: true } }],
+        index: 0,
+      },
+    });
+
+    tabNav?.navigate?.('ApprovalsTab', {
+      screen: 'ApprovalsScreen',
+      params: { refreshToken: Date.now() },
+    });
+  }, [navigation]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!fromApprovalUpdate) return;
+      const onBackPress = () => {
+        goToApprovalsAndRefresh();
+        return true;
+      };
+      const backSub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      const beforeRemoveSub = navigation.addListener('beforeRemove', (e) => {
+        const actionType = e.data.action?.type;
+        if (actionType === 'GO_BACK' || actionType === 'POP' || actionType === 'POP_TO_TOP') {
+          e.preventDefault();
+          goToApprovalsAndRefresh();
+        }
+      });
+      return () => {
+        backSub.remove();
+        beforeRemoveSub();
+      };
+    }, [fromApprovalUpdate, goToApprovalsAndRefresh, navigation]),
+  );
+
   const [sharePopupVisible, setSharePopupVisible] = React.useState(false);
   const [pdfLoading, setPdfLoading] = React.useState(false);
 

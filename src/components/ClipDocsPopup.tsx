@@ -5,7 +5,6 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, Pressable, StyleSheet, Dimensions } from 'react-native';
 import FrameCameraSvg from '../assets/clipPopup/frame-2147225875.svg';
-import Line25Svg from '../assets/clipPopup/line-25.svg';
 import VectorGallerySvg from '../assets/clipPopup/vector.svg';
 import VectorFilesSvg from '../assets/clipPopup/vector-1.svg';
 import type { SvgProps } from 'react-native-svg';
@@ -57,11 +56,6 @@ export function ClipDocsPopup({ visible, onClose, onOptionClick }: ClipDocsPopup
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
         <View style={styles.sheet} onStartShouldSetResponder={() => true} pointerEvents="box-none">
-          <View style={styles.header}>
-            <View style={styles.dragWrap}>
-              <Line25Svg width={48} height={4} />
-            </View>
-          </View>
           <View style={styles.content}>
             <View style={styles.nav}>
               {UPLOAD_OPTIONS.map((option) => {
@@ -114,20 +108,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
-    paddingTop: 12,
+    paddingTop: 14,
     paddingBottom: 40,
     paddingHorizontal: 10,
     alignItems: 'center',
-  },
-  header: {
-    width: '100%',
-    paddingHorizontal: 20,
-    marginBottom: 0,
-    alignItems: 'center',
-  },
-  dragWrap: {
-    marginTop: -4,
-    marginBottom: 10,
   },
   content: {
     width: '100%',

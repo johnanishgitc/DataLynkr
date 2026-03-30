@@ -123,24 +123,16 @@ export default function SalesOrderLedgerOutstandings({
     lastScrollY.current = currentScrollY;
   };
 
-  useEffect(() => {
-    return () => {
-      setScrollDirection(null);
-    };
-  }, [setScrollDirection]);
-
-  // When returning from detail screens, force footer visible so it doesn't remain collapsed.
+  // Reset scroll state when screen gains focus so footer starts expanded.
   useFocusEffect(
     React.useCallback(() => {
-      if (localScrollDirection.current === 'down') {
-        localScrollDirection.current = 'up';
-        setScrollDirection('up');
-        Animated.timing(footerTranslateY, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }).start();
-      }
+      footerTranslateY.setValue(0);
+      lastScrollY.current = 0;
+      localScrollDirection.current = 'up';
+      setScrollDirection('up');
+      return () => {
+        setScrollDirection(null);
+      };
     }, [footerTranslateY, setScrollDirection])
   );
 

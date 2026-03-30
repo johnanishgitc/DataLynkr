@@ -25,6 +25,7 @@ import type { LedgerReportData, BankUpiResponse } from '../api';
 import { ExportMenu, PeriodSelection, AppSidebar, BankUpiDetailsModal } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { strings } from '../constants/strings';
@@ -124,6 +125,7 @@ export default function LedgerEntries() {
   }, [reportDropdownOpen]);
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const openBankUpi = useCallback(async () => {
@@ -778,6 +780,7 @@ export default function LedgerEntries() {
         onConnectionsPress={goToAdminDashboard}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
 
       <SharePopup
         visible={sharePopupVisible}

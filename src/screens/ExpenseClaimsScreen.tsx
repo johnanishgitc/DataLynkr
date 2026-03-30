@@ -26,6 +26,7 @@ import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
+
 import { getCompany, getGuid, getTallylocId } from '../store/storage';
 import CalendarPicker from '../components/CalendarPicker';
 import { formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
@@ -33,6 +34,7 @@ import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { useS3Attachment } from '../hooks/useS3Attachment';
 import OrderEntryStyleDropdownModal from '../components/OrderEntryStyleDropdownModal';
+import SubmissionSuccessModal from '../components/SubmissionSuccessModal';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const formatYyyyMmDd = (d: Date) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
@@ -62,7 +64,15 @@ export default function ExpenseClaimsScreen() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   const s3Attachment = useS3Attachment({ type: 'others' });
-  const formScrollEnabled = s3Attachment.attachments.length > 0;
+  const [fieldErrors, setFieldErrors] = useState<{
+    voucherType?: string;
+    category?: string;
+    date?: string;
+    paymentMode?: string;
+    amount?: string;
+  }>({});
+  const [showApprovedModal, setShowApprovedModal] = useState(false);
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
 
   const scrollRef = useRef<ScrollView | null>(null);
   const amountFieldRef = useRef<View | null>(null);
@@ -212,18 +222,12 @@ export default function ExpenseClaimsScreen() {
 
   /** When Payment Mode dropdown opens, scroll so the full inline list is visible. */
   useEffect(() => {
-    if (!paymentModeOpen || !formScrollEnabled) return;
+    if (!paymentModeOpen) return;
     const t = setTimeout(() => {
       scrollToInputRef(paymentModeFieldRef, 24);
     }, 100);
     return () => clearTimeout(t);
-  }, [paymentModeOpen, formScrollEnabled, cashBankLedgersLoading, cashBankLedgerNames.length, scrollToInputRef]);
-  useEffect(() => {
-    if (formScrollEnabled) return;
-    requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ y: 0, animated: true });
-    });
-  }, [formScrollEnabled]);
+  }, [paymentModeOpen, cashBankLedgersLoading, cashBankLedgerNames.length, scrollToInputRef]);
 
 
   const handleClipOption = useCallback(
@@ -246,18 +250,32 @@ export default function ExpenseClaimsScreen() {
     setPaymentModeOpen(false);
     setDatePickerVisible(false);
     setPreviewAttachmentUri(null);
-    s3Attachment.setAllAttachments([]);
+    setFieldErrors({});
+    // Prevent "stuck" scroll: scroll to top while scrollEnabled is still true,
+    // then clear attachments (which disables scrolling in this screen).
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+    setTimeout(() => {
+      s3Attachment.setAllAttachments([]);
+    }, 150);
   }, [s3Attachment]);
 
   const handleSubmitForApproval = useCallback(async () => {
-    if (!voucherType.trim()) return Alert.alert('Validation', 'Please select Voucher type.');
-    if (!category.trim()) return Alert.alert('Validation', 'Please select Expense Category.');
-    if (!paymentMode.trim()) return Alert.alert('Validation', 'Please select Payment Mode.');
-    if (!date.trim()) return Alert.alert('Validation', 'Please select Expense Date.');
+    const nextErrors: typeof fieldErrors = {};
+    if (!voucherType.trim()) nextErrors.voucherType = 'Please fill out this field';
+    if (!category.trim()) nextErrors.category = 'Please fill out this field';
+    if (!date.trim()) nextErrors.date = 'Please fill out this field';
+    if (!paymentMode.trim()) nextErrors.paymentMode = 'Please fill out this field';
+    const amtNum = Number(amount);
+    if (!Number.isFinite(amtNum) || amtNum <= 0) nextErrors.amount = 'Please fill out this field';
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      return;
+    }
     const parsed = parseDateDmmmYy(date);
     if (!parsed) return Alert.alert('Validation', 'Invalid date selected.');
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) return Alert.alert('Validation', 'Please enter a valid Amount.');
+    const amt = amtNum;
 
     const [tallyloc_id, company, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
     if (!tallyloc_id || !company || !guid) return Alert.alert('Validation', 'Please select a company connection first.');
@@ -291,7 +309,7 @@ export default function ExpenseClaimsScreen() {
       const res = await apiService.createPaymentVoucher(payload);
       const successRaw = res.data?.success;
       const isSuccess = successRaw === true || String(successRaw).toLowerCase() === 'true';
-      if (isSuccess) Alert.alert('Success', 'Voucher submitted successfully.');
+      if (isSuccess) setShowApprovedModal(true);
       else Alert.alert('Error', res.data?.message || 'Failed to submit voucher.');
     } catch (e: unknown) {
       if (isUnauthorizedError(e)) return;
@@ -328,19 +346,19 @@ export default function ExpenseClaimsScreen() {
           scrollRef.current = r;
         }}
         style={s.scroll}
-        scrollEnabled={formScrollEnabled}
+        scrollEnabled
         contentContainerStyle={[s.scrollContent, { paddingBottom: (keyboardVisible ? 260 : 140) + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={s.sectionTitleRow}>
-          <InventoryAllocationIcon width={20} height={20} />
+          <InventoryAllocationIcon size={20} />
           <Text style={s.sectionTitle}>Expense Details</Text>
         </View>
 
         <View style={s.fieldBlock}>
           <Text style={s.fieldLabel}>Voucher type</Text>
           <TouchableOpacity
-            style={s.selectBox}
+            style={[s.selectBox, fieldErrors.voucherType && s.selectBoxError]}
             onPress={() => {
               setVoucherTypeOpen((v) => {
                 const next = !v;
@@ -363,6 +381,7 @@ export default function ExpenseClaimsScreen() {
               />
             )}
           </TouchableOpacity>
+          {fieldErrors.voucherType ? <Text style={s.fieldError}>{fieldErrors.voucherType}</Text> : null}
           {false && voucherTypeOpen && (
             <View style={s.inlineDropdown}>
               {voucherTypesLoading ? (
@@ -400,7 +419,7 @@ export default function ExpenseClaimsScreen() {
         <View style={s.fieldBlock}>
           <Text style={s.fieldLabel}>Expense Category</Text>
           <TouchableOpacity
-            style={s.selectBox}
+            style={[s.selectBox, fieldErrors.category && s.selectBoxError]}
             onPress={() => {
               setCategoryOpen((v) => !v);
               if (expenseLedgerNames.length === 0 && !expenseLedgersLoading) fetchExpenseLedgers();
@@ -416,6 +435,7 @@ export default function ExpenseClaimsScreen() {
               <Icon name={categoryOpen ? 'chevron-up' : 'chevron-down'} size={20} color={colors.text_secondary} />
             )}
           </TouchableOpacity>
+          {fieldErrors.category ? <Text style={s.fieldError}>{fieldErrors.category}</Text> : null}
           {false && categoryOpen && (
             <View style={s.inlineDropdown}>
               {expenseLedgersLoading ? (
@@ -473,18 +493,19 @@ export default function ExpenseClaimsScreen() {
 
         <View style={s.fieldBlock}>
           <Text style={s.fieldLabel}>Expense Date</Text>
-          <TouchableOpacity style={s.selectBox} onPress={() => setDatePickerVisible(true)} activeOpacity={0.7}>
+          <TouchableOpacity style={[s.selectBox, fieldErrors.date && s.selectBoxError]} onPress={() => setDatePickerVisible(true)} activeOpacity={0.7}>
             <Text style={[s.selectText, !date && s.selectPlaceholder]} numberOfLines={1}>
               {date || 'dd-mm-yyyy'}
             </Text>
             <Icon name="calendar-month-outline" size={20} color={colors.text_secondary} />
           </TouchableOpacity>
+          {fieldErrors.date ? <Text style={s.fieldError}>{fieldErrors.date}</Text> : null}
         </View>
 
         <View style={s.fieldBlock} ref={paymentModeFieldRef}>
           <Text style={s.fieldLabel}>Payment Mode</Text>
           <TouchableOpacity
-            style={s.selectBox}
+            style={[s.selectBox, fieldErrors.paymentMode && s.selectBoxError]}
             onPress={() => {
               setPaymentModeOpen((v) => {
                 const next = !v;
@@ -507,6 +528,7 @@ export default function ExpenseClaimsScreen() {
               />
             )}
           </TouchableOpacity>
+          {fieldErrors.paymentMode ? <Text style={s.fieldError}>{fieldErrors.paymentMode}</Text> : null}
           {false && paymentModeOpen && (
             <View style={s.inlineDropdown}>
               {cashBankLedgersLoading ? (
@@ -543,17 +565,21 @@ export default function ExpenseClaimsScreen() {
 
         <View style={s.fieldBlock} ref={amountFieldRef}>
           <Text style={s.fieldLabel}>Amount</Text>
-          <View style={s.selectBox}>
+          <View style={[s.selectBox, fieldErrors.amount && s.selectBoxError]}>
             <Text style={s.rupee}>₹</Text>
             <TextInput
               value={amount}
-              onChangeText={setAmount}
+              onChangeText={(v) => {
+                setAmount(v);
+                if (fieldErrors.amount) setFieldErrors((p) => ({ ...p, amount: undefined }));
+              }}
               placeholder=""
               keyboardType="numeric"
               style={[s.selectText, { paddingLeft: 0 }]}
               onFocus={() => scrollToInputRef(amountFieldRef)}
             />
           </View>
+          {fieldErrors.amount ? <Text style={s.fieldError}>{fieldErrors.amount}</Text> : null}
         </View>
 
         <TouchableOpacity
@@ -608,6 +634,7 @@ export default function ExpenseClaimsScreen() {
         onSelect={(item) => {
           setVoucherType(item);
           setVoucherTypeOpen(false);
+          if (fieldErrors.voucherType) setFieldErrors((p) => ({ ...p, voucherType: undefined }));
         }}
       />
       <OrderEntryStyleDropdownModal
@@ -620,6 +647,7 @@ export default function ExpenseClaimsScreen() {
         onSelect={(item) => {
           setCategory(item);
           setCategoryOpen(false);
+          if (fieldErrors.category) setFieldErrors((p) => ({ ...p, category: undefined }));
         }}
       />
       <OrderEntryStyleDropdownModal
@@ -632,6 +660,7 @@ export default function ExpenseClaimsScreen() {
         onSelect={(item) => {
           setPaymentMode(item);
           setPaymentModeOpen(false);
+          if (fieldErrors.paymentMode) setFieldErrors((p) => ({ ...p, paymentMode: undefined }));
         }}
       />
 
@@ -647,6 +676,7 @@ export default function ExpenseClaimsScreen() {
               value={parseDateDmmmYy(date) ?? new Date()}
               onSelect={(d) => {
                 setDate(formatDateDmmmYy(d.getTime()));
+                if (fieldErrors.date) setFieldErrors((p) => ({ ...p, date: undefined }));
                 setDatePickerVisible(false);
               }}
               hideDone
@@ -654,6 +684,7 @@ export default function ExpenseClaimsScreen() {
           </View>
         </View>
       </Modal>
+      <SubmissionSuccessModal visible={showApprovedModal} onClose={() => setShowApprovedModal(false)} />
       {!keyboardVisible && <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 4 }]}>
         <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8} onPress={resetForm} disabled={submitLoading}>
           <Text style={s.cancelBtnText}>Cancel</Text>
@@ -707,9 +738,11 @@ const s = StyleSheet.create({
     height: 44,
     gap: 8,
   },
+  selectBoxError: { borderColor: '#ef4444' },
   selectText: { flex: 1, fontFamily: 'Roboto', fontSize: 14, fontWeight: '400', color: colors.text_secondary, paddingVertical: 0 },
   selectPlaceholder: { color: colors.text_secondary },
   rupee: { fontFamily: 'Roboto', fontSize: 14, color: colors.text_secondary, marginRight: 2 },
+  fieldError: { marginTop: 2, alignSelf: 'flex-end', fontFamily: 'Roboto', fontSize: 11, color: '#ef4444' },
 
   inlineDropdown: {
     marginTop: 6,

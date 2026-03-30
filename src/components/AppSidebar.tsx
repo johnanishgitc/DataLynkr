@@ -19,6 +19,9 @@ import {
   ActivityIndicator,
   ScrollView,
   Easing,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -42,7 +45,7 @@ import { useModuleAccess } from '../store/ModuleAccessContext';
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
 
 const WHITE_NAVBAR_ROUTES = new Set([
-  'DataManagement',
+  'DataManagement', 'AddCustomer',
   'LedgerMain', 'LedgerEntries', 'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
   'ApprovalsScreen',
   'StockSummary', 'StockGroupSummary', 'StockItemMonthly', 'StockItemVouchers',
@@ -83,6 +86,17 @@ export function AppSidebar({
   const anim = useRef(new Animated.Value(0)).current;
   const { logout, userName, userEmail } = useAuth();
   const { moduleAccess } = useModuleAccess();
+
+  // Needed on Android for LayoutAnimation to work.
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      // TypeScript defs mark this as optional depending on RN version.
+      const anyUIManager = UIManager as any;
+      if (typeof anyUIManager.setLayoutAnimationEnabledExperimental === 'function') {
+        anyUIManager.setLayoutAnimationEnabledExperimental(true);
+      }
+    }
+  }, []);
 
   const getModuleKey = (target: string) => {
     switch (target) {
@@ -219,10 +233,16 @@ export function AppSidebar({
   const panResponder = useMemo(() =>
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        // Capture intentional horizontal left swipes early so nested scrollables
+        // inside the sidebar do not block close gesture.
+        return gestureState.dx < -10 && Math.abs(gestureState.dy) < Math.abs(gestureState.dx);
+      },
       onMoveShouldSetPanResponder: (_, gestureState) => {
         // Only capture horizontal left swipes
         return gestureState.dx < -10 && Math.abs(gestureState.dy) < Math.abs(gestureState.dx);
       },
+      onPanResponderTerminationRequest: () => false,
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dx < -50 || gestureState.vx < -0.5) {
           onClose();
@@ -384,7 +404,12 @@ export function AppSidebar({
                     <View style={[styles.dashboardBlock, dashboardExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
                         style={styles.row}
-                        onPress={isEnabled ? () => setDashboardExpanded(!dashboardExpanded) : undefined}
+                        onPress={isEnabled
+                          ? () => {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setDashboardExpanded((v) => !v);
+                            }
+                          : undefined}
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
@@ -423,7 +448,12 @@ export function AppSidebar({
                     <View style={[styles.dashboardBlock, ledgerExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
                         style={styles.row}
-                        onPress={isEnabled ? () => setLedgerExpanded(!ledgerExpanded) : undefined}
+                        onPress={isEnabled
+                          ? () => {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setLedgerExpanded((v) => !v);
+                            }
+                          : undefined}
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
@@ -458,7 +488,12 @@ export function AppSidebar({
                     <View style={[styles.dashboardBlock, paymentExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
                         style={styles.row}
-                        onPress={isEnabled ? () => setPaymentExpanded(!paymentExpanded) : undefined}
+                        onPress={isEnabled
+                          ? () => {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setPaymentExpanded((v) => !v);
+                            }
+                          : undefined}
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
@@ -674,7 +709,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    gap: 5,
+    gap: 0,
     paddingBottom: 10,
   },
   row: {
@@ -698,11 +733,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
   },
   dashboardBlock: {
-    marginBottom: 4,
+    marginBottom: 2,
     borderRadius: 12,
   },
   dashboardBlockExpanded: {
-    backgroundColor: 'rgba(0,0,0,0.15)',
     paddingBottom: 8,
   },
   dashboardSubItems: {

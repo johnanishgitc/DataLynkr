@@ -9,7 +9,7 @@ import {
   Animated,
   useWindowDimensions,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getTallylocId, getCompany, getGuid } from '../../store/storage';
@@ -118,11 +118,18 @@ export default function ClearedOrders({
     lastScrollY.current = currentScrollY;
   };
 
-  useEffect(() => {
-    return () => {
-      setScrollDirection(null);
-    };
-  }, [setScrollDirection]);
+  // Reset scroll state when screen gains focus so footer starts expanded.
+  useFocusEffect(
+    React.useCallback(() => {
+      footerTranslateY.setValue(0);
+      lastScrollY.current = 0;
+      localScrollDirection.current = 'up';
+      setScrollDirection('up');
+      return () => {
+        setScrollDirection(null);
+      };
+    }, [footerTranslateY, setScrollDirection])
+  );
 
   useEffect(() => {
     let cancel = false;

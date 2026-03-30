@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import type { TextInput as RNTextInput } from 'react-native';
 import { Alert, Platform } from 'react-native';
-import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
@@ -27,6 +27,7 @@ import { SharePopup, type ShareOptionId } from '../components/SharePopup';
 import { PeriodSelection } from '../components/PeriodSelection';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { apiService, isUnauthorizedError } from '../api';
@@ -419,7 +420,21 @@ export default function StockSummary() {
         };
     }, [setScrollDirection]);
 
+    useFocusEffect(
+        useCallback(() => {
+            localScrollDirection.current = 'up';
+            lastScrollY.current = 0;
+            setScrollDirection('up');
+            Animated.timing(footerTranslateY, {
+                toValue: 0,
+                duration: 200,
+                useNativeDriver: true,
+            }).start();
+        }, [setScrollDirection, footerTranslateY])
+    );
+
     const openSidebar = useCallback(() => setSidebarOpen(true), []);
+    const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
     const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
     const goToAdminDashboard = useCallback(() => {
@@ -1011,6 +1026,7 @@ export default function StockSummary() {
                     onCompanyChange={() => resetNavigationOnCompanyChange()}
                 />
             )}
+            <EdgeSwipe />
 
             <PeriodSelection
                 visible={periodOpen}
