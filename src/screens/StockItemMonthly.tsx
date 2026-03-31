@@ -180,7 +180,8 @@ export default function StockItemMonthly() {
                     localScrollDirection.current = 'down';
                     setScrollDirection('down');
                     Animated.timing(footerTranslateY, {
-                        toValue: 60,
+                        // When scrolling down, shift the closing balance bar down slightly (not fully)
+                        toValue: 50,
                         duration: 300,
                         useNativeDriver: true,
                     }).start();

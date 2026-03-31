@@ -3,18 +3,13 @@ export { QRCodeScanner } from './QRCodeScanner';
 export type { QRCodeScannerProps } from './QRCodeScanner';
 export type { AppSidebarMenuItem, AppSidebarProps } from './AppSidebar';
 export { SIDEBAR_MENU_SALES, SIDEBAR_MENU_ORDER_ENTRY, SIDEBAR_MENU_LEDGER, SIDEBAR_MENU_APPROVALS } from './appSidebarMenu';
-export { default as SearchableDropdown } from './SearchableDropdown';
-export { CustNamesDropdown } from './CustNamesDropdown';
 export { default as Logo } from './Logo';
 export { StatusBarTopBar } from './StatusBarTopBar';
-export { default as DatePickerDropdown } from './DatePickerDropdown';
 export { default as CalendarPicker } from './CalendarPicker';
 export { default as PeriodSelection } from './PeriodSelection';
+export { default as GlobalDropdownModal } from './GlobalDropdownModal';
 export { default as ExportMenu } from './ExportMenu';
-export { default as VoucherTypeDropdown } from './VoucherTypeDropdown';
-export { DeleteConfirmationModal } from './DeleteConfirmationModal';
-export { BankUpiDetailsModal } from './BankUpiDetailsModal';
-export type { BankUpiDetailsModalProps } from './BankUpiDetailsModal';
+export { PopupModal, DeleteConfirmationModal } from './PopupModal';
 export {
   toNum,
   fmtNum,

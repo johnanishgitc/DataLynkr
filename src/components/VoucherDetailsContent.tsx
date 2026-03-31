@@ -783,15 +783,70 @@ export function InventoryRow({
 
 const ITEM_TO_BE_ALLOCATED_NAME = 'ITEM TO BE ALLOCATED';
 
-/** Parse pipe-separated attachment links from attachdescription */
+/** Prefer `viewurl` from API response to render attachment images; fallback to `attachdescription`. */
 function getAttachmentLinksFromItem(item: InventoryAllocation): string[] {
   const raw = item as Record<string, unknown>;
+
+  const parsePipeSeparated = (value: unknown): string[] => {
+    if (typeof value !== 'string') return [];
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    return trimmed
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  const extractViewUrls = (value: unknown): string[] => {
+    // 1) String: "url1|url2"
+    const fromString = parsePipeSeparated(value);
+    if (fromString.length > 0) return fromString;
+
+    // 2) Array: ["url1", "url2"] OR [{ viewurl: "..." }, ...]
+    if (Array.isArray(value)) {
+      const out: string[] = [];
+      for (const v of value) {
+        if (!v) continue;
+        if (typeof v === 'string') {
+          out.push(...parsePipeSeparated(v));
+          continue;
+        }
+        if (typeof v === 'object') {
+          const vo = v as Record<string, unknown>;
+          const url = vo.viewurl ?? vo.viewUrl ?? vo.VIEWURL ?? vo.VIEW_URL ?? vo.view_url;
+          out.push(...parsePipeSeparated(url));
+        }
+      }
+      return out.filter(Boolean);
+    }
+
+    // 3) Object: { viewurl: "..." }
+    if (typeof value === 'object' && value !== null) {
+      const vo = value as Record<string, unknown>;
+      const url = vo.viewurl ?? vo.viewUrl ?? vo.VIEWURL ?? vo.VIEW_URL ?? vo.view_url;
+      return parsePipeSeparated(url);
+    }
+
+    return [];
+  };
+
+  // New API response includes `viewurl` for rendering attachments.
+  const viewUrlCandidates =
+    raw.viewurl ??
+    raw.viewUrl ??
+    raw.VIEWURL ??
+    raw.viewurls ??
+    raw.VIEWURLS ??
+    raw.attachmentviewurl ??
+    raw.attachmentViewUrl;
+
+  const viewUrls = extractViewUrls(viewUrlCandidates);
+  if (viewUrls.length > 0) return viewUrls;
+
+  // Legacy fallback: pipe-separated attachment identifiers in `attachdescription`.
   const desc = (item.ATTACHDESCRIPTION ?? item.attachdescription ?? raw.ATTACHDESCRIPTION ?? raw.attachdescription ?? '') as string;
-  if (!desc || String(desc).trim() === '') return [];
-  return String(desc)
-    .split('|')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const attachLinks = parsePipeSeparated(desc);
+  return attachLinks;
 }
 
 /** Expandable inventory row: tap to show sub-allocations (Godown, Batch#) */
@@ -808,7 +863,7 @@ export function ExpandableInventoryRow({
   invoiceOrder?: boolean;
   /** Called when expand state changes (e.g. so parent can scroll to show expanded content) */
   onExpandChange?: (expanded: boolean) => void;
-  /** For "ITEM TO BE ALLOCATED": open in-app attachment preview (links from attachdescription) */
+  /** For "ITEM TO BE ALLOCATED": open in-app attachment preview (prefer viewurl) */
   onViewAttachments?: (items: string[]) => void;
 }) {
   const [expanded, setExpanded] = useState(false);

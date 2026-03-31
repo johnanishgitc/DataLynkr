@@ -981,7 +981,13 @@ export default function VoucherDetailView() {
               showsHorizontalScrollIndicator={false}
               renderItem={({ item: uri }) => {
                 const lower = (uri || '').toLowerCase();
-                const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image') || lower.startsWith('file://');
+                // Handle `viewurl` values with query strings like ".../image.jpg?..." (common with S3 presigned URLs).
+                const isImage =
+                  /\.(jpg|jpeg|png|gif|webp|bmp)(\?|#|$)/i.test(uri || '') ||
+                  lower.includes('camera') ||
+                  lower.includes('photo') ||
+                  lower.includes('image') ||
+                  lower.startsWith('file://');
                 const isWebUrl = /^https?:\/\//i.test(uri || '');
                 const pageWidth = Dimensions.get('window').width;
                 const pageHeight = Dimensions.get('window').height;

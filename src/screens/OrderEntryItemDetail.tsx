@@ -70,7 +70,8 @@ import {
 } from '../utils/itemPriceUtils';
 import CalendarPicker from '../components/CalendarPicker';
 import { OrderEntryChevronDownIcon, OrderEntryQRIcon, OrderEntryPaperclipIcon } from '../assets/OrderEntryIcons';
-import { QRCodeScanner, StockBreakdownModal, DeleteConfirmationModal } from '../components';
+import { QRCodeScanner, StockBreakdownModal } from '../components';
+import { PopupModal } from '../components/PopupModal';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import DocumentPicker from 'react-native-document-picker/lib/commonjs';
@@ -231,9 +232,11 @@ export default function OrderEntryItemDetail() {
   if (!s3InitDone && (route.params.attachmentLinks?.length || route.params.attachmentUris?.length)) {
     const initLinks = route.params.attachmentLinks ?? [];
     const initUris = route.params.attachmentUris ?? [];
-    const initItems: S3Attachment[] = initLinks.map((link, i) => ({
-      viewUrl: link,
-      s3Key: '',
+    const incoming = initLinks.length > 0 ? initLinks : initUris;
+    const incomingKeys = route.params.attachmentS3Keys ?? [];
+    const initItems: S3Attachment[] = incoming.map((viewUrl, i) => ({
+      viewUrl,
+      s3Key: incomingKeys?.[i] as string,
       fileName: `Attachment ${i + 1}`,
     }));
     if (initItems.length > 0) s3Attachment.setAllAttachments(initItems);
@@ -241,6 +244,7 @@ export default function OrderEntryItemDetail() {
   }
   const attachmentUris = s3Attachment.attachments.map((a) => a.viewUrl);
   const attachmentLinks = s3Attachment.attachments.map((a) => a.viewUrl);
+  const attachmentS3Keys = s3Attachment.attachments.map((a) => a.s3Key);
   const uploadingAttachments = s3Attachment.uploading;
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   const [attachmentDeleteIdx, setAttachmentDeleteIdx] = useState<number | null>(null);
@@ -336,11 +340,11 @@ export default function OrderEntryItemDetail() {
       setMfgDate(source.mfgDate ?? '');
       setExpiryDate(source.expiryDate ?? '');
       if (source.rateUnit && selectedItemUnitConfig) {
-        setRateUOM(getRateUOMFromUnitName(source.rateUnit, selectedItemUnitConfig, units));
+        setRateUOM(getRateUOMFromUnitName(source.rateUnit, selectedItemUnitConfig, units) ?? 'base');
       } else if (!source.rateUnit && rawRate.includes('/')) {
         const unitPart = rawRate.split('/').slice(1).join('/').trim();
         if (unitPart && selectedItemUnitConfig) {
-          setRateUOM(getRateUOMFromUnitName(unitPart, selectedItemUnitConfig, units));
+          setRateUOM(getRateUOMFromUnitName(unitPart, selectedItemUnitConfig, units) ?? 'base');
         } else {
           setRateUOM('base');
         }
@@ -399,11 +403,11 @@ export default function OrderEntryItemDetail() {
       setExpiryDate(editOrderItem.expiryDate ?? '');
       setDescription(editOrderItem.description ?? '');
       if (editOrderItem.rateUnit && selectedItemUnitConfig) {
-        setRateUOM(getRateUOMFromUnitName(editOrderItem.rateUnit, selectedItemUnitConfig, units));
+        setRateUOM(getRateUOMFromUnitName(editOrderItem.rateUnit, selectedItemUnitConfig, units) ?? 'base');
       } else if (!editOrderItem.rateUnit && rawEditRate.includes('/')) {
         const unitPart = rawEditRate.split('/').slice(1).join('/').trim();
         if (unitPart && selectedItemUnitConfig) {
-          setRateUOM(getRateUOMFromUnitName(unitPart, selectedItemUnitConfig, units));
+          setRateUOM(getRateUOMFromUnitName(unitPart, selectedItemUnitConfig, units) ?? 'base');
         } else {
           setRateUOM('base');
         }
@@ -780,6 +784,10 @@ export default function OrderEntryItemDetail() {
       if (ai.attachmentLinks?.length) allLinks.push(...ai.attachmentLinks);
       if (ai.attachmentUris?.length) allUris.push(...ai.attachmentUris);
     }
+    const allS3Keys: string[] = allLinks.map((viewUrl) => {
+      const match = s3Attachment.attachments.find((a) => a.viewUrl === viewUrl);
+      return match?.s3Key ?? '';
+    });
     navigation.navigate('OrderEntry', {
       addedItems,
       ...(editOrderItems != null && editOrderItems.length > 0
@@ -789,8 +797,35 @@ export default function OrderEntryItemDetail() {
           : {}),
       ...(allLinks.length > 0 ? { attachmentLinks: allLinks } : {}),
       ...(allUris.length > 0 ? { attachmentUris: allUris } : {}),
+      ...(allS3Keys.length > 0 ? { attachmentS3Keys: allS3Keys } : {}),
     });
-  }, [navigation, lineItems, name, isToBeAllocated, isQuickOrder, itemQuantity, quantityInput, rate, discount, value, stockNum, taxNum, dueDate, mfgDate, expiryDate, godown, batch, description, item, editOrderItem?.id, editOrderItems, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
+  }, [
+    navigation,
+    lineItems,
+    name,
+    isToBeAllocated,
+    isQuickOrder,
+    itemQuantity,
+    quantityInput,
+    rate,
+    discount,
+    value,
+    stockNum,
+    taxNum,
+    dueDate,
+    mfgDate,
+    expiryDate,
+    godown,
+    batch,
+    description,
+    item,
+    editOrderItem?.id,
+    editOrderItems,
+    selectedItemUnitConfig,
+    attachmentLinks,
+    attachmentUris,
+    attachmentS3Keys,
+  ]);
 
   const populateFormFromLine = useCallback((line: OrderLineItem, allLineItems?: OrderLineItem[]) => {
     setQuantityInput(line.enteredQty ?? String(line.qty));
@@ -804,7 +839,7 @@ export default function OrderEntryItemDetail() {
     setGodown(line.godown ?? '');
     setBatch(line.batch ?? '');
     if (line.rateUnit && selectedItemUnitConfig) {
-      setRateUOM(getRateUOMFromUnitName(line.rateUnit, selectedItemUnitConfig, units));
+      setRateUOM(getRateUOMFromUnitName(line.rateUnit, selectedItemUnitConfig, units) ?? 'base');
     } else {
       setRateUOM('base');
     }
@@ -924,8 +959,7 @@ export default function OrderEntryItemDetail() {
     setGodownDropdownOpen(false);
     setBatchDropdownOpen(false);
     // Clear attachments after update
-    setAttachmentLinks([]);
-    setAttachmentUris([]);
+    s3Attachment.setAllAttachments([]);
     lastUpdateWasBatchRef.current = true;
   }, [selectedLineId, isToBeAllocated, isQuickOrder, itemQuantity, quantityInput, rate, discount, value, dueDate, mfgDate, expiryDate, godown, batch, description, selectedItemUnitConfig, attachmentLinks, attachmentUris]);
 
@@ -1858,13 +1892,13 @@ export default function OrderEntryItemDetail() {
         showStockAsYesNo={perms.show_ClsStck_yesno}
       />
 
-      <DeleteConfirmationModal
+      <PopupModal
         visible={lineItemToDeleteId != null}
         onCancel={() => setLineItemToDeleteId(null)}
         onConfirm={confirmLineItemDelete}
       />
 
-      <DeleteConfirmationModal
+      <PopupModal
         visible={attachmentDeleteIdx !== null}
         onCancel={() => setAttachmentDeleteIdx(null)}
         onConfirm={() => {

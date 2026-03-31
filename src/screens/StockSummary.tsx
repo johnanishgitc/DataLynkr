@@ -394,7 +394,8 @@ export default function StockSummary() {
                 localScrollDirection.current = 'down';
                 setScrollDirection('down');
                 Animated.timing(footerTranslateY, {
-                    toValue: 60, // approximate height of the grand total bar
+                    // When scrolling down, shift the grand total bar down slightly (not fully)
+                    toValue: 50,
                     duration: 300,
                     useNativeDriver: true,
                 }).start();

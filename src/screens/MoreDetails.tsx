@@ -1,22 +1,3 @@
-/**
- * More Details - Figma 3045-59118, 3045-59311, 3045-59471
- * figma_codes: BuyerDetails, ConsigneeDetails, OrderDetails
- * Header "More Details" + account strip + tabs (Buyer Details | Consignee Details | Order Details) + content.
- * 
- * API Response format:
- * {
- *   "vouchers": [{
- *     "masterid": "22370",
- *     "vouchertypename": "Receipt",
- *     "vouchernumber": "951",
- *     "date": "12-Jan-26",
- *     "partyledgername": "Akhil Marketing",
- *     "amount": "25,000.00",
- *     "ledgerentries": [{ ... }],
- *     ...other fields
- *   }]
- * }
- */
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, useWindowDimensions, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -26,7 +7,6 @@ import type { LedgerStackParamList } from '../navigation/types';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { StatusBarTopBar } from '../components';
-import { DetailCard } from '../components/DetailCard';
 import { IconAccountVector4 } from '../assets/bill-allocations';
 import { strings } from '../constants/strings';
 
@@ -36,6 +16,42 @@ const STRIP_BG = '#e6ecfd';
 const STRIP_BORDER = '#c4d4ff';
 const TAB_SELECTED = '#1f3a89';
 const TAB_NORMAL = '#000000de';
+const DETAIL_CARD_BORDER = '#c4d4ff';
+
+export interface DetailRow {
+  label: string;
+  value: string;
+}
+
+export interface DetailCardProps {
+  title: string;
+  titleColor?: string;
+  rows: DetailRow[];
+}
+
+export function DetailCard({
+  title,
+  titleColor = '#0e172b',
+  rows,
+}: DetailCardProps) {
+  return (
+    <View style={detailCardStyles.card}>
+      <Text style={[detailCardStyles.title, { color: titleColor }]}>{title}</Text>
+      <View style={detailCardStyles.rows}>
+        {rows.map((row, i) => (
+          <View key={i} style={detailCardStyles.row}>
+            <Text style={detailCardStyles.label} numberOfLines={2}>
+              {row.label}
+            </Text>
+            <Text style={detailCardStyles.value} numberOfLines={2}>
+              {row.value}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 type TabKey = 'order' | 'buyer' | 'consignee';
 
@@ -638,5 +654,43 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 24,
+  },
+});
+
+const detailCardStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: DETAIL_CARD_BORDER,
+    padding: 12,
+    width: '100%',
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  rows: {
+    gap: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#6a7282',
+    flex: 1,
+    marginRight: 8,
+  },
+  value: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#6a7282',
+    flex: 1,
+    textAlign: 'right',
   },
 });

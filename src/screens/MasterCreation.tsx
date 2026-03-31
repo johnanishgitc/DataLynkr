@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, BackHandler, FlatList, Image, Keyboard, Modal, PermissionsAndroid, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, findNodeHandle } from 'react-native';
+import { Alert, BackHandler, FlatList, Image, Keyboard, Linking, Modal, PermissionsAndroid, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, findNodeHandle } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,10 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Geolocation from 'react-native-geolocation-service';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { StatusBarTopBar } from '../components/StatusBarTopBar';
+import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import type { OrdersStackParamList } from '../navigation/types';
+import { useS3Attachment } from '../hooks/useS3Attachment';
+import axios from 'axios';
 import { apiService } from '../api';
 import { getCompany, getGuid, getTallylocId } from '../store/storage';
 import countryStateData from '../assets/country_state.json';
@@ -16,6 +19,7 @@ import { sharedStyles } from './ledger';
 type MasterStep = 1 | 2 | 3;
 type DuplicateState = 'idle' | 'checking' | 'ok' | 'duplicate' | 'error';
 type BubbleType = 'success' | 'error';
+const DUPLICATE_CHECK_DEBOUNCE_MS = 450;
 type CountryStateItem = { name?: string };
 type CountryItem = {
   name?: string;
@@ -37,6 +41,26 @@ type BankDetailsItem = {
   defaultTransactionType: string;
 };
 
+type AddressDetailsItem = {
+  addressType: string;
+  address: string;
+  country: string;
+  state: string;
+  pincode: string;
+  contactPerson: string;
+  phoneNumber: string;
+  countryCode: string;
+  mobileNumber: string;
+  gstRegistrationType: string;
+};
+
+type ContactDetailsItem = {
+  contactPerson: string;
+  phoneNumber: string;
+  countryCode: string;
+  isDefaultWhatsApp: boolean;
+};
+
 type FormState = {
   // Step 1
   masterName: string;
@@ -51,12 +75,15 @@ type FormState = {
   pincode: string;
   contactPerson: string;
   emailId: string;
+  emailCc: string;
   phoneNumber: string;
+  mobileNumber: string;
   countryCode: string;
   isDefaultWhatsApp: boolean;
   taxIdentificationType: string;
   gstNumber: string;
   panNumber: string;
+  nameOnPan: string;
   // Step 2
   narration: string;
   description: string;
@@ -104,12 +131,15 @@ const initialForm: FormState = {
   pincode: '',
   contactPerson: '',
   emailId: '',
+  emailCc: '',
   phoneNumber: '',
+  mobileNumber: '',
   countryCode: '91',
   isDefaultWhatsApp: false,
   taxIdentificationType: '',
   gstNumber: '',
   panNumber: '',
+  nameOnPan: '',
   narration: '',
   description: '',
   maintainBillByBill: false,
@@ -153,11 +183,15 @@ export default function MasterCreation() {
   const scrollRef = useRef<ScrollView>(null);
   const [form, setForm] = useState<FormState>(initialForm);
   const [additionalBankDetails, setAdditionalBankDetails] = useState<BankDetailsItem[]>([]);
+  const [additionalAddresses, setAdditionalAddresses] = useState<AddressDetailsItem[]>([]);
+  const [additionalContactDetails, setAdditionalContactDetails] = useState<ContactDetailsItem[]>([]);
   const [taxDropdownOpen, setTaxDropdownOpen] = useState(false);
   const [countryDropdownOpen, setCountryDropdownOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
   const [stateDropdownOpen, setStateDropdownOpen] = useState(false);
   const [stateSearch, setStateSearch] = useState('');
+  const [countryTargetAddressIndex, setCountryTargetAddressIndex] = useState<number | null>(null);
+  const [stateTargetAddressIndex, setStateTargetAddressIndex] = useState<number | null>(null);
   const [msmeDropdownOpen, setMsmeDropdownOpen] = useState(false);
   const [tdsDropdownOpen, setTdsDropdownOpen] = useState(false);
   const [deductTdsDropdownOpen, setDeductTdsDropdownOpen] = useState(false);
@@ -170,6 +204,9 @@ export default function MasterCreation() {
   const [deducteeTypeDropdownOpen, setDeducteeTypeDropdownOpen] = useState(false);
   const [enterpriseTypeDropdownOpen, setEnterpriseTypeDropdownOpen] = useState(false);
   const [activityTypeDropdownOpen, setActivityTypeDropdownOpen] = useState(false);
+  const [gstRegTypeDropdownOpen, setGstRegTypeDropdownOpen] = useState(false);
+  const [gstRegTypeSearch, setGstRegTypeSearch] = useState('');
+  const [gstRegTypeTargetAddressIndex, setGstRegTypeTargetAddressIndex] = useState<number | null>(null);
   const [bankNameDropdownOpen, setBankNameDropdownOpen] = useState(false);
   const [extraBankNameDropdownIndex, setExtraBankNameDropdownIndex] = useState<number | null>(null);
   const [defaultTxnTypeDropdownOpen, setDefaultTxnTypeDropdownOpen] = useState(false);
@@ -189,6 +226,7 @@ export default function MasterCreation() {
   const [enterpriseTypeNames, setEnterpriseTypeNames] = useState<string[]>([]);
   const [activityTypeNames, setActivityTypeNames] = useState<string[]>([]);
   const [bankNames, setBankNames] = useState<string[]>([]);
+  const [gstRegistrationTypeNames, setGstRegistrationTypeNames] = useState<string[]>([]);
   const [masterNameDupState, setMasterNameDupState] = useState<DuplicateState>('idle');
   const [aliasDupState, setAliasDupState] = useState<DuplicateState>('idle');
   const [masterNameCanProceed, setMasterNameCanProceed] = useState(true);
@@ -196,6 +234,8 @@ export default function MasterCreation() {
   const [isSaving, setIsSaving] = useState(false);
   const [masterNameBubble, setMasterNameBubble] = useState<{ text: string; type: BubbleType } | null>(null);
   const [aliasBubble, setAliasBubble] = useState<{ text: string; type: BubbleType } | null>(null);
+  const [panDocClipVisible, setPanDocClipVisible] = useState(false);
+  const panDocAttachment = useS3Attachment({ type: 'master' });
   const requestSeqRef = useRef({ masterName: 0, alias: 0 });
   const bubbleTimersRef = useRef<{ masterName?: ReturnType<typeof setTimeout>; alias?: ReturnType<typeof setTimeout> }>({});
   const groupFieldRef = useRef<View>(null);
@@ -231,6 +271,7 @@ export default function MasterCreation() {
         setEnterpriseTypeNames(pickNames(data?.MSMEENTRPTYPELIST?.MSMEENTRPTYPE));
         setActivityTypeNames(pickNames(data?.MSMEACTVTYPELIST?.MSMEACTVTYPE));
         setBankNames(pickNames(data?.BANKLIST?.BANK).sort((a, b) => a.localeCompare(b)));
+        setGstRegistrationTypeNames(pickNames((data as any)?.GSTREGTYPELIST?.GSTREGTYPE));
       } catch {
         if (!cancelled) {
           setGroupNames([]);
@@ -239,6 +280,7 @@ export default function MasterCreation() {
           setEnterpriseTypeNames([]);
           setActivityTypeNames([]);
           setBankNames([]);
+          setGstRegistrationTypeNames([]);
         }
       }
     })();
@@ -260,6 +302,19 @@ export default function MasterCreation() {
     () => COUNTRY_STATE_DATA.find((c) => (c.name ?? '').trim().toLowerCase() === form.country.trim().toLowerCase()),
     [form.country]
   );
+  const getCountryIsd = (countryName: string) => {
+    const matched = COUNTRY_STATE_DATA.find(
+      (c) => (c.name ?? '').trim().toLowerCase() === countryName.trim().toLowerCase()
+    );
+    return String(matched?.phone ?? '91').replace(/\D/g, '') || '91';
+  };
+  const getCountryByName = (countryName: string) =>
+    COUNTRY_STATE_DATA.find((c) => (c.name ?? '').trim().toLowerCase() === countryName.trim().toLowerCase());
+  const getStateOptionsForCountry = (countryName: string) =>
+    (getCountryByName(countryName)?.stateProvinces ?? [])
+      .map((s) => (s?.name ?? '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
   const stateOptions = useMemo(
     () =>
       (selectedCountry?.stateProvinces ?? [])
@@ -273,6 +328,16 @@ export default function MasterCreation() {
     if (!q) return stateOptions;
     return stateOptions.filter((s) => s.toLowerCase().includes(q));
   }, [stateOptions, stateSearch]);
+  const activeStateOptions = useMemo(() => {
+    if (stateTargetAddressIndex === null) return stateOptions;
+    const selected = additionalAddresses[stateTargetAddressIndex];
+    return getStateOptionsForCountry(selected?.country ?? '');
+  }, [stateTargetAddressIndex, stateOptions, additionalAddresses]);
+  const filteredActiveStates = useMemo(() => {
+    const q = stateSearch.trim().toLowerCase();
+    if (!q) return activeStateOptions;
+    return activeStateOptions.filter((s) => s.toLowerCase().includes(q));
+  }, [activeStateOptions, stateSearch]);
   const filteredGroupNames = useMemo(() => {
     const q = groupSearch.trim().toLowerCase();
     if (!q) return groupNames;
@@ -303,6 +368,12 @@ export default function MasterCreation() {
     if (!q) return bankNames;
     return bankNames.filter((name) => name.toLowerCase().includes(q));
   }, [bankNameSearch, bankNames]);
+  const filteredGstRegistrationTypeNames = useMemo(() => {
+    const q = gstRegTypeSearch.trim().toLowerCase();
+    const base = gstRegistrationTypeNames.length > 0 ? gstRegistrationTypeNames : ['Regular', 'Composition'];
+    if (!q) return base;
+    return base.filter((name) => name.toLowerCase().includes(q));
+  }, [gstRegTypeSearch, gstRegistrationTypeNames]);
   const defaultTxnTypeOptions = useMemo(() => {
     const seen = new Set<string>();
     return DEFAULT_TRANSACTION_TYPE_OPTIONS.filter((item) => {
@@ -333,11 +404,24 @@ export default function MasterCreation() {
   const setAdditionalBankField = <K extends keyof BankDetailsItem>(index: number, key: K, value: BankDetailsItem[K]) => {
     setAdditionalBankDetails((prev) => prev.map((item, i) => (i === index ? { ...item, [key]: value } : item)));
   };
+  const setAdditionalAddressField = <K extends keyof AddressDetailsItem>(index: number, key: K, value: AddressDetailsItem[K]) => {
+    setAdditionalAddresses((prev) => prev.map((item, i) => (i === index ? { ...item, [key]: value } : item)));
+  };
+  const setAdditionalContactField = <K extends keyof ContactDetailsItem>(index: number, key: K, value: ContactDetailsItem[K]) => {
+    setAdditionalContactDetails((prev) => prev.map((item, i) => (i === index ? { ...item, [key]: value } : item)));
+  };
 
   useEffect(() => {
     if (!isGstTypeSelected) return;
     setForm((prev) => ({ ...prev, panNumber: prev.gstNumber.trim().toUpperCase().slice(2, 12) }));
   }, [isGstTypeSelected, form.gstNumber]);
+
+  useEffect(() => {
+    // Auto-fill ISD code when user selects/changes country.
+    if (!form.country.trim()) return;
+    const nextIsd = getCountryIsd(form.country);
+    setForm((prev) => (prev.countryCode === nextIsd ? prev : { ...prev, countryCode: nextIsd }));
+  }, [form.country]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -463,6 +547,61 @@ export default function MasterCreation() {
       }
       const coordinates = `${position.latitude.toFixed(6)}, ${position.longitude.toFixed(6)}`;
       setField('coordinates', coordinates);
+
+      try {
+        const geoRes = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+          params: { lat: position.latitude, lon: position.longitude, format: 'jsonv2', addressdetails: 1 },
+          headers: { 'User-Agent': 'DataLynkr-Android/1.0 (contact@datalynkr.com)' },
+          timeout: 10000,
+        });
+        const geoData = geoRes.data;
+        const addr = geoData?.address ?? {};
+        console.log('[GeoReverse] response address:', JSON.stringify(addr));
+
+        const rawCountry: string = addr.country ?? '';
+        const rawState: string = addr.state ?? addr.state_district ?? addr.region ?? addr.county ?? '';
+        const rawPincode: string = addr.postcode ?? '';
+
+        const addrParts: string[] = [];
+        if (addr.road) addrParts.push(addr.road);
+        if (addr.suburb) addrParts.push(addr.suburb);
+        if (addr.city || addr.town || addr.village) addrParts.push(addr.city || addr.town || addr.village);
+        if (addrParts.length > 0) {
+          setField('address', addrParts.join(', '));
+        }
+
+        if (rawCountry) {
+          const matchedCountry = (countryStateData as any[]).find(
+            (c) => c.name?.toLowerCase() === rawCountry.toLowerCase()
+          );
+          const countryName: string = matchedCountry?.name ?? rawCountry;
+          setField('country', countryName);
+          setField('countryCode', getCountryIsd(countryName));
+          setField('state', '');
+
+          const stateList: any[] | undefined =
+            (matchedCountry as any)?.stateProvinces ??
+            (matchedCountry as any)?.states;
+
+          if (rawState && stateList && stateList.length > 0) {
+            const lowerRawState = rawState.toLowerCase();
+            const matchedState =
+              stateList.find((s: any) => s.name?.toLowerCase() === lowerRawState) ??
+              stateList.find((s: any) => lowerRawState.includes(String(s.name).toLowerCase())) ??
+              stateList.find((s: any) => String(s.name).toLowerCase().includes(lowerRawState));
+
+            if (matchedState?.name) {
+              setField('state', matchedState.name as string);
+            }
+          }
+        }
+
+        if (rawPincode) {
+          setField('pincode', rawPincode);
+        }
+      } catch (geoErr) {
+        console.warn('[GeoReverse] reverse geocode failed:', geoErr);
+      }
     } catch {
       Alert.alert('Location', 'Unable to fetch current location. Please enable GPS and try again.');
     }
@@ -523,16 +662,27 @@ export default function MasterCreation() {
   };
 
   useEffect(() => {
-    validateDuplicate('masterName', form.masterName);
+    const t = setTimeout(() => {
+      validateDuplicate('masterName', form.masterName);
+    }, DUPLICATE_CHECK_DEBOUNCE_MS);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.masterName]);
 
   useEffect(() => {
-    validateDuplicate('alias', form.alias);
+    const t = setTimeout(() => {
+      validateDuplicate('alias', form.alias);
+    }, DUPLICATE_CHECK_DEBOUNCE_MS);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.alias]);
 
   const isSubmitDisabled = !masterNameCanProceed || !aliasCanProceed || isSaving;
+
+  const handlePanDocOption = async (optionId: ClipDocsOptionId) => {
+    setPanDocClipVisible(false);
+    await panDocAttachment.pickAndUpload(optionId);
+  };
 
   const clearCurrentStep = () => {
     if (step === 1) {
@@ -550,13 +700,18 @@ export default function MasterCreation() {
         pincode: '',
         contactPerson: '',
         emailId: '',
+        emailCc: '',
         phoneNumber: '',
+        mobileNumber: '',
         countryCode: '91',
         isDefaultWhatsApp: false,
         taxIdentificationType: '',
         gstNumber: '',
         panNumber: '',
+        nameOnPan: '',
       }));
+      setAdditionalAddresses([]);
+      setAdditionalContactDetails([]);
       return;
     }
     if (step === 2) {
@@ -587,6 +742,7 @@ export default function MasterCreation() {
         natureOfPayment: '',
         deductTdsInSameVoucher: 'No',
       }));
+      panDocAttachment.setAllAttachments([]);
       return;
     }
     setForm((prev) => ({
@@ -625,7 +781,19 @@ export default function MasterCreation() {
       }
 
       const languageNames = [form.masterName.trim(), form.alias.trim()].filter(Boolean);
-      const formattedAddress = form.address
+      const splitAddressLines = (value: string) =>
+        value
+          .split(/\r?\n|,/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+      const primaryAddressLines = splitAddressLines(form.address);
+      const primaryAddress = form.address.trim();
+      const additionalAddressLines = additionalAddresses
+        .map((item) => item.address.trim())
+        .filter(Boolean);
+      const formattedAddress = [primaryAddress, ...additionalAddressLines]
+        .join('\n')
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter(Boolean)
@@ -653,7 +821,7 @@ export default function MasterCreation() {
           accountNumber: b.accountNumber.trim(),
           paymentFavouring: b.paymentFavoring.trim(),
           transactionName: index === 0 ? 'Primary' : 'Secondary',
-          bankId: b.bankName.trim(),
+          bankname: b.bankName.trim(),
           defaultTransactionType: b.defaultTransactionType.trim(),
         }));
 
@@ -679,6 +847,50 @@ export default function MasterCreation() {
           : [];
 
       const phone = form.phoneNumber.trim();
+      const mobile = form.mobileNumber.trim();
+      const missingAdditionalAddressType = additionalAddresses.some((item) => item.addressType.trim().length === 0);
+      if (missingAdditionalAddressType) {
+        Alert.alert('Validation', 'Address Type is mandatory for all additional addresses.');
+        return;
+      }
+      const countryISDCode = `+${(form.countryCode || '').replace(/\D/g, '') || '91'}`;
+      const currentDate = new Date();
+      const fyStartYear = currentDate.getMonth() >= 3 ? currentDate.getFullYear() : currentDate.getFullYear() - 1;
+      const applicableFrom = `${fyStartYear}0401`;
+      const mailingDetailsList = [
+        {
+          addresses: primaryAddressLines,
+          applicableFrom,
+          pincode: form.pincode.trim(),
+          mailingName: form.masterName.trim(),
+          state: form.state.trim(),
+          country: form.country.trim(),
+        },
+      ];
+      const multiAddressList = additionalAddresses
+        .filter((item) => item.address.trim().length > 0)
+        .map((item) => ({
+          addressName: item.addressType.trim(),
+          addresses: splitAddressLines(item.address),
+          priorStateName: item.state.trim(),
+          pincode: item.pincode.trim(),
+          phoneNumber: item.phoneNumber.trim(),
+          countryISDCode: `+${(item.countryCode || '').replace(/\D/g, '') || '91'}`,
+          countryName: (item.country || form.country).trim(),
+          gstRegistrationType: item.gstRegistrationType.trim(),
+          mobileNumber: item.mobileNumber.trim(),
+          contactPerson: item.contactPerson.trim(),
+          state: item.state.trim(),
+          placeOfSupply: item.state.trim(),
+        }));
+      const contactDetails = additionalContactDetails
+        .filter((item) => item.contactPerson.trim() || item.phoneNumber.trim())
+        .map((item) => ({
+          name: item.contactPerson.trim(),
+          phoneNumber: item.phoneNumber.trim(),
+          countryISDCode: `+${(item.countryCode || '').replace(/\D/g, '') || '91'}`,
+          isDefaultWhatsappNum: item.isDefaultWhatsApp ? 'Yes' : 'No',
+        }));
       const payload = {
         tallyloc_id,
         company,
@@ -693,37 +905,41 @@ export default function MasterCreation() {
           creditLimit,
           overrideCreditLimit: yesNo(form.overrideCreditLimitUsingPdc),
           affectsStock: yesNo(form.inventoryValuesAffected),
-          isCostCentresOn: 'No' as const,
           isTdsApplicable: toYesNoFromString(form.isTdsDeductable),
           tdsDeducteeType: form.deducteeType.trim(),
           natureOfPayment: form.natureOfPayment.trim(),
-          address: formattedAddress,
           pincode: form.pincode.trim(),
           priorStateName: form.state.trim(),
           stateName: form.state.trim(),
           countryOfResidence: form.country.trim(),
           mailingName: form.masterName.trim(),
+          mailingDetailsList,
+          ...(multiAddressList.length > 0 ? { multiAddressList } : {}),
           contactPerson: form.contactPerson.trim(),
           phoneNo: phone,
-          ...(phone ? { countryISDCode: `+${(form.countryCode || '').replace(/\D/g, '') || '91'}` } : {}),
-          mobileNo: phone,
+          ...((phone || mobile) ? { countryISDCode: `+${(form.countryCode || '').replace(/\D/g, '') || '91'}` } : {}),
+          mobileNo: mobile,
           email: form.emailId.trim(),
-          emailCC: '',
+          emailCC: form.emailCc.trim(),
+          ...(contactDetails.length > 0 ? { contactDetails } : {}),
           panNo: form.panNumber.trim(),
-          nameOnPan: form.masterName.trim(),
+          nameOnPan: form.nameOnPan.trim(),
           gstinNo: form.gstNumber.trim(),
           priceLevel: form.priceLevelApplicable ? form.priceLevel.trim() : '',
-          narration: form.narration.trim(),
-          description: form.description.trim(),
-          doclist: { documents: [] as string[] },
+          // Step 2 narration input was removed; store GPS coordinates in narration instead.
+          narration: (form.coordinates || '').trim(),
+          description: panDocAttachment.attachments.map((a) => a.s3Key).join('|'),
+          doclist: { documents: panDocAttachment.attachments.map((a) => a.s3Key) },
           paymentDetails,
           msmeDetails,
           gstRegDetails,
         },
       };
 
-      console.log('[MasterCreation][ledger-create] Full payload:', JSON.stringify(payload, null, 2));
-      const { data } = await apiService.createLedger(payload);
+      const payloadJson = JSON.stringify(payload);
+      console.log('[MasterCreation][ledger-create] Payload JSON:', payloadJson);
+      console.log('[MasterCreation][ledger-create] Payload (pretty):', JSON.stringify(payload, null, 2));
+      const { data } = await apiService.createLedger(payload as any);
       if (data?.success === true) {
         Alert.alert('Save', data?.message || 'Ledger created successfully.');
         navigation.goBack();
@@ -758,6 +974,7 @@ export default function MasterCreation() {
         placeholder="Enter master name"
         value={form.masterName}
         onChangeText={(v) => setField('masterName', v)}
+        onBlur={() => validateDuplicate('masterName', form.masterName)}
         status={masterNameDupState}
         bubble={masterNameBubble}
       />
@@ -766,6 +983,7 @@ export default function MasterCreation() {
         placeholder="Enter Alias Name"
         value={form.alias}
         onChangeText={(v) => setField('alias', v)}
+        onBlur={() => validateDuplicate('alias', form.alias)}
         status={aliasDupState}
         bubble={aliasBubble}
       />
@@ -776,12 +994,7 @@ export default function MasterCreation() {
           <Icon name="chevron-down" size={18} color="#6a7282" />
         </TouchableOpacity>
       </View>
-      <Field
-        label="Address Type"
-        placeholder="Enter address type (eg. A, B, C, Office, Home)"
-        value={form.addressType1}
-        onChangeText={(v) => setField('addressType1', v)}
-      />
+      <Text style={styles.subSectionTitle}>{additionalAddresses.length > 0 ? 'Address details #1' : 'Address details'}</Text>
       <Field
         label="Address"
         placeholder="Enter complete address"
@@ -790,18 +1003,17 @@ export default function MasterCreation() {
         multiline
       />
       <View style={styles.fieldWrap}>
-        <TouchableOpacity style={styles.recordLocationButton} activeOpacity={0.85} onPress={handleRecordLocation}>
-          <Icon name="crosshairs-gps" size={18} color="#1e488f" />
-          <Text style={styles.recordLocationButtonText}>Record Location</Text>
-        </TouchableOpacity>
+        <Text style={styles.label}>Coordinates</Text>
+        <View style={styles.coordinatesInput}>
+          <Text style={[styles.inputText, !form.coordinates && styles.placeholder]} numberOfLines={1}>
+            {form.coordinates || 'Latitude, Longitude'}
+          </Text>
+          <TouchableOpacity style={styles.coordinatesActionBtn} activeOpacity={0.85} onPress={handleRecordLocation}>
+            <Icon name="crosshairs-gps" size={18} color="#1e488f" />
+            {!form.coordinates ? <Text style={styles.coordinatesActionText}>Record Coordinates</Text> : null}
+          </TouchableOpacity>
+        </View>
       </View>
-      <Field
-        label="Coordinates"
-        placeholder="Latitude, Longitude"
-        value={form.coordinates}
-        onChangeText={(v) => setField('coordinates', v)}
-        editable={false}
-      />
       <View style={styles.row}>
         <View style={[styles.fieldWrap, styles.halfField]}>
           <Text style={styles.label}>Country</Text>
@@ -836,6 +1048,160 @@ export default function MasterCreation() {
         onChangeText={(v) => setField('pincode', v.replace(/\D/g, '').slice(0, 6))}
         keyboardType="number-pad"
       />
+      {additionalAddresses.map((addressItem, index) => (
+        <View key={`extra-address-${index}`} style={styles.extraAddressWrap}>
+          <View style={styles.addressHeadingRow}>
+            <Text style={styles.subSectionTitleNoTop}>Address details #{index + 2}</Text>
+            <TouchableOpacity
+              onPress={() => setAdditionalAddresses((prev) => prev.filter((_, i) => i !== index))}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.removeBankText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+          <Field
+            label="Address Type"
+            required
+            placeholder="Enter address type (eg. Office, Warehouse, Branch)"
+            value={addressItem.addressType}
+            onChangeText={(v) => setAdditionalAddressField(index, 'addressType', v)}
+          />
+          <Field
+            label="Address"
+            placeholder="Enter complete address"
+            value={addressItem.address}
+            onChangeText={(v) => setAdditionalAddressField(index, 'address', v)}
+            multiline
+          />
+          <View style={styles.row}>
+            <View style={[styles.fieldWrap, styles.halfField]}>
+              <Text style={styles.label}>Country</Text>
+              <TouchableOpacity
+                style={styles.input}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setCountryTargetAddressIndex(index);
+                  setCountryDropdownOpen(true);
+                }}
+              >
+                <View style={styles.countryRow}>
+                  {getCountryByName(addressItem.country)?.flag ? (
+                    <Image source={{ uri: getCountryByName(addressItem.country)?.flag }} style={styles.countryFlag} />
+                  ) : null}
+                  <Text style={[styles.inputText, !addressItem.country && styles.placeholder]}>
+                    {addressItem.country || 'Select Country'}
+                  </Text>
+                </View>
+                <Icon name="chevron-down" size={18} color="#6a7282" />
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.fieldWrap, styles.halfField]}>
+              <Text style={styles.label}>State</Text>
+              <TouchableOpacity
+                style={[styles.input, getStateOptionsForCountry(addressItem.country).length === 0 && { opacity: 0.6 }]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (getStateOptionsForCountry(addressItem.country).length > 0) {
+                    setStateTargetAddressIndex(index);
+                    setStateDropdownOpen(true);
+                  }
+                }}
+                disabled={getStateOptionsForCountry(addressItem.country).length === 0}
+              >
+                <Text style={[styles.inputText, !addressItem.state && styles.placeholder]}>
+                  {addressItem.state || (getStateOptionsForCountry(addressItem.country).length > 0 ? 'Select State' : 'No states available')}
+                </Text>
+                <Icon name="chevron-down" size={18} color="#6a7282" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          <Field
+            label="Pincode"
+            placeholder="Enter 6-digit pin code"
+            value={addressItem.pincode}
+            onChangeText={(v) => setAdditionalAddressField(index, 'pincode', v.replace(/\D/g, '').slice(0, 6))}
+            keyboardType="number-pad"
+          />
+          <Field
+            label="Contact Person"
+            placeholder="Enter contact person"
+            value={addressItem.contactPerson}
+            onChangeText={(v) => setAdditionalAddressField(index, 'contactPerson', v)}
+          />
+          <Field
+            label="Phone Number"
+            placeholder="Enter phone number"
+            value={addressItem.phoneNumber}
+            onChangeText={(v) => setAdditionalAddressField(index, 'phoneNumber', v.replace(/\D/g, '').slice(0, 15))}
+            keyboardType="phone-pad"
+          />
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Mobile Number</Text>
+            <View style={styles.phoneRow}>
+              <View style={[styles.input, styles.countryCodeBox]}>
+                <Text style={styles.countryCodePlus}>+</Text>
+                <TextInput
+                  style={styles.countryCodeInput}
+                  value={addressItem.countryCode}
+                  onChangeText={(v) => setAdditionalAddressField(index, 'countryCode', v.replace(/\D/g, '').slice(0, 4))}
+                  keyboardType="phone-pad"
+                  placeholder="91"
+                  placeholderTextColor="#6a7282"
+                />
+              </View>
+              <TextInput
+                style={[styles.input, styles.phoneNumberInput]}
+                placeholder="Enter mobile number"
+                placeholderTextColor="#6a7282"
+                value={addressItem.mobileNumber}
+                onChangeText={(v) => setAdditionalAddressField(index, 'mobileNumber', v.replace(/\D/g, '').slice(0, 15))}
+                keyboardType="phone-pad"
+              />
+            </View>
+          </View>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Registration Type</Text>
+            <TouchableOpacity
+              style={styles.input}
+              activeOpacity={0.8}
+              onPress={() => {
+                setGstRegTypeTargetAddressIndex(index);
+                setGstRegTypeDropdownOpen(true);
+              }}
+            >
+              <Text style={[styles.inputText, !addressItem.gstRegistrationType && styles.placeholder]}>
+                {addressItem.gstRegistrationType || 'Select'}
+              </Text>
+              <Icon name="chevron-down" size={18} color="#6a7282" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+      <TouchableOpacity
+        style={styles.addAddressButton}
+        activeOpacity={0.85}
+        onPress={() =>
+          setAdditionalAddresses((prev) => [
+            ...prev,
+            {
+              addressType: '',
+              address: '',
+              country: form.country || 'India',
+              state: '',
+              pincode: '',
+              contactPerson: '',
+              phoneNumber: '',
+              countryCode: getCountryIsd(form.country || 'India'),
+              mobileNumber: '',
+              gstRegistrationType: '',
+            },
+          ])
+        }
+      >
+        <Icon name="plus" size={18} color="#1e488f" />
+        <Text style={styles.addAddressButtonText}>Add Address</Text>
+      </TouchableOpacity>
+      <Text style={styles.subSectionTitle}>{additionalContactDetails.length > 0 ? 'Contact details #1' : 'Contact details'}</Text>
       <Field
         label="Contact Person"
         placeholder="Enter contact person name"
@@ -849,8 +1215,26 @@ export default function MasterCreation() {
         onChangeText={(v) => setField('emailId', v)}
         keyboardType="email-address"
       />
+      <Field
+        label="Email CC"
+        placeholder="Enter email CC"
+        value={form.emailCc}
+        onChangeText={(v) => setField('emailCc', v)}
+        keyboardType="email-address"
+      />
       <View style={styles.fieldWrap}>
         <Text style={styles.label}>Phone Number</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter phone number"
+          placeholderTextColor="#6a7282"
+          value={form.phoneNumber}
+          onChangeText={(v) => setField('phoneNumber', v.replace(/\D/g, '').slice(0, 15))}
+          keyboardType="phone-pad"
+        />
+      </View>
+      <View style={styles.fieldWrap}>
+        <Text style={styles.label}>Mobile Number</Text>
         <View style={styles.phoneRow}>
           <View style={[styles.input, styles.countryCodeBox]}>
             <Text style={styles.countryCodePlus}>+</Text>
@@ -865,10 +1249,10 @@ export default function MasterCreation() {
           </View>
           <TextInput
             style={[styles.input, styles.phoneNumberInput]}
-            placeholder="Enter phone number"
+            placeholder="Enter mobile number"
             placeholderTextColor="#6a7282"
-            value={form.phoneNumber}
-            onChangeText={(v) => setField('phoneNumber', v.replace(/\D/g, '').slice(0, 15))}
+            value={form.mobileNumber}
+            onChangeText={(v) => setField('mobileNumber', v.replace(/\D/g, '').slice(0, 15))}
             keyboardType="phone-pad"
           />
         </View>
@@ -878,85 +1262,77 @@ export default function MasterCreation() {
         <Switch value={form.isDefaultWhatsApp} onValueChange={(v) => setField('isDefaultWhatsApp', v)} />
         <Text style={styles.whatsappLabel}>Set as default WhatsApp number</Text>
       </View>
-
-      <View style={styles.fieldWrap}>
-        <Text style={styles.label}>Tax Identification Type</Text>
-        <TouchableOpacity style={styles.selectBoxLikeExpense} onPress={() => setTaxDropdownOpen((prev) => !prev)} activeOpacity={0.8}>
-          <Text style={[styles.inputText, !form.taxIdentificationType && styles.placeholder]}>
-            {form.taxIdentificationType || 'Select Tax Type'}
-          </Text>
-          <Icon name={taxDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
-        </TouchableOpacity>
-        {taxDropdownOpen && (
-          <View style={styles.inlineDropdownLikeExpense}>
-            {taxOptions.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={styles.inlineDropdownItemLikeExpense}
-                onPress={() => {
-                  setField('taxIdentificationType', option);
-                  setTaxDropdownOpen(false);
-                }}
-              >
-                <Text style={styles.inlineDropdownItemTextLikeExpense}>{option}</Text>
-              </TouchableOpacity>
-            ))}
+      {additionalContactDetails.map((contactItem, index) => (
+        <View key={`extra-contact-${index}`} style={styles.extraAddressWrap}>
+          <View style={styles.addressHeadingRow}>
+            <Text style={styles.subSectionTitleNoTop}>Contact details #{index + 2}</Text>
+            <TouchableOpacity
+              onPress={() => setAdditionalContactDetails((prev) => prev.filter((_, i) => i !== index))}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.removeBankText}>Remove</Text>
+            </TouchableOpacity>
           </View>
-        )}
-      </View>
-
-      {isGstTypeSelected ? (
-        <>
-          <View style={styles.fieldWrap}>
-            <Text style={styles.label}>GST Number</Text>
-            <TextInput
-              style={[styles.input, gstIsInvalid && styles.invalidInput]}
-              placeholder="22ABCDE1234A1Z5"
-              placeholderTextColor="#6a7282"
-              value={form.gstNumber}
-              maxLength={15}
-              autoCapitalize="characters"
-              keyboardType={gstKeyboardType}
-              onSelectionChange={(e) => setGstCursorPos(e.nativeEvent.selection.start)}
-              onChangeText={(v) => setField('gstNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-            />
-          </View>
-          <View style={styles.fieldWrap}>
-            <Text style={styles.label}>PAN Number (Auto filled from GST)</Text>
-            <TextInput
-              style={[styles.input, gstIsInvalid && styles.invalidInput, styles.readOnlyInput]}
-              placeholder="Will be auto-filled from GST"
-              placeholderTextColor="#6a7282"
-              value={gstPanPart}
-              editable={false}
-              selectTextOnFocus={false}
-            />
-          </View>
-        </>
-      ) : null}
-      {isPanTypeSelected ? (
-        <View style={styles.fieldWrap}>
-          <Text style={styles.label}>PAN Number</Text>
-          <TextInput
-            style={[styles.input, panIsInvalid && styles.invalidInput]}
-            placeholder="ABCDE1234F"
-            placeholderTextColor="#6a7282"
-            value={form.panNumber}
-            maxLength={10}
-            autoCapitalize="characters"
-            keyboardType={panKeyboardType}
-            onSelectionChange={(e) => setPanCursorPos(e.nativeEvent.selection.start)}
-            onChangeText={(v) => setField('panNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+          <Field
+            label="Contact Person"
+            placeholder="Enter contact person name"
+            value={contactItem.contactPerson}
+            onChangeText={(v) => setAdditionalContactField(index, 'contactPerson', v)}
           />
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Phone Number</Text>
+            <View style={styles.phoneRow}>
+              <View style={[styles.input, styles.countryCodeBox]}>
+                <Text style={styles.countryCodePlus}>+</Text>
+                <TextInput
+                  style={styles.countryCodeInput}
+                  value={contactItem.countryCode}
+                  onChangeText={(v) => setAdditionalContactField(index, 'countryCode', v.replace(/\D/g, '').slice(0, 4))}
+                  keyboardType="phone-pad"
+                  placeholder="91"
+                  placeholderTextColor="#6a7282"
+                />
+              </View>
+              <TextInput
+                style={[styles.input, styles.phoneNumberInput]}
+                placeholder="Enter phone number"
+                placeholderTextColor="#6a7282"
+                value={contactItem.phoneNumber}
+                onChangeText={(v) => setAdditionalContactField(index, 'phoneNumber', v.replace(/\D/g, '').slice(0, 15))}
+                keyboardType="phone-pad"
+              />
+            </View>
+          </View>
+          <View style={styles.whatsappRow}>
+            <Switch value={contactItem.isDefaultWhatsApp} onValueChange={(v) => setAdditionalContactField(index, 'isDefaultWhatsApp', v)} />
+            <Text style={styles.whatsappLabel}>Set as default WhatsApp number</Text>
+          </View>
         </View>
-      ) : null}
+      ))}
+      <TouchableOpacity
+        style={styles.addAddressButton}
+        activeOpacity={0.85}
+        onPress={() =>
+          setAdditionalContactDetails((prev) => [
+            ...prev,
+            {
+              contactPerson: '',
+              phoneNumber: '',
+              countryCode: form.countryCode || '91',
+              isDefaultWhatsApp: false,
+            },
+          ])
+        }
+      >
+        <Icon name="plus" size={18} color="#1e488f" />
+        <Text style={styles.addAddressButtonText}>Add contact details</Text>
+      </TouchableOpacity>
+
     </>
   );
 
   const renderStepTwo = () => (
     <>
-      <Field label="Narration" placeholder="Enter narration" value={form.narration} onChangeText={(v) => setField('narration', v)} multiline />
-      <Field label="Description" placeholder="Enter Description" value={form.description} onChangeText={(v) => setField('description', v)} multiline />
 
       <CheckRow
         label="Maintain balances bill-by-bill"
@@ -1024,7 +1400,123 @@ export default function MasterCreation() {
       ) : null}
 
       <Text style={styles.sectionTitle}>Tax Registration Details</Text>
-      <SelectLike label="Registration type" value={form.registrationType} />
+      <View style={styles.fieldWrap}>
+        <Text style={styles.label}>Tax Identification Type</Text>
+        <TouchableOpacity style={styles.selectBoxLikeExpense} onPress={() => setTaxDropdownOpen((prev) => !prev)} activeOpacity={0.8}>
+          <Text style={[styles.inputText, !form.taxIdentificationType && styles.placeholder]}>
+            {form.taxIdentificationType || 'Select Tax Type'}
+          </Text>
+          <Icon name={taxDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
+        </TouchableOpacity>
+        {taxDropdownOpen && (
+          <View style={styles.inlineDropdownLikeExpense}>
+            {taxOptions.map((option) => (
+              <TouchableOpacity
+                key={option}
+                style={styles.inlineDropdownItemLikeExpense}
+                onPress={() => {
+                  setField('taxIdentificationType', option);
+                  setTaxDropdownOpen(false);
+                }}
+              >
+                <Text style={styles.inlineDropdownItemTextLikeExpense}>{option}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+      {isGstTypeSelected ? (
+        <>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>GST Number</Text>
+            <TextInput
+              style={[styles.input, gstIsInvalid && styles.invalidInput]}
+              placeholder="22ABCDE1234A1Z5"
+              placeholderTextColor="#6a7282"
+              value={form.gstNumber}
+              maxLength={15}
+              autoCapitalize="characters"
+              keyboardType={gstKeyboardType}
+              onSelectionChange={(e) => setGstCursorPos(e.nativeEvent.selection.start)}
+              onChangeText={(v) => setField('gstNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            />
+          </View>
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>PAN Number (Auto filled from GST)</Text>
+            <TextInput
+              style={[styles.input, gstIsInvalid && styles.invalidInput, styles.readOnlyInput]}
+              placeholder="Will be auto-filled from GST"
+              placeholderTextColor="#6a7282"
+              value={gstPanPart}
+              editable={false}
+              selectTextOnFocus={false}
+            />
+          </View>
+        </>
+      ) : null}
+      {isPanTypeSelected ? (
+        <View style={styles.fieldWrap}>
+          <Text style={styles.label}>PAN Number</Text>
+          <TextInput
+            style={[styles.input, panIsInvalid && styles.invalidInput]}
+            placeholder="ABCDE1234F"
+            placeholderTextColor="#6a7282"
+            value={form.panNumber}
+            maxLength={10}
+            autoCapitalize="characters"
+            keyboardType={panKeyboardType}
+            onSelectionChange={(e) => setPanCursorPos(e.nativeEvent.selection.start)}
+            onChangeText={(v) => setField('panNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+          />
+        </View>
+      ) : null}
+      {isGstTypeSelected || isPanTypeSelected ? (
+        <>
+          <Field
+            label="Name on PAN"
+            placeholder="Enter name as per PAN"
+            value={form.nameOnPan}
+            onChangeText={(v) => setField('nameOnPan', v)}
+          />
+          <View style={styles.panDocActionsRow}>
+            <TouchableOpacity
+              style={styles.panDocButton}
+              activeOpacity={0.85}
+              onPress={() => setPanDocClipVisible(true)}
+              disabled={panDocAttachment.uploading}
+            >
+              <Icon name={panDocAttachment.uploading ? 'loading' : 'paperclip'} size={16} color="#1e488f" />
+              <Text style={styles.panDocButtonText}>
+                {panDocAttachment.uploading ? 'Uploading...' : 'Upload Document'}
+              </Text>
+            </TouchableOpacity>
+            {panDocAttachment.attachments.length > 0 ? (
+              <TouchableOpacity
+                style={styles.panDocButton}
+                activeOpacity={0.85}
+                onPress={() => Linking.openURL(panDocAttachment.attachments[0].viewUrl)}
+              >
+                <Icon name="eye-outline" size={16} color="#1e488f" />
+                <Text style={styles.panDocButtonText}>View Document</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </>
+      ) : null}
+      <View style={styles.fieldWrap}>
+        <Text style={styles.label}>Registration type</Text>
+        <TouchableOpacity
+          style={styles.input}
+          activeOpacity={0.8}
+          onPress={() => {
+            setGstRegTypeTargetAddressIndex(null);
+            setGstRegTypeDropdownOpen(true);
+          }}
+        >
+          <Text style={[styles.inputText, !form.registrationType && styles.placeholder]}>{form.registrationType || 'Select'}</Text>
+          <Icon name="chevron-down" size={18} color="#6a7282" />
+        </TouchableOpacity>
+      </View>
       <View style={styles.fieldWrap}>
         <Text style={styles.label}>Assessee of Other Territory</Text>
         <TouchableOpacity
@@ -1521,12 +2013,14 @@ export default function MasterCreation() {
           backgroundColor: '#d1d5db',
         }}
       />
+      <ClipDocsPopup visible={panDocClipVisible} onClose={() => setPanDocClipVisible(false)} onOptionClick={handlePanDocOption} />
 
       <Modal
         visible={countryDropdownOpen}
         transparent
         animationType="fade"
         onRequestClose={() => {
+          setCountryTargetAddressIndex(null);
           setCountryDropdownOpen(false);
           setCountrySearch('');
         }}
@@ -1535,6 +2029,7 @@ export default function MasterCreation() {
           style={sharedStyles.modalOverlay}
           activeOpacity={1}
           onPress={() => {
+            setCountryTargetAddressIndex(null);
             setCountryDropdownOpen(false);
             setCountrySearch('');
           }}
@@ -1545,6 +2040,7 @@ export default function MasterCreation() {
               <TouchableOpacity
                 style={sharedStyles.modalHeaderClose}
                 onPress={() => {
+                  setCountryTargetAddressIndex(null);
                   setCountryDropdownOpen(false);
                   setCountrySearch('');
                 }}
@@ -1570,9 +2066,15 @@ export default function MasterCreation() {
                 <TouchableOpacity
                   style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
                   onPress={() => {
-                    setField('country', item.name ?? '');
-                    setField('countryCode', String(item.phone ?? '91').replace(/\D/g, '') || '91');
-                    setField('state', '');
+                    if (countryTargetAddressIndex === null) {
+                      setField('country', item.name ?? '');
+                      setField('countryCode', getCountryIsd(item.name ?? ''));
+                      setField('state', '');
+                    } else {
+                      setAdditionalAddressField(countryTargetAddressIndex, 'country', item.name ?? '');
+                      setAdditionalAddressField(countryTargetAddressIndex, 'state', '');
+                    }
+                    setCountryTargetAddressIndex(null);
                     setCountryDropdownOpen(false);
                     setCountrySearch('');
                   }}
@@ -1592,6 +2094,7 @@ export default function MasterCreation() {
         transparent
         animationType="fade"
         onRequestClose={() => {
+          setStateTargetAddressIndex(null);
           setStateDropdownOpen(false);
           setStateSearch('');
         }}
@@ -1600,6 +2103,7 @@ export default function MasterCreation() {
           style={sharedStyles.modalOverlay}
           activeOpacity={1}
           onPress={() => {
+            setStateTargetAddressIndex(null);
             setStateDropdownOpen(false);
             setStateSearch('');
           }}
@@ -1610,6 +2114,7 @@ export default function MasterCreation() {
               <TouchableOpacity
                 style={sharedStyles.modalHeaderClose}
                 onPress={() => {
+                  setStateTargetAddressIndex(null);
                   setStateDropdownOpen(false);
                   setStateSearch('');
                 }}
@@ -1628,14 +2133,19 @@ export default function MasterCreation() {
               <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
             </View>
             <FlatList
-              data={filteredStates}
+              data={filteredActiveStates}
               keyExtractor={(item) => item}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
                   onPress={() => {
-                    setField('state', item);
+                    if (stateTargetAddressIndex === null) {
+                      setField('state', item);
+                    } else {
+                      setAdditionalAddressField(stateTargetAddressIndex, 'state', item);
+                    }
+                    setStateTargetAddressIndex(null);
                     setStateDropdownOpen(false);
                     setStateSearch('');
                   }}
@@ -1823,6 +2333,75 @@ export default function MasterCreation() {
         </TouchableOpacity>
       </Modal>
       <Modal
+        visible={gstRegTypeDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setGstRegTypeDropdownOpen(false);
+          setGstRegTypeSearch('');
+          setGstRegTypeTargetAddressIndex(null);
+        }}
+      >
+        <TouchableOpacity
+          style={sharedStyles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setGstRegTypeDropdownOpen(false);
+            setGstRegTypeSearch('');
+            setGstRegTypeTargetAddressIndex(null);
+          }}
+        >
+          <View style={[sharedStyles.modalContentFullWidth, { marginBottom: insets.bottom + 80 }]} onStartShouldSetResponder={() => true}>
+            <View style={sharedStyles.modalHeaderRow}>
+              <Text style={sharedStyles.modalHeaderTitle}>Select Registration Type</Text>
+              <TouchableOpacity
+                style={sharedStyles.modalHeaderClose}
+                onPress={() => {
+                  setGstRegTypeDropdownOpen(false);
+                  setGstRegTypeSearch('');
+                  setGstRegTypeTargetAddressIndex(null);
+                }}
+              >
+                <Icon name="close" size={22} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={sharedStyles.modalSearchRow}>
+              <TextInput
+                style={sharedStyles.modalSearchInput}
+                placeholder="Search registration types..."
+                placeholderTextColor="#6a7282"
+                value={gstRegTypeSearch}
+                onChangeText={setGstRegTypeSearch}
+              />
+              <Icon name="magnify" size={20} color="#6a7282" style={sharedStyles.modalSearchIcon} />
+            </View>
+            <FlatList
+              data={filteredGstRegistrationTypeNames}
+              keyExtractor={(item) => item}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No matches found</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 40 }]}
+                  onPress={() => {
+                    if (gstRegTypeTargetAddressIndex === null) {
+                      setField('registrationType', item);
+                    } else {
+                      setAdditionalAddressField(gstRegTypeTargetAddressIndex, 'gstRegistrationType', item);
+                    }
+                    setGstRegTypeDropdownOpen(false);
+                    setGstRegTypeSearch('');
+                    setGstRegTypeTargetAddressIndex(null);
+                  }}
+                >
+                  <Text style={sharedStyles.modalOptTxt}>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
         visible={bankNameDropdownOpen}
         transparent
         animationType="fade"
@@ -1919,6 +2498,7 @@ type FieldProps = {
   status?: DuplicateState;
   bubble?: { text: string; type: BubbleType } | null;
   editable?: boolean;
+  onBlur?: () => void;
 };
 
 function Field({
@@ -1934,6 +2514,7 @@ function Field({
   status = 'idle',
   bubble = null,
   editable = true,
+  onBlur,
 }: FieldProps) {
   const showStatusIcon = status === 'ok' || status === 'duplicate';
   return (
@@ -1953,6 +2534,7 @@ function Field({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           editable={editable}
+          onBlur={onBlur}
         />
         {showStatusIcon && !multiline ? (
           <View style={styles.statusIconWrap}>
@@ -2084,6 +2666,8 @@ const styles = StyleSheet.create({
   },
   saveButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '600' },
   sectionTitle: { color: '#1e488f', fontSize: 26 / 1.529, fontWeight: '700', marginTop: 8, fontFamily: 'Roboto' },
+  subSectionTitle: { color: '#1e488f', fontSize: 16, fontWeight: '700', marginTop: 8, fontFamily: 'Roboto' },
+  subSectionTitleNoTop: { color: '#1e488f', fontSize: 16, fontWeight: '700', marginTop: 0, fontFamily: 'Roboto' },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
   checkLabel: { flex: 1, color: '#0e172b', fontSize: 14, fontFamily: 'Roboto' },
   nestedOptionBlock: { marginLeft: 16, marginTop: 2 },
@@ -2168,6 +2752,29 @@ const styles = StyleSheet.create({
     color: '#1e488f',
     fontWeight: '600',
   },
+  coordinatesInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: '#d3d3d3',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  coordinatesActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  coordinatesActionText: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: '#1e488f',
+    fontWeight: '600',
+  },
   addBankDetailsButton: {
     marginTop: 6,
     height: 42,
@@ -2180,6 +2787,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  addAddressButton: {
+    marginTop: 6,
+    height: 42,
+    borderWidth: 1,
+    borderColor: '#c8d6ea',
+    borderRadius: 6,
+    backgroundColor: '#eef4ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  addAddressButtonText: {
+    fontFamily: 'Roboto',
+    fontSize: 14,
+    color: '#1e488f',
+    fontWeight: '600',
+  },
   addBankDetailsButtonText: {
     fontFamily: 'Roboto',
     fontSize: 14,
@@ -2189,7 +2814,16 @@ const styles = StyleSheet.create({
   extraBankWrap: {
     marginTop: 12,
   },
+  extraAddressWrap: {
+    marginTop: 8,
+  },
   bankHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  addressHeadingRow: {
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -2226,6 +2860,31 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     fontSize: 13,
     color: '#d12f2f',
+    fontWeight: '600',
+  },
+  panDocActionsRow: {
+    marginTop: 6,
+    marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  panDocButton: {
+    height: 38,
+    borderWidth: 1,
+    borderColor: '#c8d6ea',
+    borderRadius: 6,
+    backgroundColor: '#eef4ff',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  panDocButtonText: {
+    fontFamily: 'Roboto',
+    fontSize: 13,
+    color: '#1e488f',
     fontWeight: '600',
   },
   countryRow: { flexDirection: 'row', alignItems: 'center' },

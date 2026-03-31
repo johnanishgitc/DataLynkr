@@ -114,8 +114,8 @@ export type ModuleAccess = {
 const DEFAULT_MODULE_ACCESS: ModuleAccess = {
     place_order: false,
     ledger_book: false,
-    approvals: true,
-    stock_summary: true,
+    approvals: false,
+    stock_summary: false,
     sales_dashboard: true,
 };
 
@@ -251,6 +251,7 @@ export function useUserAccess(): UseUserAccessReturn {
                 // --- Module-level access ---
                 const modAccess: ModuleAccess = { ...DEFAULT_MODULE_ACCESS };
                 let approvalsApproveReject = false;
+                let approvalsDateRangeValue: string | undefined;
                 for (const mod of modules) {
                     const name = String(mod.module_name ?? mod.module_key ?? '').trim();
                     if (name) {
@@ -269,7 +270,13 @@ export function useUserAccess(): UseUserAccessReturn {
                                     const granted = toBool(p.is_granted ?? p.granted ?? p.value);
                                     if (granted) {
                                         approvalsApproveReject = true;
-                                        break;
+                                    }
+                                } else if (key === 'def_daterange') {
+                                    const granted = toBool(p.is_granted ?? p.granted ?? p.value);
+                                    if (granted) {
+                                        const rawVal = p.permission_value ?? (p as any).permissionValue ?? p.value;
+                                        const s = rawVal == null ? '' : String(rawVal).trim();
+                                        approvalsDateRangeValue = s && s.toLowerCase() !== 'null' ? s : undefined;
                                     }
                                 }
                             }
@@ -278,6 +285,8 @@ export function useUserAccess(): UseUserAccessReturn {
                 }
                 // Expose Approvals approve/reject option flag via moduleAccess
                 (modAccess as any).approvals_def_apprvrej = approvalsApproveReject;
+                // Expose Approvals default period value via moduleAccess
+                (modAccess as any).approvals_def_daterange = approvalsDateRangeValue;
                 if (!cancelled) setModuleAccess(modAccess);
 
                 // --- Place-order field permissions ---

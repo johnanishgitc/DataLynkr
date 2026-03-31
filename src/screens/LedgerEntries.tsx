@@ -11,6 +11,8 @@ import {
   Alert,
   Platform,
   useWindowDimensions,
+  ScrollView,
+  StyleSheet,
 } from 'react-native';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
@@ -22,7 +24,7 @@ import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { apiService } from '../api';
 import type { LedgerReportData, BankUpiResponse } from '../api';
-import { ExportMenu, PeriodSelection, AppSidebar, BankUpiDetailsModal } from '../components';
+import { ExportMenu, PeriodSelection, AppSidebar } from '../components';
 import { SIDEBAR_MENU_LEDGER } from '../components/appSidebarMenu';
 import type { AppSidebarMenuItem } from '../components/AppSidebar';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
@@ -69,6 +71,255 @@ type Route = RouteProp<LedgerStackParamList, 'LedgerEntries'>;
 
 const TABLET_MODAL_MAX_HEIGHT = 1200;
 const TABLET_MODAL_LIST_MAX_HEIGHT = 1300;
+
+const BANK_CARD_BG = '#f2f4f6';
+const BANK_LABEL_COLOR = colors.text_secondary;
+const BANK_VALUE_COLOR = colors.text_primary;
+const BANK_ICON_COLOR = '#6b7a8c';
+
+interface BankUpiDetailsModalProps {
+  visible: boolean;
+  onClose: () => void;
+  data: BankUpiResponse | null;
+  loading: boolean;
+  error: string | null;
+}
+
+function BankUpiDetailsModal({
+  visible,
+  onClose,
+  data,
+  loading,
+  error,
+}: BankUpiDetailsModalProps) {
+  const bankCount = data?.bankCount ?? data?.banks?.length ?? 0;
+  const upiCount = data?.upiCount ?? data?.upis?.length ?? 0;
+  const summary = `${bankCount} Bank${bankCount !== 1 ? 's' : ''} • ${upiCount} UPI${upiCount !== 1 ? 's' : ''}`;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={bankStyles.overlay}>
+        <View style={bankStyles.sheet}>
+          <View style={bankStyles.header}>
+            <View style={bankStyles.headerTextWrap}>
+              <Text style={bankStyles.title}>Bank & UPI Details</Text>
+              {!loading && !error && <Text style={bankStyles.summary}>{summary}</Text>}
+            </View>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={12}
+              style={bankStyles.closeBtn}
+              accessibilityLabel="Close"
+            >
+              <Icon name="close" size={24} color={BANK_VALUE_COLOR} />
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <View style={bankStyles.centered}>
+              <ActivityIndicator size="small" color={colors.primary_blue} />
+              <Text style={bankStyles.loadingText}>Loading…</Text>
+            </View>
+          ) : error ? (
+            <View style={bankStyles.centered}>
+              <Icon name="alert-circle-outline" size={40} color={colors.text_secondary} />
+              <Text style={bankStyles.errorText}>{error}</Text>
+            </View>
+          ) : data ? (
+            <ScrollView
+              style={bankStyles.scroll}
+              contentContainerStyle={bankStyles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {data.banks && data.banks.length > 0 && (
+                <View style={bankStyles.section}>
+                  <View style={bankStyles.sectionHeader}>
+                    <Icon name="bank" size={24} color={BANK_ICON_COLOR} style={bankStyles.sectionIcon} />
+                    <Text style={bankStyles.sectionTitle}>Bank Details ({data.banks.length})</Text>
+                  </View>
+                  {data.banks.map((bank, idx) => (
+                    <View key={idx} style={bankStyles.card}>
+                      <Text style={bankStyles.cardHeading}>{bank.name}</Text>
+                      <BankRow label="Bank Name" value={bank.bankname ?? bank.name} />
+                      <BankRow label="Account No." value={bank.accountno ?? ''} />
+                      <BankRow label="IFSC Code" value={bank.ifscode ?? ''} />
+                      <BankRow label="Branch Name" value={bank.branchname ?? ''} />
+                      <BankRow label="SWIFT Code" value={bank.swiftcode ?? ''} />
+                      <BankRow label="Account Holder" value={bank.accholdername ?? ''} />
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {data.upis && data.upis.length > 0 && (
+                <View style={bankStyles.section}>
+                  <View style={bankStyles.sectionHeader}>
+                    <Icon name="credit-card-outline" size={24} color={BANK_ICON_COLOR} style={bankStyles.sectionIcon} />
+                    <Text style={bankStyles.sectionTitle}>UPI Details ({data.upis.length})</Text>
+                  </View>
+                  {data.upis.map((upi, idx) => (
+                    <View key={idx} style={bankStyles.card}>
+                      <Text style={bankStyles.cardHeading}>{upi.name}</Text>
+                      <View style={bankStyles.upiRow}>
+                        <View style={bankStyles.upiFields}>
+                          <BankRow label="Merchant ID" value={upi.merchantid} />
+                          <BankRow label="Merchant Name" value={upi.merchantname ?? upi.name} />
+                        </View>
+                        <View style={bankStyles.qrBlock}>
+                          <Text style={bankStyles.qrLabel}>QR Code for {upi.merchantid}</Text>
+                          <View style={bankStyles.qrPlaceholder}>
+                            <Icon name="qrcode" size={56} color={colors.border_gray} />
+                          </View>
+                          <Text style={bankStyles.scanText}>Scan to pay</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {(!data.banks || data.banks.length === 0) && (!data.upis || data.upis.length === 0) && (
+                <Text style={bankStyles.noData}>No bank or UPI details available.</Text>
+              )}
+            </ScrollView>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function BankRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={bankStyles.row}>
+      <Text style={bankStyles.label} numberOfLines={1}>{label}</Text>
+      <Text style={bankStyles.value} numberOfLines={1}>{value || '-'}</Text>
+    </View>
+  );
+}
+
+const bankStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.bg_page,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '92%',
+    minHeight: 680,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border_light,
+  },
+  headerTextWrap: { flex: 1, minWidth: 0 },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: BANK_VALUE_COLOR,
+  },
+  summary: {
+    fontSize: 15,
+    color: BANK_LABEL_COLOR,
+    marginTop: 6,
+  },
+  closeBtn: { padding: 4 },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 32 },
+  centered: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: { marginTop: 10, fontSize: 15, color: BANK_LABEL_COLOR },
+  errorText: { marginTop: 14, fontSize: 15, color: colors.reject_red, textAlign: 'center' },
+  noData: { fontSize: 15, color: BANK_LABEL_COLOR, textAlign: 'center', paddingVertical: 28 },
+  section: { marginBottom: 24 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sectionIcon: { marginRight: 10 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BANK_VALUE_COLOR,
+  },
+  card: {
+    backgroundColor: BANK_CARD_BG,
+    borderRadius: 14,
+    padding: 20,
+    marginBottom: 14,
+  },
+  cardHeading: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: BANK_VALUE_COLOR,
+    marginBottom: 14,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  label: {
+    fontSize: 15,
+    color: BANK_LABEL_COLOR,
+    flex: 1,
+    marginRight: 12,
+  },
+  value: {
+    fontSize: 15,
+    color: BANK_VALUE_COLOR,
+    flex: 1,
+    textAlign: 'right',
+  },
+  upiRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 20,
+  },
+  upiFields: { flex: 1, minWidth: 0 },
+  qrBlock: {
+    alignItems: 'center',
+    minWidth: 140,
+  },
+  qrLabel: {
+    fontSize: 12,
+    color: BANK_LABEL_COLOR,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  qrPlaceholder: {
+    width: 100,
+    height: 100,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanText: {
+    fontSize: 12,
+    color: BANK_LABEL_COLOR,
+    marginTop: 6,
+  },
+});
 
 export default function LedgerEntries() {
   const route = useRoute<Route>();

@@ -285,7 +285,7 @@ export interface LedgerCreateRequest {
     creditLimit: string;
     overrideCreditLimit: 'Yes' | 'No';
     affectsStock: 'Yes' | 'No';
-    isCostCentresOn: 'Yes' | 'No';
+    isCostCentresOn?: 'Yes' | 'No';
     isTdsApplicable: 'Yes' | 'No';
     tdsDeducteeType: string;
     natureOfPayment: string;
@@ -314,7 +314,7 @@ export interface LedgerCreateRequest {
       accountNumber: string;
       paymentFavouring: string;
       transactionName: string;
-      bankId: string;
+      bankname: string;
       defaultTransactionType: string;
     }>;
     msmeDetails: Array<{

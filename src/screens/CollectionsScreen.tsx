@@ -35,7 +35,7 @@ import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { useS3Attachment } from '../hooks/useS3Attachment';
 import OrderEntryStyleDropdownModal from '../components/OrderEntryStyleDropdownModal';
-import SubmissionSuccessModal from '../components/SubmissionSuccessModal';
+import { PopupModal } from '../components/PopupModal';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const formatYyyyMmDd = (d: Date) => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
@@ -53,14 +53,12 @@ export default function CollectionsScreen() {
   const [customer, setCustomer] = useState('');
   const [voucherType, setVoucherType] = useState('');
   const [paymentMode, setPaymentMode] = useState('');
-  const [date, setDate] = useState('');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
 
   const [customerOpen, setCustomerOpen] = useState(false);
   const [voucherTypeOpen, setVoucherTypeOpen] = useState(false);
   const [paymentModeOpen, setPaymentModeOpen] = useState(false);
-  const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [clipVisible, setClipVisible] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
@@ -68,7 +66,6 @@ export default function CollectionsScreen() {
   const [fieldErrors, setFieldErrors] = useState<{
     voucherType?: string;
     customer?: string;
-    date?: string;
     paymentMode?: string;
     amount?: string;
   }>({});
@@ -125,7 +122,10 @@ export default function CollectionsScreen() {
         return;
       }
       const res = await apiService.getPaymentVoucherTypes({ tallyloc_id, company, guid });
-      const rows = (res.data?.data ?? []).map((r) => String(r?.name ?? '').trim()).filter(Boolean);
+      const rows = (res.data?.data ?? [])
+        .filter((r) => String(r?.parent ?? '').trim() === 'Receipt')
+        .map((r) => String(r?.name ?? '').trim())
+        .filter(Boolean);
       setVoucherTypeNames(rows);
       if (rows.length === 0 && res.data?.success === false) setVoucherTypesError('No voucher types found.');
     } catch (e: unknown) {
@@ -232,13 +232,11 @@ export default function CollectionsScreen() {
     setVoucherType('');
     setCustomer('');
     setNotes('');
-    setDate('');
     setPaymentMode('');
     setAmount('');
     setVoucherTypeOpen(false);
     setCustomerOpen(false);
     setPaymentModeOpen(false);
-    setDatePickerVisible(false);
     setPreviewAttachmentUri(null);
     setFieldErrors({});
     // Prevent "stuck" scroll: scroll to top while scrollEnabled is still true,
@@ -255,7 +253,6 @@ export default function CollectionsScreen() {
     const nextErrors: typeof fieldErrors = {};
     if (!voucherType.trim()) nextErrors.voucherType = 'Please fill out this field';
     if (!customer.trim()) nextErrors.customer = 'Please fill out this field';
-    if (!date.trim()) nextErrors.date = 'Please fill out this field';
     if (!paymentMode.trim()) nextErrors.paymentMode = 'Please fill out this field';
     const amtNum = Number(amount);
     if (!Number.isFinite(amtNum) || amtNum <= 0) nextErrors.amount = 'Please fill out this field';
@@ -263,8 +260,6 @@ export default function CollectionsScreen() {
       setFieldErrors(nextErrors);
       return;
     }
-    const parsed = parseDateDmmmYy(date);
-    if (!parsed) return Alert.alert('Validation', 'Invalid date selected.');
     const amt = amtNum;
 
     const [tallyloc_id, company, guid] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
@@ -277,16 +272,20 @@ export default function CollectionsScreen() {
       guid,
       voucherTypeName: voucherType,
       voucherNumber: formatVoucherNumber(now),
-      date: formatYyyyMmDd(parsed),
       narration: notes.trim(),
-      cashBankName: paymentMode,
       ledgerEntries: [
         {
           ledgerName: customer,
           isDeemedPositive: false,
-          isPartyLedger: true,
+          isPartyLedger: false,
+          amount: Math.abs(amt),
+          narration: s3Attachment.attachments.map((a) => a.s3Key).join('|'),
+        },
+        {
+          ledgerName: paymentMode,
+          isDeemedPositive: true,
+          isPartyLedger: false,
           amount: -Math.abs(amt),
-          narration: s3Attachment.attachments.map((a) => a.viewUrl).join('|'),
         },
       ],
     };
@@ -308,7 +307,7 @@ export default function CollectionsScreen() {
     } finally {
       setSubmitLoading(false);
     }
-  }, [voucherType, customer, paymentMode, date, amount, notes, s3Attachment.attachments, resetForm]);
+  }, [voucherType, customer, paymentMode, amount, notes, s3Attachment.attachments, resetForm]);
 
   return (
     <KeyboardAvoidingView
@@ -486,18 +485,6 @@ export default function CollectionsScreen() {
           <Text style={s.descHint}>This will be visible to your manager.</Text>
         </View>
 
-        {/* Expense Date */}
-        <View style={s.fieldBlock}>
-          <Text style={s.fieldLabel}>Collection Date</Text>
-          <TouchableOpacity style={[s.selectBox, fieldErrors.date && s.selectBoxError]} onPress={() => setDatePickerVisible(true)} activeOpacity={0.7}>
-            <Text style={[s.selectText, !date && s.selectPlaceholder]} numberOfLines={1}>
-              {date || 'dd-mm-yyyy'}
-            </Text>
-            <Icon name="calendar-month-outline" size={20} color={colors.text_secondary} />
-          </TouchableOpacity>
-          {fieldErrors.date ? <Text style={s.fieldError}>{fieldErrors.date}</Text> : null}
-        </View>
-
         {/* Payment Mode */}
         <View style={s.fieldBlock} ref={paymentModeFieldRef}>
           <Text style={s.fieldLabel}>Payment Mode</Text>
@@ -663,27 +650,11 @@ export default function CollectionsScreen() {
         }}
       />
 
-      <Modal visible={datePickerVisible} transparent animationType="slide">
-        <View style={s.calendarOverlay}>
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            onPress={() => setDatePickerVisible(false)}
-            activeOpacity={1}
-          />
-          <View style={s.calendarSheet}>
-            <CalendarPicker
-              value={parseDateDmmmYy(date) ?? new Date()}
-              onSelect={(d) => {
-                setDate(formatDateDmmmYy(d.getTime()));
-                if (fieldErrors.date) setFieldErrors((p) => ({ ...p, date: undefined }));
-                setDatePickerVisible(false);
-              }}
-              hideDone
-            />
-          </View>
-        </View>
-      </Modal>
-      <SubmissionSuccessModal visible={showApprovedModal} onClose={() => setShowApprovedModal(false)} />
+      <PopupModal
+        visible={showApprovedModal}
+        onCancel={() => setShowApprovedModal(false)}
+        variant="success"
+      />
       {!keyboardVisible && <View style={[s.bottomButtons, { paddingBottom: insets.bottom + 4 }]}>
         <TouchableOpacity style={s.cancelBtn} activeOpacity={0.8} onPress={resetForm} disabled={submitLoading}>
           <Text style={s.cancelBtnText}>Cancel</Text>
@@ -727,7 +698,7 @@ const s = StyleSheet.create({
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   sectionTitle: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '700', color: colors.primary_blue },
 
-  fieldBlock: { backgroundColor: colors.white, gap: 3, marginBottom: 11 },
+  fieldBlock: { backgroundColor: 'transparent', gap: 3, marginBottom: 11 },
   fieldLabel: {
     fontFamily: 'Roboto',
     fontSize: 14,
@@ -740,7 +711,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.white,
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: colors.border_gray,
     borderRadius: 4,

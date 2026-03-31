@@ -109,6 +109,7 @@ function NoAccessScreen() {
 /**
  * Inner tabs component that reads module access to pick the landing tab.
  * Default landing: LedgerTab. If ledger_book is disabled, falls back to OrdersTab.
+ * If both Orders and Ledger are disabled, try ApprovalsTab.
  */
 function MainTabsInner() {
   const { moduleAccess, loading } = useModuleAccess();
@@ -123,15 +124,24 @@ function MainTabsInner() {
     );
   }
 
-  // If both primary modules are disabled, show a no-access screen
-  if (!moduleAccess.place_order && !moduleAccess.ledger_book) {
+  // If all main modules are disabled, show a no-access screen
+  if (
+    !moduleAccess.place_order &&
+    !moduleAccess.ledger_book &&
+    !moduleAccess.approvals &&
+    !moduleAccess.stock_summary
+  ) {
     return <NoAccessScreen />;
   }
 
-  // Default landing screen is Ledger. If ledger is disabled, fall back to Orders.
+  // Pick landing tab in priority order.
   const initialRoute: keyof MainTabsParamList = moduleAccess.ledger_book
     ? 'LedgerTab'
-    : 'OrdersTab';
+    : moduleAccess.place_order
+      ? 'OrdersTab'
+      : moduleAccess.approvals
+        ? 'ApprovalsTab'
+        : 'SummaryTab';
 
   return (
     <Tab.Navigator

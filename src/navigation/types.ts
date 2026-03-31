@@ -96,6 +96,7 @@ export type OrdersStackParamList = {
     viewOnly?: boolean;
     attachmentLinks?: string[];
     attachmentUris?: string[];
+    attachmentS3Keys?: string[];
   };
   OrderEntryItemDetail: {
     item?: AddedOrderItemWithStock;
@@ -110,7 +111,9 @@ export type OrdersStackParamList = {
       id: number;
       name: string;
       qty: number | string;
+      enteredQty?: string;
       rate: number | string;
+      rateUnit?: string;
       discount?: number;
       total: number;
       stock?: number;
@@ -124,12 +127,15 @@ export type OrdersStackParamList = {
     };
     attachmentLinks?: string[];
     attachmentUris?: string[];
+    attachmentS3Keys?: string[];
     /** When editing a group (all batches), pass all batches to show on the detail screen. */
     editOrderItems?: Array<{
       id: number;
       name: string;
       qty: number | string;
+      enteredQty?: string;
       rate: number | string;
+      rateUnit?: string;
       discount?: number;
       total: number;
       stock?: number;
