@@ -107,6 +107,7 @@ export function AppSidebar({
       case 'ApprovalsTab': return 'approvals';
       case 'StockSummaryTab':
       case 'SummaryTab': return 'stock_summary';
+      case 'PaymentCollections': return 'vendor_expenses';
       default: return null;
     }
   };
@@ -510,21 +511,40 @@ export function AppSidebar({
                         <View style={styles.dashboardSubItems}>
                           <TouchableOpacity
                             style={styles.subItemBox}
-                            onPress={() => onItemPress({ id: 'expense-claims', label: 'Expense Claims', target: 'ExpenseClaims', icon: item.icon })}
+                            onPress={
+                              isEnabled
+                                ? () =>
+                                    onItemPress({
+                                      id: 'expense-claims',
+                                      label: 'Expense Claims',
+                                      target: 'ExpenseClaims',
+                                      icon: item.icon,
+                                    })
+                                : undefined
+                            }
                             activeOpacity={0.7}
                           >
                             <Text style={styles.subItemBoxText}>Expense Claims</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.subItemBox}
-                            onPress={() => onItemPress({ id: 'payments', label: 'Payments', target: 'Payments', icon: item.icon })}
+                            onPress={
+                              isEnabled
+                                ? () => onItemPress({ id: 'payments', label: 'Payments', target: 'Payments', icon: item.icon })
+                                : undefined
+                            }
                             activeOpacity={0.7}
                           >
                             <Text style={styles.subItemBoxText}>Payments</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.subItemBox}
-                            onPress={() => onItemPress({ id: 'collections', label: 'Collections', target: 'Collections', icon: item.icon })}
+                            onPress={
+                              isEnabled
+                                ? () =>
+                                    onItemPress({ id: 'collections', label: 'Collections', target: 'Collections', icon: item.icon })
+                                : undefined
+                            }
                             activeOpacity={0.7}
                           >
                             <Text style={styles.subItemBoxText}>Collections</Text>

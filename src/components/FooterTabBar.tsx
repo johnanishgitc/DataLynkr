@@ -84,7 +84,9 @@ export default function FooterTabBar({
       case 'OrdersTab': return 'place_order';
       case 'LedgerTab': return 'ledger_book';
       case 'ApprovalsTab': return 'approvals';
-      case 'StockSummaryTab': return 'stock_summary';
+      case 'StockSummaryTab':
+      case 'SummaryTab':
+        return 'stock_summary';
       default: return null;
     }
   };

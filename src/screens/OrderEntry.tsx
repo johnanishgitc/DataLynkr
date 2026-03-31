@@ -44,9 +44,10 @@ import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { AppSidebar, type AppSidebarMenuItem } from '../components/AppSidebar';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
-import { StatusBarTopBar } from '../components';
+import { StatusBarTopBar, GlobalDropdownModal } from '../components';
 import { SIDEBAR_MENU_ORDER_ENTRY } from '../components/appSidebarMenu';
-import { StockBreakdownModal, DeleteConfirmationModal } from '../components';
+import { StockBreakdownModal } from '../components';
+import { PopupModal } from '../components/PopupModal';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
@@ -433,12 +434,53 @@ export default function OrderEntry() {
   const navigation = useNavigation<NativeStackNavigationProp<OrdersStackParamList>>();
   const route = useRoute<RouteProp<OrdersStackParamList, 'OrderEntry'>>();
   const { setFooterCollapseValue } = useScroll();
-  const { permissions, moduleAccess, transConfig } = useModuleAccess();
+  const { permissions, moduleAccess, transConfig, loading } = useModuleAccess();
+  const canMasterCreation = !!(moduleAccess as any)?.master_creation;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const sidebarOpenRef = useRef(sidebarOpen);
   useEffect(() => {
     sidebarOpenRef.current = sidebarOpen;
   }, [sidebarOpen]);
+
+  // If OrderEntry is opened by stale navigation state while `place_order` is disabled,
+  // redirect away after the permissions API finishes loading.
+  useEffect(() => {
+    if (loading) return;
+    if (moduleAccess.place_order) return;
+
+    const targetTab = moduleAccess.ledger_book
+      ? 'LedgerTab'
+      : moduleAccess.approvals
+        ? 'ApprovalsTab'
+        : moduleAccess.stock_summary
+          ? 'SummaryTab'
+          : null;
+
+    if (!targetTab) return;
+
+    const parentNav = (navigation as any).getParent?.();
+    if (parentNav?.navigate) {
+      parentNav.navigate(targetTab);
+    } else {
+      navigationRef.navigate(targetTab as never);
+    }
+  }, [
+    loading,
+    moduleAccess.place_order,
+    moduleAccess.ledger_book,
+    moduleAccess.approvals,
+    moduleAccess.stock_summary,
+    navigation,
+  ]);
+
+  if (!loading && !moduleAccess.place_order) {
+    // Minimal placeholder while redirecting.
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ffffff' }}>
+        <ActivityIndicator size="large" color={colors.primary_blue} />
+      </View>
+    );
+  }
   const [isDraftMode, setIsDraftMode] = useState(false);
   const [draftDescription, setDraftDescription] = useState('');
   const [draftDescriptionValidationError, setDraftDescriptionValidationError] = useState(false);
@@ -471,24 +513,6 @@ export default function OrderEntry() {
   const orderItemsNextId = useRef(1);
   const [itemSearch, setItemSearch] = useState('');
   const [scannedExactMatches, setScannedExactMatches] = useState<StockItem[] | null>(null);
-  const customerInputRef = useRef<TextInput>(null);
-  const itemInputRef = useRef<TextInput>(null);
-
-  useEffect(() => {
-    if (customerDropdownOpen) {
-      setTimeout(() => {
-        customerInputRef.current?.focus();
-      }, 100);
-    }
-  }, [customerDropdownOpen]);
-
-  useEffect(() => {
-    if (itemDropdownOpen) {
-      setTimeout(() => {
-        itemInputRef.current?.focus();
-      }, 100);
-    }
-  }, [itemDropdownOpen]);
   const [stockItemsList, setStockItemsList] = useState<StockItem[]>([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [autoOrderNo] = useState(() => toYyyyMmDdHhMmSs(Date.now()));
@@ -694,8 +718,8 @@ export default function OrderEntry() {
   }, [ledgerItems, ledgerNames, customerSearch]);
 
   const customerDropdownOptions = useMemo(
-    () => [ADD_CUSTOMER_OPTION, ...filteredCustomers],
-    [filteredCustomers]
+    () => (canMasterCreation ? [ADD_CUSTOMER_OPTION, ...filteredCustomers] : filteredCustomers),
+    [filteredCustomers, canMasterCreation]
   );
 
   /** Filtered customer list for Consignee (Ship to) dropdown in Add Details. */
@@ -1066,6 +1090,7 @@ export default function OrderEntry() {
 
     const incomingLinks = route.params?.attachmentLinks;
     const incomingUris = route.params?.attachmentUris;
+    const incomingS3Keys = route.params?.attachmentS3Keys;
     // Draft attachments are stored in `useS3Attachment`. Route params carry legacy link/uri arrays;
     // for payload purposes we only need the viewUrl (attachments.map(a => a.viewUrl)).
     const incoming = incomingLinks?.length ? incomingLinks : incomingUris?.length ? incomingUris : undefined;
@@ -1073,7 +1098,7 @@ export default function OrderEntry() {
       const next = incoming.map(
         (viewUrl, idx): S3Attachment => ({
           viewUrl,
-          s3Key: '',
+          s3Key: incomingS3Keys?.[idx] ?? '',
           fileName: `order_draft_attachment_${idx + 1}`,
         })
       );
@@ -1087,12 +1112,22 @@ export default function OrderEntry() {
       replaceOrderItemIds: undefined,
       attachmentLinks: undefined,
       attachmentUris: undefined,
+      attachmentS3Keys: undefined,
     } as any);
     // Show "Do you want to add more items?" only after Add to Cart; not after Update Cart (edit in cart → Update Batch → Update Cart)
     if (!hasReplace) {
       setTimeout(() => setAddMoreItemsConfirmVisible(true), 250);
     }
-  }, [route.params?.addedItems, route.params?.replaceOrderItemId, route.params?.replaceOrderItemIds, route.params?.clearOrder, route.params?.attachmentLinks, route.params?.attachmentUris, navigation]);
+  }, [
+    route.params?.addedItems,
+    route.params?.replaceOrderItemId,
+    route.params?.replaceOrderItemIds,
+    route.params?.clearOrder,
+    route.params?.attachmentLinks,
+    route.params?.attachmentUris,
+    route.params?.attachmentS3Keys,
+    navigation,
+  ]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -1879,6 +1914,18 @@ export default function OrderEntry() {
     const reference = editDetailsOrderNo || autoOrderNo;
     const vouchernumber = reference;
     const f = addDetailsForm;
+    // Payload attachments should be sent as S3 keys (prefer `s3Key`, but fall back to the viewUrl
+    // when prefilled attachments don't have `s3Key` available yet).
+    const mapAttachmentLinksToS3Keys = (links?: string[]) => {
+      if (!links?.length) return '';
+      return links
+        .map((viewUrl) => {
+          const match = s3Attachment.attachments.find((a) => a.viewUrl === viewUrl);
+          return match?.s3Key ?? '';
+        })
+        .filter(Boolean)
+        .join('|');
+    };
     // Use only Add Details form values (initial fill from API, then any user edits are sent)
     const buyerAddress = (f.buyerAddress ?? '').trim();
     const buyerPincode = (f.buyerPinCode ?? '').trim();
@@ -1907,7 +1954,7 @@ export default function OrderEntry() {
             gst: 0,
             amount: 0,
             description: draftDescription ?? '',
-            attachdescription: attachmentLinks?.length ? attachmentLinks.join('|') : '',
+            attachdescription: mapAttachmentLinksToS3Keys(attachmentLinks),
           },
         ]
         : orderItems.map((oi) => {
@@ -1925,7 +1972,7 @@ export default function OrderEntry() {
             gst: (oi as { tax?: number }).tax ?? 0,
             amount: Math.round(oi.total * 100) / 100,
             description: oi.description ?? '',
-            attachdescription: (oi.attachmentLinks?.length ? oi.attachmentLinks.join('|') : '') ?? '',
+            attachdescription: mapAttachmentLinksToS3Keys(oi.attachmentLinks),
           };
           if (oi.godown != null && String(oi.godown).trim() !== '' && oi.godown !== 'Any') itemPayload.godownname = String(oi.godown).trim();
           if (oi.batch != null && String(oi.batch).trim() !== '') itemPayload.batchname = String(oi.batch).trim();
@@ -2596,7 +2643,7 @@ export default function OrderEntry() {
                     ) : uploadingAttachments ? (
                       <Text style={styles.footerBtnTextDraft}>Uploading...</Text>
                     ) : (
-                      <Text style={styles.footerBtnTextDraft}>Place Order</Text>
+                      <Text style={styles.footerBtnTextDraft}>{openedFromApprovalRef.current ? 'Modify Order' : 'Place Order'}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -3456,7 +3503,7 @@ export default function OrderEntry() {
                   {placeOrderLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={styles.footerBtnText}>{strings.place_order}</Text>
+                    <Text style={styles.footerBtnText}>{openedFromApprovalRef.current ? 'Modify Order' : strings.place_order}</Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -4286,137 +4333,91 @@ export default function OrderEntry() {
       />
       <EdgeSwipe />
 
-      {/* Customer list modal - same as Ledger Book */}
-      <Modal
+      {/* Customer list modal - shared global dropdown */}
+      <GlobalDropdownModal
         visible={customerDropdownOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
+        title="Select Customer"
+        data={customerDropdownOptions}
+        onClose={() => {
           setCustomerDropdownOpen(false);
           setCustomerSearch('');
         }}
-      >
-        <TouchableOpacity
-          style={sharedStyles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
+        onSelect={async (item) => {
+          if (item === ADD_CUSTOMER_OPTION) {
             setCustomerDropdownOpen(false);
             setCustomerSearch('');
-          }}
-        >
-          <View
+            navigation.navigate('AddCustomer');
+            return;
+          }
+          approvalPrefillDirtyRef.current = true;
+          setSelectedCustomer(item);
+          const ledger = ledgerItems.find((l) => (l.NAME ?? '').trim() === item) ?? null;
+          setSelectedLedger(ledger);
+          setCustomerDropdownOpen(false);
+          setCustomerSearch('');
+          // In quick (draft) mode: do not auto-select voucher type/class or open items dropdown
+          if (isDraftMode) return;
+          // Auto-select voucher type and class (prioritizing transConfig default)
+          let list = voucherTypesList;
+          if (list.length === 0) {
+            setVoucherTypeLoading(true);
+            list = await fetchVoucherTypesAsync();
+            setVoucherTypeLoading(false);
+          }
+          const defaultType = transConfig?.vouchertype?.trim();
+          const defaultClass = transConfig?.class?.trim();
+          const matchedVoucher = defaultType ? list.find((v) => (v.NAME ?? '').trim().toLowerCase() === defaultType.toLowerCase()) : undefined;
+          const first = matchedVoucher || list[0];
+          if (first) {
+            const name = (first.NAME ?? '').trim();
+            setSelectedVoucherType(name);
+            setLedgerValues({});
+            setLedgerPctEditing({});
+            const classes = first.VOUCHERCLASSLIST ?? [];
+            const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
+            const hasClasses = classNames.length > 0;
+            setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
+
+            let clsToSelect = hasClasses ? classNames[0] : '';
+            if (hasClasses && defaultClass) {
+              const matchedClass = classNames.find(c => c.toLowerCase() === defaultClass.toLowerCase());
+              if (matchedClass) clsToSelect = matchedClass;
+            }
+
+            setSelectedClass(clsToSelect);
+            setItemDropdownOpen(true);
+          }
+        }}
+        keyExtractor={(item) => item}
+        searchValue={customerSearch}
+        onSearchChange={setCustomerSearch}
+        searchPlaceholder="Search customers..."
+        loading={customersLoading}
+        loadingText={strings.loading}
+        emptyText="No customers found"
+        renderOption={({ item, onSelect }) => (
+          <TouchableOpacity
             style={[
-              sharedStyles.modalContentFullWidth,
-              { marginBottom: insets.bottom + 80 },
-              isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
+              sharedStyles.modalOpt,
+              { paddingVertical: 12, minHeight: 40 },
+              item === ADD_CUSTOMER_OPTION && { backgroundColor: '#fef9c3' },
             ]}
-            onStartShouldSetResponder={() => true}
+            onPress={onSelect}
+            activeOpacity={0.7}
           >
-            <View style={[isDraftMode ? styles.customerModalHeaderDraft : sharedStyles.modalHeaderRow]}>
-              <Text style={[isDraftMode ? styles.customerModalHeaderTitleDraft : sharedStyles.modalHeaderTitle]}>Select Customer</Text>
-              <TouchableOpacity onPress={() => { setCustomerDropdownOpen(false); setCustomerSearch(''); }} style={sharedStyles.modalHeaderClose}>
-                <Icon name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            <View style={sharedStyles.modalSearchRow}>
-              <TextInput
-                ref={customerInputRef}
-                style={sharedStyles.modalSearchInput}
-                placeholder="Search customers…"
-                placeholderTextColor={colors.text_secondary}
-                value={customerSearch}
-                onChangeText={setCustomerSearch}
-              />
-              <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
-            </View>
-            <FlatList
-              data={customerDropdownOptions}
-              keyExtractor={(i) => i}
-              style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
-              contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              ListEmptyComponent={
-                customersLoading ? (
-                  <View style={{ padding: 24, alignItems: 'center' }}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={[sharedStyles.modalEmpty, { marginTop: 8 }]}>{strings.loading}</Text>
-                  </View>
-                ) : (
-                  <Text style={sharedStyles.modalEmpty}>No customers found</Text>
-                )
-              }
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    sharedStyles.modalOpt,
-                    { paddingVertical: 12, minHeight: 40 },
-                    item === ADD_CUSTOMER_OPTION && { backgroundColor: '#fef9c3' },
-                  ]}
-                  onPress={async () => {
-                    if (item === ADD_CUSTOMER_OPTION) {
-                      setCustomerDropdownOpen(false);
-                      setCustomerSearch('');
-                      navigation.navigate('AddCustomer');
-                      return;
-                    }
-                    approvalPrefillDirtyRef.current = true;
-                    setSelectedCustomer(item);
-                    const ledger = ledgerItems.find((l) => (l.NAME ?? '').trim() === item) ?? null;
-                    setSelectedLedger(ledger);
-                    setCustomerDropdownOpen(false);
-                    setCustomerSearch('');
-                    // In quick (draft) mode: do not auto-select voucher type/class or open items dropdown
-                    if (isDraftMode) return;
-                    // Auto-select voucher type and class (prioritizing transConfig default)
-                    let list = voucherTypesList;
-                    if (list.length === 0) {
-                      setVoucherTypeLoading(true);
-                      list = await fetchVoucherTypesAsync();
-                      setVoucherTypeLoading(false);
-                    }
-                    const defaultType = transConfig?.vouchertype?.trim();
-                    const defaultClass = transConfig?.class?.trim();
-                    const matchedVoucher = defaultType ? list.find((v) => (v.NAME ?? '').trim().toLowerCase() === defaultType.toLowerCase()) : undefined;
-                    const first = matchedVoucher || list[0];
-                    if (first) {
-                      const name = (first.NAME ?? '').trim();
-                      setSelectedVoucherType(name);
-                      setLedgerValues({});
-                      setLedgerPctEditing({});
-                      const classes = first.VOUCHERCLASSLIST ?? [];
-                      const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
-                      const hasClasses = classNames.length > 0;
-                      setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
-
-                      let clsToSelect = hasClasses ? classNames[0] : '';
-                      if (hasClasses && defaultClass) {
-                        const matchedClass = classNames.find(c => c.toLowerCase() === defaultClass.toLowerCase());
-                        if (matchedClass) clsToSelect = matchedClass;
-                      }
-
-                      setSelectedClass(clsToSelect);
-                      setItemDropdownOpen(true);
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  {item === ADD_CUSTOMER_OPTION ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <AddCustomerOptionIcon />
-                      <Text style={[sharedStyles.modalOptTxt, { color: '#0e172b' }]} numberOfLines={1}>
-                        Add Customer
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
-                  )}
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
+            {item === ADD_CUSTOMER_OPTION ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <AddCustomerOptionIcon />
+                <Text style={[sharedStyles.modalOptTxt, { color: '#0e172b' }]} numberOfLines={1}>
+                  Add Customer
+                </Text>
+              </View>
+            ) : (
+              <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
+            )}
+          </TouchableOpacity>
+        )}
+      />
 
       {/* Voucher Type dropdown modal - options from api/tally/vouchertype */}
       <Modal
@@ -4532,134 +4533,89 @@ export default function OrderEntry() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Select Item modal */}
-      <Modal
+      {/* Select Item modal - shared global dropdown */}
+      <GlobalDropdownModal
         visible={itemDropdownOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
+        title="Select Item"
+        data={itemListForDropdown}
+        onClose={() => {
           setItemDropdownOpen(false);
           setItemSearch('');
+          setScannedExactMatches(null);
         }}
-      >
-        <TouchableOpacity
-          style={sharedStyles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            setItemDropdownOpen(false);
-            setItemSearch('');
-          }}
-        >
-          <View
-            style={[
-              sharedStyles.modalContentFullWidth,
-              { marginBottom: insets.bottom + 80 },
-              isTablet && { maxHeight: TABLET_MODAL_MAX_HEIGHT },
-            ]}
-            onStartShouldSetResponder={() => true}
+        onSelect={(item) => {
+          setItemSearch('');
+          setItemDropdownOpen(false);
+          setScannedExactMatches(null);
+          const defaultQty = Number.isFinite(Number(transConfig.defaultQty)) ? Number(transConfig.defaultQty) : 0;
+          navigation.navigate('OrderEntryItemDetail', {
+            item: {
+              name: item.NAME ?? '',
+              qty: defaultQty,
+              rate: computeRateForItem(item, selectedLedger),
+              total: defaultQty * Number(computeRateForItem(item, selectedLedger)),
+              unit: item.BASEUNITS ?? '',
+              stockItem: item
+            },
+            selectedLedger: selectedLedger ?? undefined,
+            isBatchWiseOn: isBatchWiseOnFromItem(item),
+            viewOnly: route.params?.viewOnly,
+            permissions,
+            isQuickOrder: isDraftMode,
+            defaultQty,
+            defaultGodown: orderDefaultGodown || undefined,
+          });
+        }}
+        keyExtractor={(item) => String(item.MASTERID ?? item.NAME ?? Math.random())}
+        searchValue={itemSearch}
+        onSearchChange={(t) => {
+          setScannedExactMatches(null);
+          setItemSearch(t);
+        }}
+        searchPlaceholder="Search items..."
+        loading={stockItemsLoading}
+        loadingText={strings.loading}
+        emptyText="No items found"
+        searchRightAction={(
+          <TouchableOpacity
+            onPress={() => {
+              setItemDropdownOpen(false);
+              setItemSearch('');
+              setScannedExactMatches(null);
+              handleScanClick();
+            }}
+            style={{ padding: 8, marginLeft: 4 }}
+            accessibilityLabel="Scan QR code"
           >
-            <View style={sharedStyles.modalHeaderRow}>
-              <Text style={sharedStyles.modalHeaderTitle}>Select Item</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setItemDropdownOpen(false);
-                  setItemSearch('');
-                  setScannedExactMatches(null);
-                }}
-                style={sharedStyles.modalHeaderClose}
-              >
-                <Icon name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            <View style={sharedStyles.modalSearchRow}>
-              <TextInput
-                ref={itemInputRef}
-                style={sharedStyles.modalSearchInput}
-                placeholder="Search items…"
-                placeholderTextColor={colors.text_secondary}
-                value={itemSearch}
-                onChangeText={(t) => {
-                  setScannedExactMatches(null);
-                  setItemSearch(t);
-                }}
-              />
-              <Icon name="magnify" size={20} color={colors.text_gray} style={sharedStyles.modalSearchIcon} />
-              <TouchableOpacity
-                onPress={() => {
-                  setItemDropdownOpen(false);
-                  setItemSearch('');
-                  setScannedExactMatches(null);
-                  handleScanClick();
-                }}
-                style={{ padding: 8, marginLeft: 4 }}
-                accessibilityLabel="Scan QR code"
-              >
-                <OrderEntryQRIcon width={20} height={21} color="#0E172B" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={itemListForDropdown}
-              keyExtractor={(item) => String(item.MASTERID ?? item.NAME ?? Math.random())}
-              style={[sharedStyles.modalList, isTablet && { maxHeight: TABLET_MODAL_LIST_MAX_HEIGHT }]}
-              contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              ListEmptyComponent={
-                <Text style={sharedStyles.modalEmpty}>
-                  {stockItemsLoading ? strings.loading : 'No items found'}
+            <OrderEntryQRIcon width={20} height={21} color="#0E172B" />
+          </TouchableOpacity>
+        )}
+        renderOption={({ item, onSelect }) => {
+          const name = (item.NAME ?? '').trim() || '-';
+          const isAlloc = isItemToBeAllocated(name);
+          return (
+            <TouchableOpacity
+              style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 25 }, isAlloc && { backgroundColor: '#fef9c3' }]}
+              onPress={onSelect}
+              activeOpacity={0.7}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={sharedStyles.modalOptTxt} numberOfLines={2}>
+                  {name}
                 </Text>
-              }
-              renderItem={({ item }) => {
-                const name = (item.NAME ?? '').trim() || '-';
-                const isAlloc = isItemToBeAllocated(name);
-                return (
-                  <TouchableOpacity
-                    style={[sharedStyles.modalOpt, { paddingVertical: 12, minHeight: 25 }, isAlloc && { backgroundColor: '#fef9c3' }]}
-                    onPress={() => {
-                      setItemSearch('');
-                      setItemDropdownOpen(false);
-                      setScannedExactMatches(null);
-                      const defaultQty = Number.isFinite(Number(transConfig.defaultQty)) ? Number(transConfig.defaultQty) : 0;
-                      navigation.navigate('OrderEntryItemDetail', {
-                        item: {
-                          name: item.NAME ?? '',
-                          qty: defaultQty,
-                          rate: computeRateForItem(item, selectedLedger),
-                          total: defaultQty * Number(computeRateForItem(item, selectedLedger)),
-                          unit: item.BASEUNITS ?? '',
-                          stockItem: item
-                        },
-                        selectedLedger: selectedLedger ?? undefined,
-                        isBatchWiseOn: isBatchWiseOnFromItem(item),
-                        viewOnly: route.params?.viewOnly,
-                        permissions,
-                        isQuickOrder: isDraftMode,
-                        defaultQty,
-                        defaultGodown: orderDefaultGodown || undefined,
-                      });
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={sharedStyles.modalOptTxt} numberOfLines={2}>
-                        {name}
-                      </Text>
-                      {!isAlloc && permissions.show_rateamt_Column && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                          <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
-                          <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
-                            ₹{computeRateForItem(item, selectedLedger)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          </View>
-        </TouchableOpacity>
-      </Modal>
+                {!isAlloc && permissions.show_rateamt_Column && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                    <Text style={{ fontSize: 12, color: colors.text_gray }}>Rate: </Text>
+                    <Text style={{ fontSize: 12, color: colors.primary_blue, fontWeight: '600' }}>
+                      ₹{computeRateForItem(item, selectedLedger)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        }}
+      />
 
       {/* Edit Details bottom sheet – slides up from bottom (Figma 3067-58011) */}
       <Modal
@@ -5050,12 +5006,12 @@ export default function OrderEntry() {
         </View>
       </Modal>
 
-      <DeleteConfirmationModal
+      <PopupModal
         visible={!!itemToDelete}
         onCancel={() => setItemToDelete(null)}
         onConfirm={confirmOrderItemDelete}
       />
-      <DeleteConfirmationModal
+      <PopupModal
         visible={draftAttachmentDeleteIdx !== null}
         onCancel={() => setDraftAttachmentDeleteIdx(null)}
         onConfirm={() => {
@@ -5066,12 +5022,12 @@ export default function OrderEntry() {
         }}
         title="Are you sure you want to delete this attachment?"
       />
-      <DeleteConfirmationModal
+      <PopupModal
         visible={!!groupToDelete}
         onCancel={() => setGroupToDelete(null)}
         onConfirm={confirmGroupDelete}
       />
-      <DeleteConfirmationModal
+      <PopupModal
         visible={clearAllConfirmVisible}
         onCancel={() => setClearAllConfirmVisible(false)}
         onConfirm={() => {
@@ -5093,7 +5049,7 @@ export default function OrderEntry() {
         }}
         title="Are you sure you want to clear all items?"
       />
-      <DeleteConfirmationModal
+      <PopupModal
         visible={leaveConfirmVisible}
         onCancel={() => {
           pendingLeaveActionRef.current = null;
@@ -5104,7 +5060,7 @@ export default function OrderEntry() {
         confirmLabel="OK"
         variant="warning"
       />
-      <DeleteConfirmationModal
+      <PopupModal
         visible={draftModeSwitchConfirmVisible}
         onCancel={() => setDraftModeSwitchConfirmVisible(false)}
         onConfirm={() => {
@@ -5116,7 +5072,7 @@ export default function OrderEntry() {
         confirmLabel="OK"
         variant="warning"
       />
-      <DeleteConfirmationModal
+      <PopupModal
         visible={addMoreItemsConfirmVisible}
         onCancel={() => setAddMoreItemsConfirmVisible(false)}
         onConfirm={() => {

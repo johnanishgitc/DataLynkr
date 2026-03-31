@@ -16,49 +16,9 @@ export function resetNavigationOnCompanyChange(): void {
       index: 1,
       routes: [
         { name: 'AdminDashboard' },
-        {
-          name: 'MainTabs',
-          state: {
-            index: 0,
-            routes: [
-              {
-                name: 'HomeTab',
-                state: {
-                  index: 0,
-                  routes: [{ name: 'SalesDashboard' }],
-                },
-              },
-              {
-                name: 'OrdersTab',
-                state: {
-                  index: 0,
-                  routes: [{ name: 'OrderEntry' }],
-                },
-              },
-              {
-                name: 'LedgerTab',
-                state: {
-                  index: 0,
-                  routes: [{ name: 'LedgerEntries' }],
-                },
-              },
-              {
-                name: 'ApprovalsTab',
-                state: {
-                  index: 0,
-                  routes: [{ name: 'ApprovalsScreen' }],
-                },
-              },
-              {
-                name: 'SummaryTab',
-                state: {
-                  index: 0,
-                  routes: [{ name: 'StockSummary' }],
-                },
-              },
-            ],
-          },
-        },
+        // Important: do NOT hardcode nested tab state here.
+        // MainTabsInner decides the initial tab using live `moduleAccess` from the API.
+        { name: 'MainTabs' },
       ],
     }),
   );

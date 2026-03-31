@@ -26,8 +26,8 @@ export function useModuleAccess(): ModuleAccessContextValue {
     if (!ctx) {
         return {
             moduleAccess: {
-                place_order: false, ledger_book: false, approvals: true,
-                stock_summary: true, sales_dashboard: true,
+                place_order: false, ledger_book: false, approvals: false,
+                stock_summary: false, sales_dashboard: true,
             },
             permissions: {
                 show_rateamt_Column: true, edit_rate: true, show_disc_Column: true, edit_discount: true,
