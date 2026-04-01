@@ -49,6 +49,7 @@ import { SIDEBAR_MENU_ORDER_ENTRY } from '../components/appSidebarMenu';
 import { StockBreakdownModal } from '../components';
 import { PopupModal } from '../components/PopupModal';
 import { strings } from '../constants/strings';
+import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
 import { getTallylocId, getCompany, getGuid, getStatename } from '../store/storage';

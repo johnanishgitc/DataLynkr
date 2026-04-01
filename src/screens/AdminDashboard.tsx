@@ -180,7 +180,9 @@ export default function AdminDashboard() {
       ) : (
         <FlatList
           data={all}
-          keyExtractor={(i) => String(i.tallyloc_id ?? '') + (i.company ?? '')}
+          keyExtractor={(item, index) =>
+            `${item.guid ?? item.tallyloc_id ?? item.conn_name ?? 'item'}-${index}`
+          }
           renderItem={renderItem}
           contentContainerStyle={[styles.list, { paddingBottom: 80 }]}
           showsVerticalScrollIndicator={false}

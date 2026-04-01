@@ -32,6 +32,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AppSidebar, SIDEBAR_MENU_APPROVALS } from '../components';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
+import Svg, { Circle } from 'react-native-svg';
 import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
 import FilterSvg from '../assets/approvals/filter.svg';
@@ -134,6 +135,44 @@ function parseDefaultApprovalsDateRange(permissionValue: unknown): { from: numbe
 // ---------------------------------------------------------------------------
 
 const SCROLL_UP_THRESHOLD = 10;
+
+function CircularRefreshIndicator({ pct }: { pct: number }) {
+    const size = 48;
+    const strokeWidth = 3.5;
+    const r = (size - strokeWidth) / 2;
+    const circ = 2 * Math.PI * r;
+    const offset = circ * (1 - Math.min(pct, 100) / 100);
+    return (
+        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+            <Svg width={size} height={size} style={{ position: 'absolute' }}>
+                <Circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={r}
+                    stroke="#E0E0E0"
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                />
+                <Circle
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={r}
+                    stroke={colors.primary_blue}
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                    strokeDasharray={circ}
+                    strokeDashoffset={offset}
+                    strokeLinecap="round"
+                    rotation="-90"
+                    origin={`${size / 2}, ${size / 2}`}
+                />
+            </Svg>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary_blue }}>
+                {Math.round(pct)}%
+            </Text>
+        </View>
+    );
+}
 
 export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const route = useRoute<any>();
@@ -1725,6 +1764,20 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
                 {showSearchDivider && <View style={styles.searchDividerLine} />}
 
+                {isRefreshing && (
+                    <View style={styles.refreshHeader}>
+                        <CircularRefreshIndicator
+                            pct={
+                                chunkProgress
+                                    ? Math.round(
+                                          (chunkProgress.done / (chunkProgress.total || 1)) * 100,
+                                      )
+                                    : 0
+                            }
+                        />
+                    </View>
+                )}
+
                 {/* Content – always show FlatList; RefreshControl handles spinner */}
                 {!loading && error ? (
                     <View style={styles.center}>
@@ -1745,24 +1798,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         renderItem={renderCard}
                         contentContainerStyle={styles.list}
                         showsVerticalScrollIndicator={false}
-                        ListHeaderComponent={isRefreshing ? (
-                            <View style={styles.refreshHeader}>
-                                <ActivityIndicator size="small" color={colors.primary_blue} />
-                                {chunkProgress ? (
-                                    <Text style={styles.refreshHeaderPct}>
-                                        {Math.round(
-                                            (chunkProgress.done / (chunkProgress.total || 1)) * 100,
-                                        )}%
-                                    </Text>
-                                ) : null}
-                            </View>
-                        ) : null}
                         refreshControl={
                             <RefreshControl
-                                refreshing={isRefreshing}
+                                refreshing={false}
                                 onRefresh={handleRefresh}
-                                tintColor="transparent"
-                                colors={['transparent']}
                             />
                         }
                         onScroll={handleScroll}

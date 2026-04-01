@@ -18,9 +18,6 @@ import {
   Platform,
   UIManager,
   BackHandler,
-  FlatList,
-  Image,
-  Dimensions,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match order/invoice voucher)
@@ -64,8 +61,70 @@ import FileViewer from 'react-native-file-viewer';
 import Share, { Social } from 'react-native-share';
 import { SharePopup, type ShareOptionId } from '../components/SharePopup';
 import { strings } from '../constants/strings';
+import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetailView'>;
+
+/** Collect `viewurl` / `viewUrl` from each ledger entry (pipe-separated or arrays supported). */
+function getLedgerEntryViewUrls(entries: LedgerEntryDetail[]): string[] {
+  const parsePipeSeparated = (value: unknown): string[] => {
+    if (typeof value !== 'string') return [];
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    return trimmed
+      .split('|')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  const urlsFromValue = (value: unknown): string[] => {
+    if (value == null) return [];
+    if (typeof value === 'string') return parsePipeSeparated(value);
+    if (Array.isArray(value)) {
+      const out: string[] = [];
+      for (const v of value) {
+        if (typeof v === 'string') out.push(...parsePipeSeparated(v));
+        else if (v && typeof v === 'object') {
+          const vo = v as Record<string, unknown>;
+          const u = vo.viewurl ?? vo.viewUrl ?? vo.VIEWURL ?? vo.VIEW_URL ?? vo.view_url;
+          out.push(...parsePipeSeparated(u));
+        }
+      }
+      return out;
+    }
+    if (typeof value === 'object') {
+      const vo = value as Record<string, unknown>;
+      const u = vo.viewurl ?? vo.viewUrl ?? vo.VIEWURL ?? vo.VIEW_URL ?? vo.view_url;
+      return parsePipeSeparated(u);
+    }
+    return [];
+  };
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of entries) {
+    const raw = entry as Record<string, unknown>;
+    const candidates = [
+      raw.viewurl,
+      raw.viewUrl,
+      raw.VIEWURL,
+      raw.VIEW_URL,
+      raw.view_url,
+      raw.viewurls,
+      raw.viewUrls,
+      raw.VIEWURLS,
+    ];
+    for (const c of candidates) {
+      for (const u of urlsFromValue(c)) {
+        if (u && !seen.has(u)) {
+          seen.add(u);
+          out.push(u);
+        }
+      }
+    }
+  }
+  return out;
+}
 
 export default function VoucherDetailView() {
   const route = useRoute<Route>();
@@ -297,6 +356,7 @@ export default function VoucherDetailView() {
     raw.vchnarration, raw.VCHNARRATION,
   ].find(x => x != null && String(x).trim() !== '');
   const narrationText = narrationRaw ? String(narrationRaw).trim() : '';
+  const ledgerAttachmentViewUrls = getLedgerEntryViewUrls(entries);
 
   /** Bill allocation amount for collapsible sub-rows */
   const getBillAllocAmt = (item: BillAllocation): number => {
@@ -958,77 +1018,11 @@ export default function VoucherDetailView() {
       </Modal>
 
       {/* In-app attachment preview for "ITEM TO BE ALLOCATED" (same as Order Entry cart View Attachment; no external open) */}
-      <Modal
+      <AttachmentPreviewModal
         visible={attachmentPreviewItems != null && attachmentPreviewItems.length > 0}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setAttachmentPreviewItems(null)}
-      >
-        <View style={styles.attachmentPreviewOverlay}>
-          <TouchableOpacity
-            style={styles.attachmentPreviewClose}
-            onPress={() => setAttachmentPreviewItems(null)}
-            activeOpacity={0.7}
-          >
-            <Icon name="close" size={24} color="#fff" />
-          </TouchableOpacity>
-          {attachmentPreviewItems && attachmentPreviewItems.length > 0 ? (
-            <FlatList
-              data={attachmentPreviewItems}
-              keyExtractor={(_, i) => String(i)}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              renderItem={({ item: uri }) => {
-                const lower = (uri || '').toLowerCase();
-                // Handle `viewurl` values with query strings like ".../image.jpg?..." (common with S3 presigned URLs).
-                const isImage =
-                  /\.(jpg|jpeg|png|gif|webp|bmp)(\?|#|$)/i.test(uri || '') ||
-                  lower.includes('camera') ||
-                  lower.includes('photo') ||
-                  lower.includes('image') ||
-                  lower.startsWith('file://');
-                const isWebUrl = /^https?:\/\//i.test(uri || '');
-                const pageWidth = Dimensions.get('window').width;
-                const pageHeight = Dimensions.get('window').height;
-                return (
-                  <View style={[styles.attachmentPreviewPage, { width: pageWidth, height: pageHeight }]}>
-                    {isImage && uri ? (
-                      <Image
-                        source={{ uri }}
-                        style={[styles.attachmentPreviewImage, { width: pageWidth - 32, height: pageHeight * 0.7 }]}
-                        resizeMode="contain"
-                      />
-                    ) : isWebUrl && uri ? (
-                      <WebView
-                        source={{ uri }}
-                        style={[styles.attachmentPreviewWebView, { width: pageWidth - 32, height: pageHeight - 120 }]}
-                        scrollEnabled
-                        originWhitelist={['*']}
-                      />
-                    ) : (
-                      <View style={styles.attachmentPreviewDoc}>
-                        <Icon name="file-document-outline" size={64} color="rgba(255,255,255,0.6)" />
-                        <Text style={styles.attachmentPreviewDocText}>Document or link</Text>
-                        {uri ? (
-                          <Text style={styles.attachmentPreviewLinkText} numberOfLines={3} selectable>
-                            {uri}
-                          </Text>
-                        ) : null}
-                      </View>
-                    )}
-                  </View>
-                );
-              }}
-            />
-          ) : null}
-          {attachmentPreviewItems && attachmentPreviewItems.length > 1 ? (
-            <View style={styles.attachmentPreviewSwipeHint}>
-              <Text style={styles.attachmentPreviewSwipeText}>Swipe for more</Text>
-            </View>
-          ) : null}
-        </View>
-      </Modal>
+        items={attachmentPreviewItems ?? []}
+        onClose={() => setAttachmentPreviewItems(null)}
+      />
 
       {loading ? (
         <View style={styles.loadingWrap}>
@@ -1186,6 +1180,19 @@ export default function VoucherDetailView() {
                   <View style={styles.narrationBox}>
                     <Text style={styles.narrationText}>{narrationText || '—'}</Text>
                   </View>
+                  {ledgerAttachmentViewUrls.length > 0 ? (
+                    <TouchableOpacity
+                      style={styles.accViewAttachmentBtn}
+                      onPress={() => setAttachmentPreviewItems(ledgerAttachmentViewUrls)}
+                      activeOpacity={0.7}
+                    >
+                      <Icon name="eye" size={18} color="#1f3a89" />
+                      <Text style={styles.accViewAttachmentBtnText}>
+                        View attachment
+                        {ledgerAttachmentViewUrls.length > 1 ? ` (${ledgerAttachmentViewUrls.length})` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </View>
             </ScrollView>
@@ -1492,6 +1499,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: '#0e172b',
+  },
+  accViewAttachmentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  accViewAttachmentBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1f3a89',
+    textDecorationLine: 'underline',
   },
   /* HTML voucher view modal */
   htmlModalRoot: {

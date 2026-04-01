@@ -7,7 +7,7 @@ const fs = require("fs");
 const sharp = require("sharp");
 
 const ROOT = path.resolve(__dirname, "..");
-const SVG_PATH = path.join(ROOT, "appicon.svg");
+const SOURCE_ICON_PATH = path.join(ROOT, "assets", "logo.png");
 
 const ANDROID_SIZES = [
   { dir: "mipmap-mdpi", size: 48 },
@@ -38,12 +38,12 @@ async function ensureDir(dirPath) {
 }
 
 async function generateIcons() {
-  if (!fs.existsSync(SVG_PATH)) {
-    console.error("appicon.svg not found at", SVG_PATH);
+  if (!fs.existsSync(SOURCE_ICON_PATH)) {
+    console.error("Source icon not found at", SOURCE_ICON_PATH);
     process.exit(1);
   }
 
-  const buffer = await sharp(SVG_PATH)
+  const buffer = await sharp(SOURCE_ICON_PATH)
     .resize(1024, 1024)
     .png()
     .toBuffer();
