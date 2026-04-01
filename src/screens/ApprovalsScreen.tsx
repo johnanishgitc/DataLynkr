@@ -32,7 +32,6 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AppSidebar, SIDEBAR_MENU_APPROVALS } from '../components';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
-import Svg, { Circle } from 'react-native-svg';
 import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
 import FilterSvg from '../assets/approvals/filter.svg';
@@ -48,6 +47,7 @@ import { useModuleAccess } from '../store/ModuleAccessContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { apiService, isUnauthorizedError } from '../api';
+import { RefreshIcon } from '../assets/connections';
 import type { OverdueBillItem } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
 import type { Voucher } from '../api/models/voucher';
@@ -135,44 +135,6 @@ function parseDefaultApprovalsDateRange(permissionValue: unknown): { from: numbe
 // ---------------------------------------------------------------------------
 
 const SCROLL_UP_THRESHOLD = 10;
-
-function CircularRefreshIndicator({ pct }: { pct: number }) {
-    const size = 48;
-    const strokeWidth = 3.5;
-    const r = (size - strokeWidth) / 2;
-    const circ = 2 * Math.PI * r;
-    const offset = circ * (1 - Math.min(pct, 100) / 100);
-    return (
-        <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-            <Svg width={size} height={size} style={{ position: 'absolute' }}>
-                <Circle
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={r}
-                    stroke="#E0E0E0"
-                    strokeWidth={strokeWidth}
-                    fill="none"
-                />
-                <Circle
-                    cx={size / 2}
-                    cy={size / 2}
-                    r={r}
-                    stroke={colors.primary_blue}
-                    strokeWidth={strokeWidth}
-                    fill="none"
-                    strokeDasharray={circ}
-                    strokeDashoffset={offset}
-                    strokeLinecap="round"
-                    rotation="-90"
-                    origin={`${size / 2}, ${size / 2}`}
-                />
-            </Svg>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary_blue }}>
-                {Math.round(pct)}%
-            </Text>
-        </View>
-    );
-}
 
 export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const route = useRoute<any>();
@@ -670,6 +632,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     );
 
     const handleRefresh = useCallback(() => {
+        // Clear existing vouchers and trigger a fresh load.
+        setAllItems([]);
         setIsRefreshing(true);
         fetchData();
     }, [fetchData]);
@@ -1654,14 +1618,15 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         </TouchableOpacity>
                         <Text style={styles.headerTitle}>Approvals</Text>
                     </View>
-                    {/*<View style={styles.headerRight}>
-                        <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <BellSvg width={22} height={22} />
+                    <View style={styles.headerRight}>
+                        <TouchableOpacity
+                            onPress={handleRefresh}
+                            disabled={isRefreshing || isDownloading}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <RefreshIcon width={24} height={24} color="#ffffff" />
                         </TouchableOpacity>
-                        <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <KebabSvg width={24} height={24} />
-                        </TouchableOpacity>
-                    </View>*/}
+                    </View>
                 </View>
 
             </View>
@@ -1764,22 +1729,44 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
                 {showSearchDivider && <View style={styles.searchDividerLine} />}
 
-                {isRefreshing && (
-                    <View style={styles.refreshHeader}>
-                        <CircularRefreshIndicator
-                            pct={
-                                chunkProgress
-                                    ? Math.round(
-                                          (chunkProgress.done / (chunkProgress.total || 1)) * 100,
-                                      )
-                                    : 0
-                            }
-                        />
-                    </View>
-                )}
-
                 {/* Content – always show FlatList; RefreshControl handles spinner */}
-                {!loading && error ? (
+                {chunkProgress ? (
+                    // Centered progress bar while chunked loading is in progress
+                    <View style={styles.center}>
+                        <View style={styles.progressContainer}>
+                            {(() => {
+                                const pct =
+                                    (Math.max(
+                                        0,
+                                        Math.min(chunkProgress.done, chunkProgress.total),
+                                    ) /
+                                        Math.max(1, chunkProgress.total)) *
+                                    100;
+                                const pctLabel = `${Math.round(pct)}%`;
+                                return (
+                                    <Text style={styles.datePillText}>
+                                        Loading approvals {pctLabel}
+                                    </Text>
+                                );
+                            })()}
+                            <View style={styles.progressBar}>
+                                <View
+                                    style={[
+                                        styles.progressFill,
+                                        {
+                                            width: `${
+                                                (Math.max(
+                                                    0,
+                                                    Math.min(chunkProgress.done, chunkProgress.total),
+                                                ) / Math.max(1, chunkProgress.total)) * 100
+                                            }%`,
+                                        },
+                                    ]}
+                                />
+                            </View>
+                        </View>
+                    </View>
+                ) : !loading && error ? (
                     <View style={styles.center}>
                         <Text style={styles.errorText}>{error}</Text>
                         <TouchableOpacity onPress={fetchData} style={styles.retryBtn}>
@@ -1798,12 +1785,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         renderItem={renderCard}
                         contentContainerStyle={styles.list}
                         showsVerticalScrollIndicator={false}
-                        refreshControl={
-                            <RefreshControl
-                                refreshing={false}
-                                onRefresh={handleRefresh}
-                            />
-                        }
                         onScroll={handleScroll}
                         scrollEventThrottle={16}
                     />
@@ -3621,19 +3602,6 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: colors.white,
     },
-    refreshHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        paddingVertical: 10,
-    },
-    refreshHeaderPct: {
-        fontFamily: 'Roboto',
-        fontSize: 13,
-        fontWeight: '500',
-        color: colors.primary_blue,
-    },
     emptyText: {
         fontFamily: 'Roboto',
         fontSize: 14,
@@ -3647,6 +3615,7 @@ const styles = StyleSheet.create({
     progressContainer: {
         width: '80%',
         alignItems: 'center',
+        marginTop: -200,
     },
     progressBar: {
         width: '100%',
