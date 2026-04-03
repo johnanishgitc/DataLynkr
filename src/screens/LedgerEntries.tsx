@@ -32,7 +32,7 @@ import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
-import { requestStoragePermissionForRootExport } from '../utils/permissions';
+import { requestStoragePermission } from '../utils/permissions';
 import { formatDate } from '../utils/dateUtils';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
@@ -524,12 +524,11 @@ export default function LedgerEntries() {
   const onPeriodSelectionOpen = () => setPeriodSelectionOpen(true);
   const onExportOpen = () => setExportVisible(true);
 
-  /** Ensures DataLynkr/{connectionName} exists and returns its path. Tries storage root first (same level as Download); falls back to Download/Documents if creation fails. */
+  /** Ensures DataLynkr export directory exists in standard app-accessible public directories (Downloads/Documents) */
   const getExportDir = useCallback(async (): Promise<string> => {
-    await requestStoragePermissionForRootExport();
-    const downloadsOrDocs = RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath;
-    const storageRoot = downloadsOrDocs.replace(/\/[^/]+\/?$/, '');
-    const dataLynkrDir = `${storageRoot}/DataLynkr`;
+    await requestStoragePermission();
+    const baseDir = Platform.OS === 'android' ? RNFS.DownloadDirectoryPath : RNFS.DocumentDirectoryPath;
+    const dataLynkrDir = `${baseDir}/DataLynkr`;
     const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_') || 'Default';
     const connectionName = company.trim() ? safe(company.trim()) : 'Default';
     const exportDir = `${dataLynkrDir}/${connectionName}`;
@@ -542,16 +541,7 @@ export default function LedgerEntries() {
       }
       return exportDir;
     } catch {
-      const fallbackBase = downloadsOrDocs;
-      const fallbackDataLynkr = `${fallbackBase}/DataLynkr`;
-      const fallbackDir = `${fallbackDataLynkr}/${connectionName}`;
-      if (!(await RNFS.exists(fallbackDataLynkr))) {
-        await RNFS.mkdir(fallbackDataLynkr);
-      }
-      if (!(await RNFS.exists(fallbackDir))) {
-        await RNFS.mkdir(fallbackDir);
-      }
-      return fallbackDir;
+      return baseDir;
     }
   }, [company]);
 

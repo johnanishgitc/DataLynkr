@@ -38,7 +38,7 @@ import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
 import { sharedStyles } from './ledger';
 import { getStockItemsAndGroupsFromDataManagementCache, type StockListEntry } from '../cache';
-import { requestStoragePermissionForRootExport } from '../utils/permissions';
+import { requestStoragePermission } from '../utils/permissions';
 import { formatDate } from '../utils/dateUtils';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -651,10 +651,9 @@ export default function StockSummary() {
     const onExportOpen = () => setExportVisible(true);
 
     const getExportDir = useCallback(async (): Promise<string> => {
-        await requestStoragePermissionForRootExport();
-        const downloadsOrDocs = RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath;
-        const storageRoot = downloadsOrDocs.replace(/\/[^/]+\/?$/, '');
-        const dataLynkrDir = `${storageRoot}/DataLynkr`;
+        await requestStoragePermission();
+        const baseDir = Platform.OS === 'android' ? RNFS.DownloadDirectoryPath : RNFS.DocumentDirectoryPath;
+        const dataLynkrDir = `${baseDir}/DataLynkr`;
         const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_') || 'Default';
         const connectionName = company.trim() ? safe(company.trim()) : 'Default';
         const exportDir = `${dataLynkrDir}/${connectionName}`;
@@ -667,16 +666,7 @@ export default function StockSummary() {
             }
             return exportDir;
         } catch {
-            const fallbackBase = downloadsOrDocs;
-            const fallbackDataLynkr = `${fallbackBase}/DataLynkr`;
-            const fallbackDir = `${fallbackDataLynkr}/${connectionName}`;
-            if (!(await RNFS.exists(fallbackDataLynkr))) {
-                await RNFS.mkdir(fallbackDataLynkr);
-            }
-            if (!(await RNFS.exists(fallbackDir))) {
-                await RNFS.mkdir(fallbackDir);
-            }
-            return fallbackDir;
+            return baseDir;
         }
     }, [company]);
 
