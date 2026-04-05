@@ -8,6 +8,7 @@ import StockSummary from '../screens/StockSummary';
 import StockItemMonthly from '../screens/StockItemMonthly';
 import StockItemVouchers from '../screens/StockItemVouchers';
 import VoucherDetailView from '../screens/VoucherDetailView';
+import { StockDateRangeProvider } from '../store/StockDateRangeContext';
 
 const Stack = createNativeStackNavigator<SummaryStackParamList>();
 
@@ -15,6 +16,7 @@ export default function SummaryStack() {
   const insets = useSafeAreaInsets();
 
   return (
+    <StockDateRangeProvider>
     <View style={{ flex: 1 }}>
       <Stack.Navigator
         screenOptions={{ headerShown: false }}
@@ -40,5 +42,6 @@ export default function SummaryStack() {
         />
       )}
     </View>
+    </StockDateRangeProvider>
   );
 }

@@ -36,10 +36,16 @@ import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/stora
 import { useScroll } from '../store/ScrollContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
-import { sharedStyles } from './ledger';
+import {
+    sharedStyles,
+    ledgerGrandTotalBottomOffset,
+    ledgerGrandTotalScrollSlidePx,
+    ledgerGrandTotalListPaddingBottom,
+} from './ledger';
 import { getStockItemsAndGroupsFromDataManagementCache, type StockListEntry } from '../cache';
 import { requestStoragePermission } from '../utils/permissions';
 import { formatDate } from '../utils/dateUtils';
+import { useStockDateRange } from '../store/StockDateRangeContext';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -137,7 +143,7 @@ function itemHasAnyQtyRateOrValue(item: StockSummaryItem): boolean {
     return check(item.closing);
 }
 
-/** Build HTML for Stock Summary / Stock Group Summary export (matches blue table design). */
+/** Build HTML for Stock Summary / Stock Group Summary export (PDF + print). */
 function buildStockSummaryHtml(
     items: StockSummaryItem[],
     companyName: string,
@@ -229,9 +235,9 @@ function buildStockSummaryHtml(
       text-align: left;
     }
     th {
-      background-color: #0f4eb3;
-      color: #ffffff;
-      font-weight: 600;
+      background-color: #ffffff;
+      color: #000000;
+      font-weight: 700;
       font-size: 12px;
       text-align: center;
     }
@@ -239,12 +245,12 @@ function buildStockSummaryHtml(
       text-align: right;
     }
     .grand-total-row {
-      background-color: #0f4eb3;
-      color: #ffffff;
+      background-color: #ffffff;
+      color: #000000;
       font-weight: 700;
     }
     .grand-total-row td {
-      border-color: #0f4eb3;
+      border-color: #dcdcdc;
     }
   </style>
 </head>
@@ -344,10 +350,13 @@ export default function StockSummary() {
     const primarySelected = Boolean((route.params as { primary?: boolean } | undefined)?.primary);
     const breadcrumb: string[] = route.params?.breadcrumb ?? [];
 
+    const { sharedDateRange, setSharedDateRange } = useStockDateRange();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [items, setItems] = useState<StockSummaryItem[]>([]);
     const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
+    const dateRangeRef = useRef(dateRange);
+    dateRangeRef.current = dateRange;
     const [company, setCompany] = useState('');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [periodOpen, setPeriodOpen] = useState(false);
@@ -362,6 +371,8 @@ export default function StockSummary() {
     const [godownDropdownOpen, setGodownDropdownOpen] = useState(false);
     const [loadingGodown, setLoadingGodown] = useState(false);
     const insets = useSafeAreaInsets();
+    const stockGrandTotalBottom = ledgerGrandTotalBottomOffset(insets, isTablet);
+    const stockGrandTotalScrollSlidePx = ledgerGrandTotalScrollSlidePx(isTablet, insets);
     const [exportVisible, setExportVisible] = useState(false);
     const [sharePopupVisible, setSharePopupVisible] = useState(false);
     const [shareExportLoading, setShareExportLoading] = useState(false);
@@ -389,13 +400,12 @@ export default function StockSummary() {
         const currentScrollY = event.nativeEvent.contentOffset.y;
         const scrollDiff = currentScrollY - lastScrollY.current;
 
-        if (scrollDiff > 0 && currentScrollY > 10) {
+        if (scrollDiff > 0 && currentScrollY > 10 && !footerExpanded) {
             if (localScrollDirection.current !== 'down') {
                 localScrollDirection.current = 'down';
                 setScrollDirection('down');
                 Animated.timing(footerTranslateY, {
-                    // When scrolling down, shift the grand total bar down slightly (not fully)
-                    toValue: 50,
+                    toValue: stockGrandTotalScrollSlidePx,
                     duration: 300,
                     useNativeDriver: true,
                 }).start();
@@ -473,6 +483,9 @@ export default function StockSummary() {
         [closeSidebar, nav],
     );
 
+    const sharedDateRangeRef = useRef(sharedDateRange);
+    sharedDateRangeRef.current = sharedDateRange;
+
     const fetchData = useCallback(async (overrideRange?: { fromdate: string; todate: string }, overrideGodown?: string) => {
         setLoading(true);
         setError('');
@@ -484,8 +497,14 @@ export default function StockSummary() {
                 return;
             }
             setCompany(c);
-            const range = overrideRange ?? computeDateRange(bf);
+            const current = dateRangeRef.current;
+            const shared = sharedDateRangeRef.current;
+            const range = overrideRange
+                ?? (current.fromdate && current.todate ? current : null)
+                ?? (shared?.fromdate && shared?.todate ? shared : null)
+                ?? computeDateRange(bf);
             setDateRange(range);
+            setSharedDateRange(range);
             const godownToUse = overrideGodown !== undefined ? overrideGodown : godownRef.current;
             const godownTrimmed = typeof godownToUse === 'string' ? godownToUse.trim() : '';
 
@@ -512,8 +531,9 @@ export default function StockSummary() {
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
+        setSharedDateRange(newRange);
         fetchData(newRange);
-    }, [fetchData]);
+    }, [fetchData, setSharedDateRange]);
 
     useEffect(() => {
         const shouldFetchPrimary = !stockitemParam && primarySelected;
@@ -523,34 +543,40 @@ export default function StockSummary() {
             setError('');
             return;
         }
-        const fromdate = route.params?.fromdate;
-        const todate = route.params?.todate;
-        const paramRange = (fromdate && todate) ? { fromdate: String(fromdate), todate: String(todate) } : undefined;
-        fetchData(paramRange);
-    }, [fetchData, stockitemParam, primarySelected, godown, route.params?.fromdate, route.params?.todate]);
+        fetchData();
+    }, [fetchData, stockitemParam, primarySelected, godown]);
 
-    // Initialise default period to financial year (or route params if provided)
+    // Initialise default period: route params → shared context → financial year
     useEffect(() => {
         let cancelled = false;
         const initDateRange = async () => {
             const fromdate = route.params?.fromdate;
             const todate = route.params?.todate;
             if (fromdate && todate) {
+                const range = { fromdate: String(fromdate), todate: String(todate) };
                 if (!cancelled) {
-                    setDateRange({ fromdate: String(fromdate), todate: String(todate) });
+                    setDateRange(range);
+                    setSharedDateRange(range);
                 }
+                return;
+            }
+            const shared = sharedDateRangeRef.current;
+            if (shared?.fromdate && shared?.todate) {
+                if (!cancelled) setDateRange(shared);
                 return;
             }
             const bf = await getBooksfrom();
             if (!cancelled) {
-                setDateRange(computeDateRange(bf));
+                const range = computeDateRange(bf);
+                setDateRange(range);
+                setSharedDateRange(range);
             }
         };
         initDateRange();
         return () => {
             cancelled = true;
         };
-    }, [route.params?.fromdate, route.params?.todate]);
+    }, [route.params?.fromdate, route.params?.todate, setSharedDateRange]);
 
     useEffect(() => {
         if (!primaryDropdownOpen) return;
@@ -694,18 +720,28 @@ export default function StockSummary() {
                 yyyymmddToMs(dateRange.todate),
             ).replace(/\//g, '-')}`;
             const fileName = `${safe(isGroupDrill ? 'StockGroupSummary' : 'StockSummary')}_${datePart}`;
-            const pdfOptions = {
+            // Android RNHTMLtoPDF treats `directory` as a relative path under getExternalStorageDirectory(), not an
+            // absolute RNFS path — passing Download/... causes mkdirs() to fail ("Could not create folder structure").
+            // Generate in app cache (no directory), then copy to exportDir like LedgerEntries.
+            const res = await RNHTMLtoPDF.convert({
                 html,
                 fileName,
-                directory: exportDir,
-            } as const;
-
-            const pdf = await RNHTMLtoPDF.convert(pdfOptions);
-            if (!pdf || !pdf.filePath) {
+                width: 800,
+                height: 1024,
+                paddingTop: 80,
+                paddingBottom: 60,
+                paddingLeft: 30,
+                paddingRight: 30,
+            });
+            const tempPath = (res as { filePath?: string })?.filePath;
+            if (!tempPath) {
                 throw new Error('Failed to generate PDF');
             }
-
-            const path = pdf.filePath;
+            const path = `${exportDir}/${fileName}.pdf`;
+            if (await RNFS.exists(path)) {
+                await RNFS.unlink(path);
+            }
+            await RNFS.copyFile(tempPath, path);
             setSharingFileInfo({
                 path,
                 type: 'application/pdf',
@@ -958,7 +994,11 @@ export default function StockSummary() {
                     renderItem={renderRow as any}
                     contentContainerStyle={[
                         s.listContent,
-                        { paddingBottom: footerExpanded ? 160 : 120 }
+                        {
+                            paddingBottom:
+                                ledgerGrandTotalListPaddingBottom(insets, isTablet) +
+                                (footerExpanded ? 40 : 0),
+                        },
                     ]}
                     showsVerticalScrollIndicator={false}
                     onScroll={handleScroll}
@@ -972,14 +1012,19 @@ export default function StockSummary() {
                     s.footer,
                     isTablet && s.footerTablet,
                     {
-                        bottom: (isTablet ? 60 : 49) + insets.bottom,
-                        transform: [{ translateY: footerTranslateY }]
+                        bottom: stockGrandTotalBottom,
+                        transform: [{ translateY: footerTranslateY }],
                     }
                 ]}
             >
                 <TouchableOpacity
                     style={s.footerBar}
-                    onPress={() => setFooterExpanded((x) => !x)}
+                    onPress={() => {
+                        footerTranslateY.setValue(0);
+                        localScrollDirection.current = 'up';
+                        setScrollDirection('up');
+                        setFooterExpanded((x) => !x);
+                    }}
                     activeOpacity={0.8}
                 >
                     <Text style={s.footerBarTxt}>{strings.grand_total.toUpperCase()}</Text>

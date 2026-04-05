@@ -46,7 +46,9 @@ const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
 
 const WHITE_NAVBAR_ROUTES = new Set([
   'DataManagement', 'AddCustomer',
-  'LedgerMain', 'LedgerEntries', 'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
+  'LedgerMain', 'LedgerEntries', 'SalesOrderVoucherDetails', 'SalesOrderLineDetail', 'SalesOrderOrderDetails',
+  'ClearedOrderDetails',
+  'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
   'ApprovalsScreen',
   'StockSummary', 'StockGroupSummary', 'StockItemMonthly', 'StockItemVouchers',
 ]);

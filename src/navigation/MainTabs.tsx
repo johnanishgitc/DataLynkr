@@ -39,6 +39,14 @@ function ordersTabBarStyle({ route }: { route: Parameters<typeof getFocusedRoute
   return hideFooter ? { display: 'none' as const } : undefined;
 }
 
+/** Hide tab bar when VoucherDetailView is focused inside ApprovalsTab.
+ *  height:0 prevents react-navigation from adding bottom padding to the screen content. */
+function approvalsTabBarStyle({ route }: { route: Parameters<typeof getFocusedRouteNameFromRoute>[0] }) {
+  const routeName = getFocusedRouteNameFromRoute(route);
+  if (routeName === 'VoucherDetailView') return { display: 'none' as const, height: 0 };
+  return undefined;
+}
+
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   // Icons match Figma SVG files exactly
   const iconColor = focused ? colors.footer_active : colors.footer_text;
@@ -183,10 +191,11 @@ function MainTabsInner() {
       <Tab.Screen
         name="ApprovalsTab"
         component={ApprovalsStack}
-        options={{
+        options={({ route }) => ({
           title: strings.approvals,
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
-        }}
+          tabBarStyle: approvalsTabBarStyle({ route }),
+        })}
       />
       <Tab.Screen
         name="SummaryTab"

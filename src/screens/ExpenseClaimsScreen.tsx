@@ -17,7 +17,6 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
 import { apiService, isUnauthorizedError } from '../api';
@@ -44,7 +43,6 @@ const isImageUrl = (url: string) => /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i
 
 export default function ExpenseClaimsScreen() {
   const insets = useSafeAreaInsets();
-  const nav = useNavigation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -177,17 +175,25 @@ export default function ExpenseClaimsScreen() {
   const onSidebarItemPress = useCallback(
     (item: AppSidebarMenuItem) => {
       closeSidebar();
-      if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+      if (item.target === 'ExpenseClaims') return; // already here
+      if (item.target === 'Payments' || item.target === 'Collections') {
         if (navigationRef.isReady()) navigationRef.navigate(item.target as never);
         return;
       }
       if (item.target === 'DataManagement') {
-        if (navigationRef.isReady()) navigationRef.navigate('DataManagement');
+        if (navigationRef.isReady()) navigationRef.navigate('DataManagement' as never);
         return;
       }
-      const tabNav = (navigationRef as any);
-      if (tabNav?.isReady?.()) {
-        tabNav.navigate(item.target as never, item.params as never);
+      // Tab screens are nested inside MainTabs — must navigate there first
+      if (!navigationRef.isReady()) return;
+      if (item.target === 'OrderEntry') {
+        navigationRef.navigate('MainTabs' as never, { screen: 'OrdersTab', params: { screen: 'OrderEntry' } } as never);
+      } else if (item.target === 'LedgerTab') {
+        navigationRef.navigate('MainTabs' as never, { screen: 'LedgerTab' } as never);
+      } else if (item.target === 'ApprovalsTab') {
+        navigationRef.navigate('MainTabs' as never, { screen: 'ApprovalsTab' } as never);
+      } else if (item.target === 'SummaryTab') {
+        navigationRef.navigate('MainTabs' as never, { screen: 'SummaryTab' } as never);
       }
     },
     [closeSidebar],
@@ -329,12 +335,12 @@ export default function ExpenseClaimsScreen() {
       <View style={[s.headerWrap, { paddingTop: insets.top }]}>
         <View style={s.headerTopRow}>
           <TouchableOpacity
-            onPress={() => (nav as any).goBack?.()}
+            onPress={openSidebar}
             style={s.backBtn}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityLabel="Back"
+            accessibilityLabel="Menu"
           >
-            <Icon name="chevron-left" size={28} color={colors.white} />
+            <Icon name="menu" size={24} color={colors.white} />
           </TouchableOpacity>
           <Text style={s.headerTitle}>Expense Claims</Text>
         </View>
@@ -687,8 +693,8 @@ export default function ExpenseClaimsScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   headerWrap: { backgroundColor: colors.primary_blue, paddingHorizontal: 16 },
-  headerTopRow: { flexDirection: 'row', alignItems: 'center', height: 55 },
-  backBtn: { paddingRight: 6 },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, minHeight: 47 },
+  backBtn: { marginRight: 12 },
   headerTitle: { fontFamily: 'Roboto', fontSize: 17, fontWeight: '600', color: colors.white },
 
   scroll: { flex: 1, backgroundColor: colors.bg_page },

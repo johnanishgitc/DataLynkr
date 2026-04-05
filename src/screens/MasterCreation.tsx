@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, BackHandler, FlatList, Image, Keyboard, Linking, Modal, PermissionsAndroid, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, findNodeHandle } from 'react-native';
+import { Alert, BackHandler, FlatList, Image, Keyboard, Linking, LayoutAnimation, Modal, PanResponder, PermissionsAndroid, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, View, findNodeHandle } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -182,6 +186,11 @@ export default function MasterCreation() {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<MasterStep>(1);
   const scrollRef = useRef<ScrollView>(null);
+
+  const updateStep = (newStep: MasterStep) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setStep(newStep);
+  };
   const [form, setForm] = useState<FormState>(initialForm);
   const [additionalBankDetails, setAdditionalBankDetails] = useState<BankDetailsItem[]>([]);
   const [additionalAddresses, setAdditionalAddresses] = useState<AddressDetailsItem[]>([]);
@@ -823,10 +832,6 @@ export default function MasterCreation() {
   };
 
   const onHeaderBack = () => {
-    if (step > 1) {
-      setStep((prev) => (prev - 1) as MasterStep);
-      return;
-    }
     navigation.goBack();
   };
 
@@ -1016,18 +1021,6 @@ export default function MasterCreation() {
       setIsSaving(false);
     }
   };
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (step > 1) {
-        setStep((prev) => (prev - 1) as MasterStep);
-        return true;
-      }
-      return false;
-    });
-    return () => sub.remove();
-  }, [step]);
 
 
   const renderStepOne = () => (
@@ -1258,8 +1251,9 @@ export default function MasterCreation() {
         </View>
       ))}
       <TouchableOpacity
-        style={styles.addAddressButton}
+        style={[styles.addAddressButton, !hasAddressDetails && { opacity: 0.5 }]}
         activeOpacity={0.85}
+        disabled={!hasAddressDetails}
         onPress={() =>
           setAdditionalAddresses((prev) => [
             ...prev,
@@ -1287,6 +1281,7 @@ export default function MasterCreation() {
         placeholder="Enter contact person name"
         value={form.contactPerson}
         onChangeText={(v) => setField('contactPerson', v)}
+        editable={isGroupSelected}
       />
       <Field
         label="Email ID"
@@ -1294,6 +1289,7 @@ export default function MasterCreation() {
         value={form.emailId}
         onChangeText={(v) => setField('emailId', v)}
         keyboardType="email-address"
+        editable={isGroupSelected}
       />
       <Field
         label="Email CC"
@@ -1301,8 +1297,9 @@ export default function MasterCreation() {
         value={form.emailCc}
         onChangeText={(v) => setField('emailCc', v)}
         keyboardType="email-address"
+        editable={isGroupSelected}
       />
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Phone Number</Text>
         <TextInput
           style={styles.input}
@@ -1311,9 +1308,10 @@ export default function MasterCreation() {
           value={form.phoneNumber}
           onChangeText={(v) => setField('phoneNumber', v.replace(/\D/g, '').slice(0, 15))}
           keyboardType="phone-pad"
+          editable={isGroupSelected}
         />
       </View>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Mobile Number</Text>
         <View style={styles.phoneRow}>
           <View style={[styles.input, styles.countryCodeBox]}>
@@ -1325,6 +1323,7 @@ export default function MasterCreation() {
               keyboardType="phone-pad"
               placeholder="91"
               placeholderTextColor="#6a7282"
+              editable={isGroupSelected}
             />
           </View>
           <TextInput
@@ -1334,6 +1333,7 @@ export default function MasterCreation() {
             value={form.mobileNumber}
             onChangeText={(v) => setField('mobileNumber', v.replace(/\D/g, '').slice(0, 15))}
             keyboardType="phone-pad"
+            editable={isGroupSelected}
           />
         </View>
       </View>
@@ -1389,8 +1389,9 @@ export default function MasterCreation() {
         </View>
       ))}
       <TouchableOpacity
-        style={styles.addAddressButton}
+        style={[styles.addAddressButton, !isGroupSelected && { opacity: 0.5 }]}
         activeOpacity={0.85}
+        disabled={!isGroupSelected}
         onPress={() =>
           setAdditionalContactDetails((prev) => [
             ...prev,
@@ -1417,6 +1418,7 @@ export default function MasterCreation() {
         label="Maintain balances bill-by-bill"
         checked={form.maintainBillByBill}
         onToggle={() => setField('maintainBillByBill', !form.maintainBillByBill)}
+        disabled={!isGroupSelected}
       />
       {form.maintainBillByBill ? (
         <View style={styles.nestedOptionBlock}>
@@ -1426,11 +1428,13 @@ export default function MasterCreation() {
             value={form.defaultCreditPeriod}
             onChangeText={(v) => setField('defaultCreditPeriod', v)}
             keyboardType="number-pad"
+            editable={isGroupSelected}
           />
           <CheckRow
             label="Check for credit days during voucher entry"
             checked={form.checkCreditDaysDuringVoucherEntry}
             onToggle={() => setField('checkCreditDaysDuringVoucherEntry', !form.checkCreditDaysDuringVoucherEntry)}
+            disabled={!isGroupSelected}
           />
         </View>
       ) : null}
@@ -1439,6 +1443,7 @@ export default function MasterCreation() {
         label="Specify credit limit"
         checked={form.specifyCreditLimit}
         onToggle={() => setField('specifyCreditLimit', !form.specifyCreditLimit)}
+        disabled={!isGroupSelected}
       />
       {form.specifyCreditLimit ? (
         <View style={styles.nestedOptionBlock}>
@@ -1448,12 +1453,14 @@ export default function MasterCreation() {
             value={form.creditLimitAmount}
             onChangeText={(v) => setField('creditLimitAmount', v)}
             keyboardType="number-pad"
+            editable={isGroupSelected}
           />
 
           <CheckRow
             label="Override credit limit using post-dated transactions"
             checked={form.overrideCreditLimitUsingPdc}
             onToggle={() => setField('overrideCreditLimitUsingPdc', !form.overrideCreditLimitUsingPdc)}
+            disabled={!isGroupSelected}
           />
         </View>
       ) : null}
@@ -1461,17 +1468,24 @@ export default function MasterCreation() {
         label="Inventory values are affected"
         checked={form.inventoryValuesAffected}
         onToggle={() => setField('inventoryValuesAffected', !form.inventoryValuesAffected)}
+        disabled={!isGroupSelected}
       />
 
       <CheckRow
         label="Price levels applicable"
         checked={form.priceLevelApplicable}
         onToggle={() => setField('priceLevelApplicable', !form.priceLevelApplicable)}
+        disabled={!isGroupSelected}
       />
       {form.priceLevelApplicable ? (
-        <View ref={priceLevelFieldRef} style={styles.fieldWrap}>
+        <View ref={priceLevelFieldRef} style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
           <Text style={styles.label}>Price Level</Text>
-          <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setPriceLevelDropdownOpen(true)}>
+          <TouchableOpacity
+            style={styles.input}
+            activeOpacity={0.8}
+            onPress={isGroupSelected ? () => setPriceLevelDropdownOpen(true) : undefined}
+            disabled={!isGroupSelected}
+          >
             <Text style={[styles.inputText, !form.priceLevel && styles.placeholder]}>{form.priceLevel || 'Select Price Level'}</Text>
             <Icon name="chevron-down" size={18} color="#6a7282" />
           </TouchableOpacity>
@@ -1479,9 +1493,14 @@ export default function MasterCreation() {
       ) : null}
 
       <Text style={styles.sectionTitle}>Tax Registration Details</Text>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Tax Identification Type</Text>
-        <TouchableOpacity style={styles.selectBoxLikeExpense} onPress={() => setTaxDropdownOpen((prev) => !prev)} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.selectBoxLikeExpense}
+          onPress={isGroupSelected ? () => setTaxDropdownOpen((prev) => !prev) : undefined}
+          activeOpacity={0.8}
+          disabled={!isGroupSelected}
+        >
           <Text style={[styles.inputText, !form.taxIdentificationType && styles.placeholder]}>
             {form.taxIdentificationType || 'Select Tax Type'}
           </Text>
@@ -1506,7 +1525,7 @@ export default function MasterCreation() {
       </View>
       {isGstTypeSelected ? (
         <>
-          <View style={styles.fieldWrap}>
+          <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
             <Text style={styles.label}>GST Number</Text>
             <TextInput
               style={[styles.input, gstIsInvalid && styles.invalidInput]}
@@ -1518,6 +1537,7 @@ export default function MasterCreation() {
               keyboardType={gstKeyboardType}
               onSelectionChange={(e) => setGstCursorPos(e.nativeEvent.selection.start)}
               onChangeText={(v) => setField('gstNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              editable={isGroupSelected}
             />
           </View>
           <View style={styles.fieldWrap}>
@@ -1534,7 +1554,7 @@ export default function MasterCreation() {
         </>
       ) : null}
       {isPanTypeSelected ? (
-        <View style={styles.fieldWrap}>
+        <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
           <Text style={styles.label}>PAN Number</Text>
           <TextInput
             style={[styles.input, panIsInvalid && styles.invalidInput]}
@@ -1546,6 +1566,7 @@ export default function MasterCreation() {
             keyboardType={panKeyboardType}
             onSelectionChange={(e) => setPanCursorPos(e.nativeEvent.selection.start)}
             onChangeText={(v) => setField('panNumber', v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            editable={isGroupSelected}
           />
         </View>
       ) : null}
@@ -1556,13 +1577,14 @@ export default function MasterCreation() {
             placeholder="Enter name as per PAN"
             value={form.nameOnPan}
             onChangeText={(v) => setField('nameOnPan', v)}
+            editable={isGroupSelected}
           />
-          <View style={styles.panDocActionsRow}>
+          <View style={[styles.panDocActionsRow, !isGroupSelected && { opacity: 0.5 }]}>
             <TouchableOpacity
               style={styles.panDocButton}
               activeOpacity={0.85}
-              onPress={() => setPanDocClipVisible(true)}
-              disabled={panDocAttachment.uploading}
+              onPress={isGroupSelected ? () => setPanDocClipVisible(true) : undefined}
+              disabled={panDocAttachment.uploading || !isGroupSelected}
             >
               <Icon name={panDocAttachment.uploading ? 'loading' : 'paperclip'} size={16} color="#1e488f" />
               <Text style={styles.panDocButtonText}>
@@ -1591,26 +1613,28 @@ export default function MasterCreation() {
           ) : null}
         </>
       ) : null}
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Registration type</Text>
         <TouchableOpacity
           style={styles.input}
           activeOpacity={0.8}
-          onPress={() => {
+          onPress={isGroupSelected ? () => {
             setGstRegTypeTargetAddressIndex(null);
             setGstRegTypeDropdownOpen(true);
-          }}
+          } : undefined}
+          disabled={!isGroupSelected}
         >
           <Text style={[styles.inputText, !form.registrationType && styles.placeholder]}>{form.registrationType || 'Select'}</Text>
           <Icon name="chevron-down" size={18} color="#6a7282" />
         </TouchableOpacity>
       </View>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Assessee of Other Territory</Text>
         <TouchableOpacity
           style={styles.selectBoxLikeExpense}
           activeOpacity={0.8}
-          onPress={() => setAssesseeDropdownOpen((v) => !v)}
+          onPress={isGroupSelected ? () => setAssesseeDropdownOpen((v) => !v) : undefined}
+          disabled={!isGroupSelected}
         >
           <Text style={styles.inputText}>{form.assesseeOfOtherTerritory || 'Select'}</Text>
           <Icon name={assesseeDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
@@ -1638,12 +1662,13 @@ export default function MasterCreation() {
           </View>
         )}
       </View>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Use Ledger as common Party</Text>
         <TouchableOpacity
           style={styles.selectBoxLikeExpense}
           activeOpacity={0.8}
-          onPress={() => setCommonPartyDropdownOpen((v) => !v)}
+          onPress={isGroupSelected ? () => setCommonPartyDropdownOpen((v) => !v) : undefined}
+          disabled={!isGroupSelected}
         >
           <Text style={styles.inputText}>{form.useLedgerAsCommonParty || 'Select'}</Text>
           <Icon name={commonPartyDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
@@ -1671,12 +1696,13 @@ export default function MasterCreation() {
           </View>
         )}
       </View>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Set/Alter additional GST details</Text>
         <TouchableOpacity
           style={styles.selectBoxLikeExpense}
           activeOpacity={0.8}
-          onPress={() => setAdditionalGstDropdownOpen((v) => !v)}
+          onPress={isGroupSelected ? () => setAdditionalGstDropdownOpen((v) => !v) : undefined}
+          disabled={!isGroupSelected}
         >
           <Text style={styles.inputText}>{form.setAlterAdditionalGstDetails || 'Select'}</Text>
           <Icon name={additionalGstDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
@@ -1704,12 +1730,13 @@ export default function MasterCreation() {
           </View>
         )}
       </View>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Ignore prefixes and suffixes in Doc No. for reconciliation</Text>
         <TouchableOpacity
           style={styles.selectBoxLikeExpense}
           activeOpacity={0.8}
-          onPress={() => setIgnorePrefixesDropdownOpen((v) => !v)}
+          onPress={isGroupSelected ? () => setIgnorePrefixesDropdownOpen((v) => !v) : undefined}
+          disabled={!isGroupSelected}
         >
           <Text style={styles.inputText}>{form.ignorePrefixSuffixInDocNo || 'Select'}</Text>
           <Icon name={ignorePrefixesDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
@@ -1737,9 +1764,14 @@ export default function MasterCreation() {
           </View>
         )}
       </View>
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Set/Alter MSME Registration Details</Text>
-        <TouchableOpacity style={styles.selectBoxLikeExpense} activeOpacity={0.8} onPress={() => setMsmeDropdownOpen((v) => !v)}>
+        <TouchableOpacity
+          style={styles.selectBoxLikeExpense}
+          activeOpacity={0.8}
+          onPress={isGroupSelected ? () => setMsmeDropdownOpen((v) => !v) : undefined}
+          disabled={!isGroupSelected}
+        >
           <Text style={styles.inputText}>{form.setAlterMsmeRegistrationDetails || 'Select'}</Text>
           <Icon name={msmeDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
         </TouchableOpacity>
@@ -1768,9 +1800,14 @@ export default function MasterCreation() {
       </View>
       {form.setAlterMsmeRegistrationDetails.trim().toLowerCase() === 'yes' ? (
         <>
-          <View ref={enterpriseTypeFieldRef} style={styles.fieldWrap}>
+          <View ref={enterpriseTypeFieldRef} style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
             <Text style={styles.label}>Type of Enterprise</Text>
-            <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setEnterpriseTypeDropdownOpen(true)}>
+            <TouchableOpacity
+              style={styles.input}
+              activeOpacity={0.8}
+              onPress={isGroupSelected ? () => setEnterpriseTypeDropdownOpen(true) : undefined}
+              disabled={!isGroupSelected}
+            >
               <Text style={[styles.inputText, !form.typeOfEnterprise && styles.placeholder]}>{form.typeOfEnterprise || 'Select Type'}</Text>
               <Icon name="chevron-down" size={18} color="#6a7282" />
             </TouchableOpacity>
@@ -1780,19 +1817,30 @@ export default function MasterCreation() {
             placeholder="Enter UDYAM Registration Number"
             value={form.udyamRegistrationNumber}
             onChangeText={(v) => setField('udyamRegistrationNumber', v)}
+            editable={isGroupSelected}
           />
-          <View ref={activityTypeFieldRef} style={styles.fieldWrap}>
+          <View ref={activityTypeFieldRef} style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
             <Text style={styles.label}>Activity Type</Text>
-            <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setActivityTypeDropdownOpen(true)}>
+            <TouchableOpacity
+              style={styles.input}
+              activeOpacity={0.8}
+              onPress={isGroupSelected ? () => setActivityTypeDropdownOpen(true) : undefined}
+              disabled={!isGroupSelected}
+            >
               <Text style={[styles.inputText, !form.activityType && styles.placeholder]}>{form.activityType || 'Select Activity Type'}</Text>
               <Icon name="chevron-down" size={18} color="#6a7282" />
             </TouchableOpacity>
           </View>
         </>
       ) : null}
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
         <Text style={styles.label}>Is TDS Deductable</Text>
-        <TouchableOpacity style={styles.selectBoxLikeExpense} activeOpacity={0.8} onPress={() => setTdsDropdownOpen((v) => !v)}>
+        <TouchableOpacity
+          style={styles.selectBoxLikeExpense}
+          activeOpacity={0.8}
+          onPress={isGroupSelected ? () => setTdsDropdownOpen((v) => !v) : undefined}
+          disabled={!isGroupSelected}
+        >
           <Text style={styles.inputText}>{form.isTdsDeductable || 'Select'}</Text>
           <Icon name={tdsDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
         </TouchableOpacity>
@@ -1821,25 +1869,31 @@ export default function MasterCreation() {
       </View>
       {form.isTdsDeductable.trim().toLowerCase() === 'yes' ? (
         <>
-          <View ref={deducteeTypeFieldRef} style={styles.fieldWrap}>
+          <View ref={deducteeTypeFieldRef} style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
             <Text style={styles.label}>Deductee type</Text>
-            <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setDeducteeTypeDropdownOpen(true)}>
+            <TouchableOpacity
+              style={styles.input}
+              activeOpacity={0.8}
+              onPress={isGroupSelected ? () => setDeducteeTypeDropdownOpen(true) : undefined}
+              disabled={!isGroupSelected}
+            >
               <Text style={[styles.inputText, !form.deducteeType && styles.placeholder]}>{form.deducteeType || 'Select Deductee Type'}</Text>
               <Icon name="chevron-down" size={18} color="#6a7282" />
             </TouchableOpacity>
           </View>
-          <View style={styles.fieldWrap}>
+          <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
             <Text style={styles.label}>Nature of Payment</Text>
             <TouchableOpacity
               style={styles.input}
               activeOpacity={0.8}
-              onPress={() => {
+              onPress={isGroupSelected ? () => {
                 Keyboard.dismiss();
                 setTimeout(() => {
                   setNatureOfPaymentSearch('');
                   setNatureOfPaymentDropdownOpen(true);
                 }, 10);
-              }}
+              } : undefined}
+              disabled={!isGroupSelected}
             >
               <Text style={[styles.inputText, !form.natureOfPayment && styles.placeholder]}>
                 {form.natureOfPayment || 'Select Nature of Payment'}
@@ -1847,12 +1901,13 @@ export default function MasterCreation() {
               <Icon name="chevron-down" size={18} color="#6a7282" />
             </TouchableOpacity>
           </View>
-          <View style={styles.fieldWrap}>
+          <View style={[styles.fieldWrap, !isGroupSelected && { opacity: 0.5 }]}>
             <Text style={styles.label}>Deduct TDS in Same Voucher</Text>
             <TouchableOpacity
               style={styles.selectBoxLikeExpense}
               activeOpacity={0.8}
-              onPress={() => setDeductTdsDropdownOpen((v) => !v)}
+              onPress={isGroupSelected ? () => setDeductTdsDropdownOpen((v) => !v) : undefined}
+              disabled={!isGroupSelected}
             >
               <Text style={styles.inputText}>{form.deductTdsInSameVoucher || 'Select'}</Text>
               <Icon name={deductTdsDropdownOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#6a7282" />
@@ -1944,16 +1999,23 @@ export default function MasterCreation() {
         value={form.swiftCode}
         onChangeText={(v) => setField('swiftCode', sanitizeSwift(v))}
         autoCapitalize="characters"
+        editable={hasBankDetails}
       />
       <Field
         label="Payment Favoring"
         placeholder="Enter payment favoring name"
         value={form.paymentFavoring}
         onChangeText={(v) => setField('paymentFavoring', v)}
+        editable={hasBankDetails}
       />
-      <View style={styles.fieldWrap}>
+      <View style={[styles.fieldWrap, !hasBankDetails && { opacity: 0.5 }]}>
         <Text style={styles.label}>Default Transaction Type</Text>
-        <TouchableOpacity style={styles.input} activeOpacity={0.8} onPress={() => setDefaultTxnTypeDropdownOpen((v) => !v)}>
+        <TouchableOpacity
+          style={styles.input}
+          activeOpacity={0.8}
+          onPress={hasBankDetails ? () => setDefaultTxnTypeDropdownOpen((v) => !v) : undefined}
+          disabled={!hasBankDetails}
+        >
           <Text style={[styles.inputText, !form.defaultTransactionType && styles.placeholder]}>
             {form.defaultTransactionType || 'Select default transaction type'}
           </Text>
@@ -2034,13 +2096,15 @@ export default function MasterCreation() {
             placeholder="Enter payment favoring name"
             value={bank.paymentFavoring}
             onChangeText={(v) => setAdditionalBankField(index, 'paymentFavoring', v)}
+            editable={hasBankDetails}
           />
-          <View style={styles.fieldWrap}>
+          <View style={[styles.fieldWrap, !hasBankDetails && { opacity: 0.5 }]}>
             <Text style={styles.label}>Default Transaction Type</Text>
             <TouchableOpacity
               style={styles.input}
               activeOpacity={0.8}
-              onPress={() => setExtraDefaultTxnDropdownIndex((prev) => (prev === index ? null : index))}
+              onPress={hasBankDetails ? () => setExtraDefaultTxnDropdownIndex((prev) => (prev === index ? null : index)) : undefined}
+              disabled={!hasBankDetails}
             >
               <Text style={[styles.inputText, !bank.defaultTransactionType && styles.placeholder]}>
                 {bank.defaultTransactionType || 'Select default transaction type'}
@@ -2090,6 +2154,20 @@ export default function MasterCreation() {
     </>
   );
 
+  const stepRef = useRef(step);
+  useEffect(() => { stepRef.current = step; }, [step]);
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dx) > 30 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      const currentStep = stepRef.current;
+      if (gestureState.dx < -30 && currentStep < 3) updateStep((currentStep + 1) as MasterStep);
+      else if (gestureState.dx > 30 && currentStep > 1) updateStep((currentStep - 1) as MasterStep);
+    }
+  }), []);
+
   return (
     <View style={styles.container}>
       <StatusBarTopBar
@@ -2098,32 +2176,47 @@ export default function MasterCreation() {
         rightIcons="none"
         onLeftPress={onHeaderBack}
       />
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={[styles.content, { paddingTop: 14, paddingBottom: (keyboardVisible ? 260 : 40) + insets.bottom }]}
-        keyboardShouldPersistTaps="handled"
-      >
-        {step === 1 && renderStepOne()}
-        {step === 2 && renderStepTwo()}
-        {step === 3 && renderStepThree()}
-
-        <TouchableOpacity style={styles.clearButton} onPress={clearCurrentStep}>
-          <Text style={styles.clearButtonText}>Clear All</Text>
-        </TouchableOpacity>
-        {step < 3 ? (
-          <TouchableOpacity style={styles.nextButton} activeOpacity={0.8} onPress={() => setStep((prev) => (prev + 1) as MasterStep)}>
-            <Text style={styles.nextButtonText}>Next</Text>
-          </TouchableOpacity>
-        ) : null}
-        <TouchableOpacity
-          style={[styles.saveButton, isSubmitDisabled && styles.saveButtonDisabled]}
-          activeOpacity={0.8}
-          onPress={handleSave}
-          disabled={isSubmitDisabled}
+      <View style={styles.tabBar}>
+        {['Basic Details', 'Tax Details', 'Bank Details'].map((tab, idx) => {
+          const tabStep = (idx + 1) as MasterStep;
+          const isActive = step === tabStep;
+          return (
+            <TouchableOpacity
+              key={tab}
+              activeOpacity={0.8}
+              onPress={() => updateStep(tabStep)}
+              style={[styles.tabButton, isActive && styles.tabButtonActive]}
+            >
+              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{tab}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <View style={{ flex: 1 }} {...panResponder.panHandlers}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.content, { paddingTop: 14, paddingBottom: (keyboardVisible ? 260 : 40) + insets.bottom }]}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          {step === 1 && renderStepOne()}
+          {step === 2 && renderStepTwo()}
+          {step === 3 && renderStepThree()}
+
+          <View style={styles.footerActions}>
+            <TouchableOpacity style={styles.clearButton} onPress={clearCurrentStep}>
+              <Text style={styles.clearButtonText}>Clear All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.saveButton, isSubmitDisabled && styles.saveButtonDisabled]}
+              activeOpacity={0.8}
+              onPress={handleSave}
+              disabled={isSubmitDisabled}
+            >
+              <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
       <View
         pointerEvents="none"
         style={{
@@ -2727,7 +2820,7 @@ function Field({
 }: FieldProps) {
   const showStatusIcon = status === 'ok' || status === 'duplicate';
   return (
-    <View style={[styles.fieldWrap, half && styles.halfField]}>
+    <View style={[styles.fieldWrap, half && styles.halfField, !editable && { opacity: 0.5 }]}>
       <Text style={styles.label}>
         {label}
         {required ? <Text style={styles.required}>*</Text> : null}
@@ -2768,14 +2861,16 @@ function CheckRow({
   label,
   checked,
   onToggle,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onToggle: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <View style={styles.checkRow}>
-      <TouchableOpacity onPress={onToggle} activeOpacity={0.8}>
+    <View style={[styles.checkRow, disabled && { opacity: 0.5 }]}>
+      <TouchableOpacity onPress={disabled ? undefined : onToggle} activeOpacity={0.8} disabled={disabled}>
         <View style={[styles.checkBox, checked && styles.checkBoxChecked]}>
           {checked ? <Icon name="check" size={12} color="#ffffff" /> : null}
         </View>
@@ -2847,23 +2942,55 @@ const styles = StyleSheet.create({
   },
   dropdownItem: { paddingHorizontal: 12, paddingVertical: 10 },
   clearButton: {
-    marginTop: 8,
+    flex: 1,
     height: 48,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#d3d3d3',
+    backgroundColor: '#d6dae1',
   },
   clearButtonText: { color: '#0e172b', fontSize: 15, fontWeight: '500' },
-  nextButton: {
-    height: 48,
-    borderRadius: 6,
+  footerActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eef2f7',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#f2f4f5',
+    padding: 4,
+    marginTop: 0,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1c74b',
+    borderRadius: 6,
   },
-  nextButtonText: { color: '#0e172b', fontSize: 15, fontWeight: '500' },
+  tabButtonActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  tabText: {
+    fontFamily: 'Roboto',
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#6a7282',
+  },
+  tabTextActive: {
+    fontWeight: '700',
+    color: '#1e488f',
+  },
   saveButton: {
+    flex: 1,
     height: 48,
     borderRadius: 6,
     alignItems: 'center',

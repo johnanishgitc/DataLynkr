@@ -330,6 +330,11 @@ export default function LedgerEntries() {
   const routeParams = route.params || {};
   const ledger_name = routeParams.ledger_name || '';
   const report_name = routeParams.report_name || DEFAULT_REPORT;
+  /** True when navigators/sidebar passed report_name (even if it is the default "Ledger Vouchers"). */
+  const hasExplicitReportParam =
+    route.params != null &&
+    typeof route.params.report_name === 'string' &&
+    route.params.report_name.length > 0;
   const from_date = routeParams.from_date ?? defaultFromDate();
   const to_date = routeParams.to_date ?? defaultToDate();
 
@@ -497,14 +502,20 @@ export default function LedgerEntries() {
         return () => clearTimeout(timer);
       }
 
-      if (!ledger_name && ledgerNames.length > 0 && report_name === DEFAULT_REPORT && !hasShownReportDropdownRef.current) {
+      if (
+        !ledger_name &&
+        ledgerNames.length > 0 &&
+        report_name === DEFAULT_REPORT &&
+        !hasShownReportDropdownRef.current &&
+        !hasExplicitReportParam
+      ) {
         hasShownReportDropdownRef.current = true;
         const timer = setTimeout(() => {
           setReportDropdownOpen(true);
         }, 100);
         return () => clearTimeout(timer);
       }
-    }, [ledger_name, ledgerNames, report_name, routeParams, nav])
+    }, [ledger_name, ledgerNames, report_name, hasExplicitReportParam, routeParams, nav])
   );
 
   const dateRangeStr = `${formatDate(from_date)} – ${formatDate(to_date)}`;

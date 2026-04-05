@@ -34,6 +34,8 @@ export interface GlobalDropdownModalProps<T> {
   loadingText?: string;
   emptyText?: string;
   searchRightAction?: React.ReactElement;
+  /** Defaults to primary_blue to match Order Entry; use #0e172b for Quick Order to match StatusBarTopBar draft header. */
+  headerBackgroundColor?: string;
 }
 
 export default function GlobalDropdownModal<T>({
@@ -53,6 +55,7 @@ export default function GlobalDropdownModal<T>({
   loadingText = 'Loading...',
   emptyText = 'No data found',
   searchRightAction,
+  headerBackgroundColor = colors.primary_blue,
 }: GlobalDropdownModalProps<T>): React.ReactElement {
   const inputRef = useRef<TextInput>(null);
 
@@ -78,7 +81,7 @@ export default function GlobalDropdownModal<T>({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <View style={styles.modal} onStartShouldSetResponder={() => true}>
-          <View style={styles.headerRow}>
+          <View style={[styles.headerRow, { backgroundColor: headerBackgroundColor }]}>
             <Text style={styles.headerTitle}>{title}</Text>
             <TouchableOpacity onPress={onClose} style={styles.headerClose}>
               <Icon name="close" size={24} color="#fff" />
@@ -137,7 +140,6 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1f3a89',
     paddingVertical: 6,
     paddingHorizontal: 16,
     justifyContent: 'space-between',

@@ -218,8 +218,12 @@ export default function OrderSuccess() {
               params: {
                 voucher: { MASTERID: masterId },
                 ledger_name: '',
-                returnToOrderEntryClear: true,
-                returnToOrderEntryDraftMode: !!fromDraftMode,
+                ...(fromApprovalUpdate
+                  ? { returnToApprovalsOnBack: true, returnToOrderEntryDraftMode: !!fromDraftMode }
+                  : {
+                      returnToOrderEntryClear: true,
+                      returnToOrderEntryDraftMode: !!fromDraftMode,
+                    }),
               },
             },
           ],

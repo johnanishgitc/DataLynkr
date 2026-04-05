@@ -18,7 +18,7 @@ import type { UserConnection } from '../api';
 import { apiService, isUnauthorizedError } from '../api';
 import { RefreshIcon } from '../assets/connections';
 import { useAuth } from '../store';
-import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
+import { saveCompanyInfo, getCompanyInfo, type CompanyInfo } from '../store/storage';
 import { refreshAllDataManagementData } from '../cache';
 import { strings, connections_available } from '../constants/strings';
 const CONNECTIONS_TITLE = strings.connections;
@@ -55,6 +55,7 @@ export default function AdminDashboard() {
   const { logout } = useAuth();
   const [all, setAll] = useState<UserConnection[]>([]);
   const [loading, setLoading] = useState(true);
+  const autoNavDone = React.useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -93,6 +94,30 @@ export default function AdminDashboard() {
         }
       }
       setAll(list);
+
+      // Auto-navigate to the last selected company if it is still connected
+      if (!autoNavDone.current && list.length > 0) {
+        autoNavDone.current = true;
+        try {
+          const saved = await getCompanyInfo();
+          if (saved && saved.guid) {
+            const match = list.find(
+              (c) =>
+                (c.guid ?? '') === saved.guid &&
+                (c.tallyloc_id ?? 0) === saved.tallyloc_id
+            );
+            if (match && (match.status ?? '').toLowerCase() === 'connected') {
+              // Company is still online – go straight in
+              await saveCompanyInfo(toCompanyInfo(match));
+              nav.navigate('MainTabs');
+              refreshAllDataManagementData().catch(() => {});
+              return;
+            }
+          }
+        } catch (_) {
+          // Ignore – just show connections screen
+        }
+      }
     } catch (e: unknown) {
       if (isUnauthorizedError(e)) {
         setAll([]);

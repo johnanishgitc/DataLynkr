@@ -21,9 +21,15 @@ import { getStockItemNamesFromDataManagementCache } from '../cache';
 import type { MonthData, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { useScroll } from '../store/ScrollContext';
+import { useStockDateRange } from '../store/StockDateRangeContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
-import { sharedStyles } from './ledger';
+import {
+    sharedStyles,
+    ledgerGrandTotalBottomOffset,
+    ledgerGrandTotalScrollSlidePx,
+    ledgerGrandTotalListPaddingBottom,
+} from './ledger';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -131,9 +137,16 @@ export default function StockItemMonthly() {
     const insets = useSafeAreaInsets();
     const { width: windowWidth } = useWindowDimensions();
     const isTablet = windowWidth >= 600;
+    const stockClosingBarBottom = ledgerGrandTotalBottomOffset(insets, isTablet);
+    const closingBarSlidePxRef = useRef(0);
+    closingBarSlidePxRef.current = ledgerGrandTotalScrollSlidePx(isTablet, insets);
 
     const stockitemParam: string = route.params?.stockitem ?? '';
     const breadcrumb: string[] = route.params?.breadcrumb ?? [];
+
+    const { sharedDateRange, setSharedDateRange } = useStockDateRange();
+    const sharedDateRangeRef = useRef(sharedDateRange);
+    sharedDateRangeRef.current = sharedDateRange;
 
     const [selectedStockItem, setSelectedStockItem] = useState(stockitemParam);
     const [stockItemNames, setStockItemNames] = useState<string[]>([]);
@@ -143,11 +156,20 @@ export default function StockItemMonthly() {
     const [error, setError] = useState('');
     const [opening, setOpening] = useState<StockQtyValue | null>(null);
     const [months, setMonths] = useState<MonthData[]>([]);
-    const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
+    const [dateRange, setDateRange] = useState(() => {
+        const fd = route.params?.fromdate;
+        const td = route.params?.todate;
+        if (fd && td) return { fromdate: String(fd), todate: String(td) };
+        if (sharedDateRange?.fromdate && sharedDateRange?.todate) return sharedDateRange;
+        return { fromdate: '', todate: '' };
+    });
+    const dateRangeRef = useRef(dateRange);
+    dateRangeRef.current = dateRange;
     const [periodOpen, setPeriodOpen] = useState(false);
 
     const scrollY = useRef(new Animated.Value(0)).current;
     const SCROLL_RANGE = 140;
+    const FOOTER_ANIM_MS = 300;
     const onScroll = useMemo(
         () =>
             Animated.event(
@@ -159,8 +181,7 @@ export default function StockItemMonthly() {
 
     const { setScrollDirection, setFooterCollapseValue } = useScroll();
     const footerCollapseProgress = useRef(new Animated.Value(0)).current;
-    
-    // Collapsible bar logic
+
     const lastScrollY = useRef(0);
     const localScrollDirection = useRef<'up' | 'down'>('up');
     const footerTranslateY = useRef(new Animated.Value(0)).current;
@@ -173,16 +194,14 @@ export default function StockItemMonthly() {
             const eased = raw <= 0.5 ? raw * 1.3 : 0.65 + (raw - 0.5) * 0.7;
             footerCollapseProgress.setValue(Math.min(1, eased));
 
-            // Sync bar collapse with scroll direction
             const diff = value - lastScrollY.current;
             if (diff > 0 && value > 10) {
                 if (localScrollDirection.current !== 'down') {
                     localScrollDirection.current = 'down';
                     setScrollDirection('down');
                     Animated.timing(footerTranslateY, {
-                        // When scrolling down, shift the closing balance bar down slightly (not fully)
-                        toValue: 50,
-                        duration: 300,
+                        toValue: closingBarSlidePxRef.current,
+                        duration: FOOTER_ANIM_MS,
                         useNativeDriver: true,
                     }).start();
                 }
@@ -192,7 +211,7 @@ export default function StockItemMonthly() {
                     setScrollDirection('up');
                     Animated.timing(footerTranslateY, {
                         toValue: 0,
-                        duration: 300,
+                        duration: FOOTER_ANIM_MS,
                         useNativeDriver: true,
                     }).start();
                 }
@@ -204,7 +223,7 @@ export default function StockItemMonthly() {
             setScrollDirection(null);
             setFooterCollapseValue(null);
         };
-    }, [scrollY, footerCollapseProgress, setScrollDirection, setFooterCollapseValue, SCROLL_RANGE]);
+    }, [scrollY, footerCollapseProgress, setScrollDirection, setFooterCollapseValue, SCROLL_RANGE, footerTranslateY, FOOTER_ANIM_MS]);
 
     useFocusEffect(
         useCallback(() => {
@@ -217,7 +236,7 @@ export default function StockItemMonthly() {
                 duration: 200,
                 useNativeDriver: true,
             }).start();
-        }, [setScrollDirection, footerTranslateY, footerCollapseProgress])
+        }, [setScrollDirection, footerCollapseProgress, footerTranslateY])
     );
 
     useEffect(() => {
@@ -253,8 +272,14 @@ export default function StockItemMonthly() {
                 setLoading(false);
                 return;
             }
-            const range = overrideRange ?? computeDateRange(bf);
+            const current = dateRangeRef.current;
+            const shared = sharedDateRangeRef.current;
+            const range = overrideRange
+                ?? (current.fromdate && current.todate ? current : null)
+                ?? (shared?.fromdate && shared?.todate ? shared : null)
+                ?? computeDateRange(bf);
             setDateRange(range);
+            setSharedDateRange(range);
 
             const res = await apiService.getMonthlySummary({
                 tallyloc_id: t,
@@ -272,7 +297,7 @@ export default function StockItemMonthly() {
         } finally {
             setLoading(false);
         }
-    }, [selectedStockItem]);
+    }, [selectedStockItem, setSharedDateRange]);
     
     const closingBalanceDisplay = useMemo(() => {
         if (!opening && months.length === 0) return '- - - -';
@@ -283,15 +308,13 @@ export default function StockItemMonthly() {
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
+        setSharedDateRange(newRange);
         fetchData(newRange);
-    }, [fetchData]);
+    }, [fetchData, setSharedDateRange]);
 
     useEffect(() => {
-        const fromdate = route.params?.fromdate;
-        const todate = route.params?.todate;
-        const paramRange = (fromdate && todate) ? { fromdate: String(fromdate), todate: String(todate) } : undefined;
-        fetchData(paramRange);
-    }, [fetchData, route.params?.fromdate, route.params?.todate]);
+        fetchData();
+    }, [fetchData]);
 
     const onMonthPress = (m: MonthData) => {
         // Navigate to vouchers for this month's date range
@@ -364,7 +387,7 @@ export default function StockItemMonthly() {
         <View style={s.root}>
             <StatusBarTopBar
                 title={strings.stock_item_monthly_summary}
-                rightIcons="share-bell"
+                rightIcons="none"
                 leftIcon="back"
                 onLeftPress={() => nav.goBack()}
                 compact
@@ -437,7 +460,10 @@ export default function StockItemMonthly() {
                     renderItem={renderItem}
                     contentContainerStyle={[
                         s.listContent,
-                        { paddingBottom: 44 + (isTablet ? 60 : 49) + insets.bottom + 16 }
+                        {
+                            paddingBottom:
+                                ledgerGrandTotalListPaddingBottom(insets, isTablet) + 16,
+                        },
                     ]}
                     showsVerticalScrollIndicator={false}
                     onScroll={onScroll}
@@ -445,12 +471,12 @@ export default function StockItemMonthly() {
                 />
             )}
 
-            {/* Closing balance bar: sit on top of tab bar (49 + insets.bottom) */}
+            {/* Closing balance: same bottom / scroll slide as ledger & Stock Summary footers */}
             <Animated.View
                 style={[
                     sharedStyles.footer,
                     {
-                        bottom: (isTablet ? 60 : 49) + insets.bottom,
+                        bottom: stockClosingBarBottom,
                         height: 44, // Matches footer height from Stock Summary
                         paddingHorizontal: 16,
                         flexDirection: 'row',
@@ -550,7 +576,6 @@ export default function StockItemMonthly() {
                                             setSelectedStockItem(item);
                                             setStockItemDropdownOpen(false);
                                             setStockItemSearch('');
-                                            fetchData();
                                         }}
                                         activeOpacity={0.7}
                                     >

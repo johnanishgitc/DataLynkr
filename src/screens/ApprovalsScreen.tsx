@@ -19,6 +19,8 @@ import {
     Animated,
     PanResponder,
     RefreshControl,
+    Keyboard,
+    type KeyboardEvent,
 } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -32,17 +34,12 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { AppSidebar, SIDEBAR_MENU_APPROVALS } from '../components';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
-import CaretLeftSvg from '../assets/approvals/caretleft.svg';
 import UnionSvg from '../assets/approvals/union.svg';
 import FilterSvg from '../assets/approvals/filter.svg';
 import SortSvg from '../assets/approvals/sort.svg';
 //import BellSvg from '../assets/approvals/bell.svg';
 //import KebabSvg from '../assets/approvals/kebab.svg';
-import UserPartSvg from '../assets/approvals/user.svg';
 import BoxSvg from '../assets/approvals/box.svg';
-import ChevronRightWhiteSvg from '../assets/approvals/chevron_right_white.svg';
-import CloseSvg from '../assets/clipPopup/close.svg';
-import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
@@ -50,7 +47,6 @@ import { apiService, isUnauthorizedError } from '../api';
 import { RefreshIcon } from '../assets/connections';
 import type { OverdueBillItem } from '../api';
 import type { PendVchAuthItem } from '../api/models/approvals';
-import type { Voucher } from '../api/models/voucher';
 import { getTallylocId, getCompany, getGuid } from '../store/storage';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { toYyyyMmDd } from '../utils/dateUtils';
@@ -299,25 +295,41 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [showRejectInput, setShowRejectInput] = useState(false);
     const [rejectComment, setRejectComment] = useState('');
     const [rejectingItem, setRejectingItem] = useState<PendVchAuthItem | null>(null);
+    const rejectInputRef = useRef<TextInput | null>(null);
+    const [rejectKeyboardInset, setRejectKeyboardInset] = useState(0);
+
+    useEffect(() => {
+        if (!showRejectInput) {
+            setRejectKeyboardInset(0);
+            Keyboard.dismiss();
+            return;
+        }
+        const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+        const onShow = (e: KeyboardEvent) => {
+            setRejectKeyboardInset(e.endCoordinates?.height ?? 0);
+        };
+        const onHide = () => setRejectKeyboardInset(0);
+        const subShow = Keyboard.addListener(showEvent, onShow);
+        const subHide = Keyboard.addListener(hideEvent, onHide);
+
+        return () => {
+            subShow.remove();
+            subHide.remove();
+        };
+    }, [showRejectInput]);
+
+    // No imperative status bar override needed now that Modals use statusBarTranslucent
+
 
     // Filter & Sort
     const [showFilterModal, setShowFilterModal] = useState(false);
     const [showSortModal, setShowSortModal] = useState(false);
     const [filterPerson, setFilterPerson] = useState('');
     const [filterVoucher, setFilterVoucher] = useState('');
-    const [sortBy, setSortBy] = useState<string>('');
+    const [sortBy, setSortBy] = useState<string>('newest');
     const [personDropOpen, setPersonDropOpen] = useState(false);
     const [voucherDropOpen, setVoucherDropOpen] = useState(false);
-
-    // Voucher Detail Modal
-    const [showDetailModal, setShowDetailModal] = useState(false);
-    const [selectedVoucher, setSelectedVoucher] = useState<PendVchAuthItem | null>(null);
-    const [voucherDetail, setVoucherDetail] = useState<Voucher | null>(null);
-    const [loadingDetail, setLoadingDetail] = useState(false);
-    const [showDetailLoadingOverlay, setShowDetailLoadingOverlay] = useState(false);
-    const [inventoryExpanded, setInventoryExpanded] = useState(true);
-    const [ledgerExpanded, setLedgerExpanded] = useState(false);
-    const [showRejectionReasonModal, setShowRejectionReasonModal] = useState(false);
 
     // Overdue-bills approval confirmation
     const [showOverdueConfirm, setShowOverdueConfirm] = useState(false);
@@ -341,7 +353,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [showSearchDivider, setShowSearchDivider] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const canApproveReject = !!(moduleAccess as any).approvals_def_apprvrej;
-    const canModifyOrder = !!moduleAccess.place_order;
     const isDownloading = loading || chunkProgress !== null;
     const lastSearchDividerRef = useRef(false);
     const fetchRunIdRef = useRef(0);
@@ -442,102 +453,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         },
         [closeSidebar, navigation]
     );
-
-    // -----------------------------------------------------------------------
-    // Computed & Logic
-    // -----------------------------------------------------------------------
-
-    const ledgerRows = useMemo(() => {
-        if (!voucherDetail) return [];
-        const entriesRaw = (voucherDetail as any).allledgerentries ?? (voucherDetail as any).allledgers ?? (voucherDetail as any).ledgerentries ?? (voucherDetail as any).ALLLEDGERENTRIES;
-        const entries = Array.isArray(entriesRaw) ? entriesRaw : (entriesRaw ? [entriesRaw] : []);
-        const particularsStr = (voucherDetail.partyledgername ?? (voucherDetail as any).PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '').toLowerCase();
-
-        return entries.filter((e: any) => {
-            const amtRaw = e.AMOUNT ?? e.amount ?? e.ENTRYAMOUNT ?? 0;
-            const amtNum = typeof amtRaw === 'number' ? amtRaw : Number(String(amtRaw).replace(/,/g, ''));
-            if (Math.abs(amtNum) <= 0) return false;
-
-            const name = (e.LEDGERNAME ?? e.ledgername ?? '').toLowerCase();
-            if (particularsStr && name === particularsStr) return false;
-            return true;
-        }).map((e: any) => {
-            const amtRaw = e.AMOUNT ?? e.amount ?? e.ENTRYAMOUNT ?? 0;
-            const amtNum = typeof amtRaw === 'number' ? amtRaw : Number(String(amtRaw).replace(/,/g, ''));
-            return {
-                label: e.LEDGERNAME ?? e.ledgername ?? '—',
-                amount: amtNum,
-                percentage: e.RATE ?? e.rate ?? '',
-            };
-        });
-    }, [voucherDetail, selectedVoucher]);
-
-    const persistedViewRaw = String(
-        (voucherDetail as any)?.persistedview ??
-            (voucherDetail as any)?.PERSISTEDVIEW ??
-            (voucherDetail as any)?.PersistedView ??
-            (selectedVoucher as any)?.persistedview ??
-            (selectedVoucher as any)?.PERSISTEDVIEW ??
-            (selectedVoucher as any)?.PersistedView ??
-            '',
-    )
-        .trim()
-        .toLowerCase();
-    const isAccountingVoucherView = persistedViewRaw === 'accounting voucher view';
-
-    const accountingEntries = useMemo(() => {
-        const rawEntries =
-            (voucherDetail as any)?.ALLLEDGERENTRIES ??
-            (voucherDetail as any)?.allledgerentries ??
-            (voucherDetail as any)?.LEDGERENTRIES ??
-            (voucherDetail as any)?.ledgerentries ??
-            [];
-        const entries = Array.isArray(rawEntries) ? rawEntries : rawEntries ? [rawEntries] : [];
-        return entries.map((entry: any) => {
-            const label = String(entry?.LEDGERNAME ?? entry?.ledgername ?? '—');
-            const deemed = String(entry?.isdeemedpositive ?? entry?.ISDEEMEDPOSITIVE ?? '').toLowerCase();
-            const amtNum = Number(entry?.AMOUNT ?? entry?.amount ?? 0);
-            const drCr = deemed === 'yes' ? 'Dr' : deemed === 'no' ? 'Cr' : amtNum < 0 ? 'Cr' : 'Dr';
-            return { label, amount: Math.abs(amtNum), drCr };
-        });
-    }, [voucherDetail]);
-
-    const accountingCreatedBy = String(
-        (voucherDetail as any)?.CREATEDBY ??
-            (voucherDetail as any)?.createdby ??
-            (voucherDetail as any)?.USERNAME ??
-            (voucherDetail as any)?.username ??
-            selectedVoucher?.SUBMITTER ??
-            '—',
-    );
-    const accountingNameOnReceipt = String(
-        (voucherDetail as any)?.PARTICULARS ??
-            (voucherDetail as any)?.partyledgername ??
-            selectedVoucher?.SUBMITTER ??
-            '—',
-    );
-    const accountingNarration = String(
-        (voucherDetail as any)?.NARRATION ??
-            (voucherDetail as any)?.narration ??
-            (voucherDetail as any)?.ORIGINALNARRATION ??
-            selectedVoucher?.ORIGINALNARRATION ??
-            '—',
-    );
-
-    const toggleLedger = () => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setLedgerExpanded(!ledgerExpanded);
-    };
-
-    const handleDetailNavigation = () => {
-        if (!selectedVoucher) return;
-        setShowDetailModal(false);
-        // Navigate within Approvals stack so back from voucher details returns to Approvals
-        (navigation as any).navigate('VoucherDetailView', {
-            voucher: voucherDetail || selectedVoucher,
-            ledger_name: voucherDetail?.partyledgername ?? selectedVoucher?.SUBMITTER,
-        });
-    };
 
     // -----------------------------------------------------------------------
     // Fetch
@@ -930,9 +845,58 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
                 return 0;
             };
+
+            /** Full voucher DATE string including time when present (else date-only like parseDate). */
+            const parseVoucherDateTime = (d: string) => {
+                const raw = String(d ?? '').trim();
+                if (!raw) return 0;
+                const fullTs = Date.parse(raw);
+                if (!isNaN(fullTs)) return fullTs;
+                return parseDate(raw);
+            };
+
+            /** Tie-break: non-empty history before empty when same day and same activity time. */
+            const hasActivityHistory = (item: (typeof items)[number]) => {
+                const h = (item as any).VOUCHER_ACTIVITY_HISTORY;
+                return Array.isArray(h) && h.length > 0;
+            };
+
+            /** Activity instant: last history `created_at`, else full voucher DATE/time when parseable. */
+            const getNewestOldestTime = (item: (typeof items)[number]) => {
+                const history = (item as any).VOUCHER_ACTIVITY_HISTORY;
+                if (Array.isArray(history) && history.length > 0) {
+                    const last = history[history.length - 1];
+                    const created =
+                        last?.created_at ?? last?.CREATED_AT ?? last?.createdAt;
+                    if (created != null && String(created).trim()) {
+                        const t = Date.parse(String(created).trim());
+                        if (!isNaN(t)) return t;
+                    }
+                }
+                return parseVoucherDateTime(String((item as any).DATE ?? ''));
+            };
+
             items = [...items].sort((a, b) => {
-                if (sortBy === 'newest') return parseDate(b.DATE) - parseDate(a.DATE);
-                if (sortBy === 'oldest') return parseDate(a.DATE) - parseDate(b.DATE);
+                if (sortBy === 'newest' || sortBy === 'oldest') {
+                    const dayA = parseDate(String((a as any).DATE ?? ''));
+                    const dayB = parseDate(String((b as any).DATE ?? ''));
+                    if (dayA !== dayB) {
+                        return sortBy === 'newest' ? dayB - dayA : dayA - dayB;
+                    }
+                    const ta = getNewestOldestTime(a);
+                    const tb = getNewestOldestTime(b);
+                    if (ta !== tb) {
+                        return sortBy === 'newest' ? tb - ta : ta - tb;
+                    }
+                    const ha = hasActivityHistory(a);
+                    const hb = hasActivityHistory(b);
+                    if (ha !== hb) {
+                        return ha ? -1 : 1;
+                    }
+                    return String((a as any).MASTERID ?? '').localeCompare(
+                        String((b as any).MASTERID ?? ''),
+                    );
+                }
 
                 const parseMoney = (raw: unknown): number => {
                     const s0 = String(raw ?? '').trim();
@@ -993,89 +957,14 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         [getOverdueBillsCount, executeApproveOne],
     );
 
-    const handleCardPress = useCallback(async (item: PendVchAuthItem) => {
-        const normalizePersistedView = (raw: unknown) =>
-            String(raw ?? '')
-                .trim()
-                .toLowerCase();
-
-        const itemPersistedView = normalizePersistedView(
-            (item as any)?.persistedview ??
-                (item as any)?.PERSISTEDVIEW ??
-                (item as any)?.PersistedView,
-        );
-
-        // For accounting voucher view, do not open the order popup.
-        if (itemPersistedView === 'accounting voucher view') {
-            (navigation as any).navigate('VoucherDetailView', {
-                voucher: item,
-                ledger_name: (item as any)?.partyledgername ?? item?.SUBMITTER,
-            });
-            return;
-        }
-
-        // Fetch voucher first; pending list items sometimes don't carry persistedview yet.
-        setSelectedVoucher(item);
-        setLoadingDetail(true);
-        setVoucherDetail(null);
-        setInventoryExpanded(true);
-        setLedgerExpanded(false);
-        // Show spinner overlay first; open popup only after API returns.
-        setShowDetailModal(false);
-        setShowDetailLoadingOverlay(true);
-
-        try {
-            const tId = await getTallylocId();
-            const comp = await getCompany();
-            const guid = await getGuid();
-
-            const res = await apiService.getVoucherData({
-                tallyloc_id: tId,
-                company: comp,
-                guid: guid,
-                masterid: item.MASTERID,
-            });
-
-            const vData = res.data?.vouchers?.[0] || res.data?.data?.[0];
-
-            if (vData) {
-                const fetchedPersistedView = normalizePersistedView(
-                    (vData as any)?.persistedview ??
-                        (vData as any)?.PERSISTEDVIEW ??
-                        (vData as any)?.PersistedView,
-                );
-
-                if (fetchedPersistedView === 'accounting voucher view') {
-                    setShowDetailLoadingOverlay(false);
-                    setShowDetailModal(false);
-                    (navigation as any).navigate('VoucherDetailView', {
-                        voucher: vData,
-                        ledger_name: (vData as any)?.partyledgername ?? item?.SUBMITTER,
-                    });
-                    return;
-                }
-
-                // Non-accounting: now open the popup.
-                setShowDetailLoadingOverlay(false);
-                setVoucherDetail(vData);
-                setLoadingDetail(false);
-                setShowDetailModal(true);
-            } else {
-                // Fallback: if nothing returned, still open popup (so user can see close/actions).
-                setShowDetailLoadingOverlay(false);
-                setLoadingDetail(false);
-                setShowDetailModal(true);
-            }
-        } catch (e) {
-            console.error('Error fetching voucher detail:', e);
-            setShowDetailLoadingOverlay(false);
-            setLoadingDetail(false);
-            setShowDetailModal(true);
-        } finally {
-            setLoadingDetail(false);
-            setShowDetailLoadingOverlay(false);
-        }
-    }, [navigation]);
+    const handleCardPress = useCallback((item: PendVchAuthItem) => {
+        (navigation as any).navigate('VoucherDetailView', {
+            voucher: item,
+            ledger_name: (item as any)?.partyledgername ?? item?.SUBMITTER,
+            fromApprovals: true,
+            approvalsActiveTab: activeTab,
+        });
+    }, [navigation, activeTab]);
 
     const handleReject = useCallback((item: PendVchAuthItem) => {
         setRejectingItem(item);
@@ -1439,7 +1328,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 hitSlop={10}
                                 activeOpacity={0.8}
                             >
-                                <Text style={styles.closingBalanceLabel}>Closing balance:</Text>
+                                <Text style={styles.closingBalanceLabel}>Balance:</Text>
                                 <Text
                                     style={[styles.closingBalanceValue, { color: closingBalanceColor }]}
                                     numberOfLines={1}
@@ -1534,7 +1423,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             hitSlop={10}
                             activeOpacity={0.8}
                         >
-                            <Text style={styles.closingBalanceLabel}>Closing balance:</Text>
+                            <Text style={styles.closingBalanceLabel}>Balance:</Text>
                             <Text style={[styles.closingBalanceValue, { color: closingBalanceColor }]} numberOfLines={1}>
                                 {closingBalanceParsed.text}
                             </Text>
@@ -1630,13 +1519,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 </View>
 
             </View>
-
-            {/* Voucher detail loading overlay (before opening order popup) */}
-            {showDetailLoadingOverlay && (
-                <View style={styles.detailLoadingOverlay}>
-                    <ActivityIndicator size="large" color={colors.primary_blue} />
-                </View>
-            )}
 
             {/* Overdue bills loading overlay */}
             {overdueBillsLoading && (
@@ -1905,6 +1787,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             {/* Overdue Bills Details modal - shown when closing balance is tapped */}
             <Modal
+                statusBarTranslucent
                 visible={overdueBillsModalVisible}
                 transparent
                 animationType="fade"
@@ -2035,6 +1918,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             {/* -------- Voucher Activity History Modal -------- */}
             <Modal
+                statusBarTranslucent
                 visible={showHistoryModal && !!historyVoucher}
                 transparent
                 animationType="fade"
@@ -2256,68 +2140,108 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 placement="center"
             />
 
-            {/* -------- Reject Reason Input Modal -------- */}
+            {/* -------- Reject Reason Input Modal (styled like Overdue Bills) -------- */}
             <Modal
+                statusBarTranslucent
                 visible={showRejectInput}
                 transparent
-                animationType="slide"
+                animationType="fade"
                 onRequestClose={() => setShowRejectInput(false)}
+                onShow={() => {
+                    // Focus input every time the modal opens so keyboard appears reliably
+                    setTimeout(() => {
+                        rejectInputRef.current?.focus();
+                    }, 60);
+                }}
             >
-                <View style={popupStyles.overlay}>
-                    <View style={popupStyles.rejectSheet}>
-                        {/* Title row */}
-                        <View style={popupStyles.rejectTitleRow}>
-                            <Text style={popupStyles.rejectTitle}>Enter Rejection Reason</Text>
-                            <TouchableOpacity
-                                onPress={() => setShowRejectInput(false)}
-                                hitSlop={12}
-                            >
-                                <Text style={popupStyles.closeBtnText}>✕</Text>
-                            </TouchableOpacity>
+                <View
+                    style={[
+                        styles.overdueBillsOverlay,
+                        rejectKeyboardInset > 0 && { paddingBottom: rejectKeyboardInset },
+                    ]}
+                >
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => setShowRejectInput(false)}
+                        activeOpacity={1}
+                    />
+
+                    <View
+                        style={[
+                            styles.overdueBillsCard,
+                            {
+                                maxHeight: Dimensions.get('window').height * 0.95,
+                                paddingBottom: insets.bottom ? insets.bottom + 5 : 20,
+                            },
+                        ]}
+                    >
+                        <View style={styles.overdueBillsDragHandleWrap}>
+                            <View style={styles.overdueBillsDragHandle} />
                         </View>
 
-                        {/* Reason label + input */}
-                        <Text style={popupStyles.rejectFieldLabel}>Reason</Text>
-                        <TextInput
-                            style={popupStyles.rejectTextArea}
-                            placeholder=""
-                            placeholderTextColor="#999"
-                            value={rejectComment}
-                            onChangeText={setRejectComment}
-                            multiline
-                            autoFocus
-                        />
-
-                        {/* Buttons */}
-                        <View style={popupStyles.rejectBtnRow}>
-                            <TouchableOpacity
-                                style={popupStyles.rejectCancelBtn}
-                                onPress={() => setShowRejectInput(false)}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={popupStyles.rejectCancelText}>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={popupStyles.rejectContinueBtn}
-                                onPress={submitReject}
-                                activeOpacity={0.8}
-                            >
-                                <Text style={popupStyles.rejectContinueText}>Continue</Text>
-                            </TouchableOpacity>
+                        <View style={styles.overdueBillsHeader}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.overdueBillsTitle, { fontSize: 18 }]}>
+                                    Rejection Reason
+                                </Text>
+                            </View>
                         </View>
+
+                        <View style={styles.overdueBillsHeaderLine} />
+
+                        <ScrollView
+                            style={styles.overdueBillsScroll}
+                            contentContainerStyle={styles.overdueBillsScrollContent}
+                            keyboardShouldPersistTaps="handled"
+                        >
+                            <View style={popupStyles.rejectLabelFieldBlock}>
+                                <Text style={popupStyles.rejectFieldLabel}>Reason</Text>
+                                <TextInput
+                                    ref={rejectInputRef}
+                                    style={popupStyles.rejectTextArea}
+                                    placeholder=""
+                                    placeholderTextColor="#999"
+                                    value={rejectComment}
+                                    onChangeText={setRejectComment}
+                                    multiline
+                                    autoFocus
+                                />
+                            </View>
+
+                            <View style={popupStyles.rejectBtnRow}>
+                                <TouchableOpacity
+                                    style={popupStyles.rejectCancelBtn}
+                                    onPress={() => setShowRejectInput(false)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={popupStyles.rejectCancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={popupStyles.rejectContinueBtn}
+                                    onPress={submitReject}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={popupStyles.rejectContinueText}>Continue</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
 
             {/* -------- Filter Modal -------- */}
             <Modal
+                statusBarTranslucent
                 visible={showFilterModal}
                 transparent
                 animationType="slide"
                 onRequestClose={() => setShowFilterModal(false)}
             >
                 <Pressable style={popupStyles.overlay} onPress={() => setShowFilterModal(false)}>
-                    <Pressable style={popupStyles.filterSheet} onPress={(e) => e.stopPropagation()}>
+                    <Pressable
+                        style={[popupStyles.filterSheet, { paddingBottom: 32 + insets.bottom }]}
+                        onPress={(e) => e.stopPropagation()}
+                    >
                         {/* Handle */}
                         <View style={popupStyles.handleRow}>
                             <View style={popupStyles.handle} />
@@ -2435,13 +2359,17 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             {/* -------- Sort By Modal -------- */}
             <Modal
+                statusBarTranslucent
                 visible={showSortModal}
                 transparent
                 animationType="slide"
                 onRequestClose={() => setShowSortModal(false)}
             >
                 <Pressable style={popupStyles.overlay} onPress={() => setShowSortModal(false)}>
-                    <Pressable style={popupStyles.filterSheet} onPress={(e) => e.stopPropagation()}>
+                    <Pressable
+                        style={[popupStyles.filterSheet, { paddingBottom: 32 + insets.bottom }]}
+                        onPress={(e) => e.stopPropagation()}
+                    >
                         {/* Handle */}
                         <View style={popupStyles.handleRow}>
                             <View style={popupStyles.handle} />
@@ -2458,7 +2386,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         {/* Sort By label + Clear all */}
                         <View style={popupStyles.sortLabelRow}>
                             <Text style={popupStyles.sortLabel}>Sort By</Text>
-                            <TouchableOpacity onPress={() => setSortBy('')}>
+                            <TouchableOpacity onPress={() => setSortBy('newest')}>
                                 <Text style={popupStyles.sortClearLink}>Clear</Text>
                             </TouchableOpacity>
                         </View>
@@ -2484,380 +2412,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             ))}
                         </View>
 
-                    </Pressable>
-                </Pressable>
-            </Modal>
-
-            {/* Voucher Detail Modal */}
-            <Modal
-                visible={showDetailModal}
-                transparent
-                animationType="slide"
-                onRequestClose={() => {
-                    setShowDetailModal(false);
-                    setShowDetailLoadingOverlay(false);
-                    setLoadingDetail(false);
-                }}
-            >
-                <Pressable
-                    style={popupStyles.centerOverlay}
-                    onPress={() => {
-                        setShowDetailModal(false);
-                        setShowDetailLoadingOverlay(false);
-                        setLoadingDetail(false);
-                    }}
-                >
-                    <Pressable
-                        style={popupStyles.detailSheet}
-                        onPress={(e) => (e as any).stopPropagation?.()}
-                    >
-                        <View style={popupStyles.detailHeader}>
-                            <Text style={popupStyles.detailHeaderTitle}>
-                                {isAccountingVoucherView ? 'Accounting Voucher' : 'Order'}
-                            </Text>
-                            <TouchableOpacity onPress={() => setShowDetailModal(false)} style={popupStyles.detailCloseBtn}>
-                                <Text style={popupStyles.detailCloseX}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <TouchableOpacity
-                            onPress={handleDetailNavigation}
-                            activeOpacity={1}
-                            style={{ flex: 1 }}
-                        >
-                            <View style={popupStyles.detailSubheader}>
-                                <View style={popupStyles.detailSubheaderInner}>
-                                    <UserPartSvg width={18} height={18} style={{ marginRight: 6 }} />
-                                    <Text
-                                        style={popupStyles.detailPartyName}
-                                        numberOfLines={1}
-                                        ellipsizeMode="tail"
-                                    >
-                                        {voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}
-                                    </Text>
-                                </View>
-                            </View>
-
-                            {loadingDetail ? (
-                                <View style={popupStyles.detailLoading}>
-                                    <ActivityIndicator size="large" color={colors.primary_blue} />
-                                </View>
-                            ) : (
-                                <>
-                                    {/* Main Basic Info - Constant */}
-                                    <View style={popupStyles.detailMainInfo}>
-                                        <View style={popupStyles.detailMainRow}>
-                                                    <Text
-                                                        style={popupStyles.detailMainLedger}
-                                                        numberOfLines={1}
-                                                        ellipsizeMode="tail"
-                                                    >
-                                                {voucherDetail?.partyledgername ?? voucherDetail?.PARTICULARS ?? selectedVoucher?.SUBMITTER ?? '...'}
-                                            </Text>
-                                            <View style={popupStyles.detailMainAmtRow}>
-                                                <Text style={popupStyles.detailMainAmount}>
-                                                    {voucherDetail?.amount ?? (voucherDetail
-                                                        ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT}` : `${voucherDetail.CREDITAMT}`)
-                                                        : (selectedVoucher?.AMOUNT ?? '0'))}
-                                                </Text>
-                                                <Text style={popupStyles.detailMainAmtType}>
-                                                    {voucherDetail?.amount ? '' : (voucherDetail
-                                                        ? (Number(voucherDetail.DEBITAMT) !== 0 ? ' Dr' : ' Cr')
-                                                        : '')}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                        <View style={popupStyles.detailMetaRow}>
-                                            <Text style={popupStyles.detailMetaText}>{voucherDetail?.date ?? voucherDetail?.DATE ?? selectedVoucher?.DATE}</Text>
-                                            <View style={popupStyles.detailMetaDivider} />
-                                            <Text style={popupStyles.detailMetaText}>{voucherDetail?.vouchertypename ?? voucherDetail?.VCHTYPE ?? selectedVoucher?.VCHTYPE}</Text>
-                                            <View style={popupStyles.detailMetaDivider} />
-                                            <Text style={popupStyles.detailMetaText} numberOfLines={1}>#{voucherDetail?.vouchernumber ?? voucherDetail?.VCHNO ?? selectedVoucher?.VCHNO}</Text>
-                                        </View>
-                                    </View>
-
-                                    {!isAccountingVoucherView ? (
-                                        <>
-                                            {/* Inventory Toggle - Constant */}
-                                            <View style={popupStyles.inventoryToggleRow}>
-                                                <View style={popupStyles.inventoryToggleLeft}>
-                                                    <View style={{ marginRight: 10 }}>
-                                                        <InventoryAllocationIcon size={18} color="#1f3a89" />
-                                                    </View>
-                                                    <Text style={popupStyles.inventoryToggleTitle}>
-                                                        Inventory Allocations ({voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries.length : (voucherDetail?.INVENTORYALLOCATIONS ? (Array.isArray(voucherDetail.INVENTORYALLOCATIONS) ? voucherDetail.INVENTORYALLOCATIONS.length : 1) : 0)})
-                                                    </Text>
-                                                </View>
-                                                <TouchableOpacity
-                                                    onPress={() => setInventoryExpanded(!inventoryExpanded)}
-                                                    activeOpacity={0.8}
-                                                >
-                                                    <View style={[popupStyles.switchTrack, inventoryExpanded && popupStyles.switchTrackOn]}>
-                                                        <View style={[popupStyles.switchThumb, inventoryExpanded && popupStyles.switchThumbOn]} />
-                                                    </View>
-                                                </TouchableOpacity>
-                                            </View>
-
-                                            {/* Scrollable Inventory List */}
-                                            <ScrollView style={popupStyles.detailContent} bounces={false}>
-                                                {inventoryExpanded && (
-                                                    <View style={popupStyles.inventoryList}>
-                                                        {(voucherDetail?.allinventoryentries || voucherDetail?.INVENTORYALLOCATIONS) ? (
-                                                            (voucherDetail?.allinventoryentries ? voucherDetail.allinventoryentries : (Array.isArray(voucherDetail?.INVENTORYALLOCATIONS) ? voucherDetail?.INVENTORYALLOCATIONS : [voucherDetail?.INVENTORYALLOCATIONS])).map((item: any, idx) => (
-                                                                <View key={idx} style={popupStyles.inventoryItem}>
-                                                                    <View style={popupStyles.inventoryItemTop}>
-                                                                        <Text style={popupStyles.inventoryItemName} numberOfLines={1}>{item.stockitemname ?? item.STOCKITEMNAME}</Text>
-                                                                        <Text style={popupStyles.inventoryItemAmt}>₹{item.amount ?? item.AMOUNT}</Text>
-                                                                    </View>
-                                                                    <View style={popupStyles.inventoryItemDetails}>
-                                                                        <View style={popupStyles.invDetailCol}>
-                                                                            <Text style={popupStyles.inventoryDetailText}>Qty : <Text style={popupStyles.inventoryDetailValue}>{item.actualqty ?? item.ACTUALQTY}</Text></Text>
-                                                                        </View>
-                                                                        <View style={popupStyles.invDetailCol}>
-                                                                            <Text style={popupStyles.inventoryDetailText}>Rate : <Text style={popupStyles.inventoryDetailValue}>{item.rate ?? item.RATE}</Text></Text>
-                                                                        </View>
-                                                                        <View style={popupStyles.invDetailCol}>
-                                                                            <Text style={popupStyles.inventoryDetailText}>Discount : <Text style={popupStyles.inventoryDetailValue}>{item.discount ?? item.DISCOUNT ?? 0}</Text></Text>
-                                                                        </View>
-                                                                    </View>
-                                                                </View>
-                                                            ))
-                                                        ) : (
-                                                            <Text style={popupStyles.noInventoryText}>No inventory allocations found.</Text>
-                                                        )}
-                                                    </View>
-                                                )}
-                                            </ScrollView>
-
-                                            {/* Summary Footer Section - Constant */}
-                                            <View style={popupStyles.detailSummary}>
-                                                <View style={popupStyles.summaryRow}>
-                                                    <Text style={popupStyles.summaryLabel}>ITEM TOTAL</Text>
-                                                    <Text style={popupStyles.summaryValue}>
-                                                        {voucherDetail?.amount ?? (voucherDetail
-                                                            ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT} Dr` : `${voucherDetail.CREDITAMT} Cr`)
-                                                            : (selectedVoucher?.AMOUNT))}
-                                                    </Text>
-                                                </View>
-                                            </View>
-                                        </>
-                                    ) : (
-                                        <View style={popupStyles.detailContent}>
-                                            <View style={popupStyles.accSectionHead}>
-                                                <Icon name="earth" size={20} color="#1f3a89" />
-                                                <Text style={popupStyles.accSectionTitle}>Accounting Entries</Text>
-                                            </View>
-                                            <View style={popupStyles.accSectionBlock}>
-                                                {accountingEntries.map((entry, i) => (
-                                                    <View key={`${entry.label}-${i}`} style={popupStyles.accEntryRow}>
-                                                        <Text style={popupStyles.accEntryName} numberOfLines={1}>
-                                                            {entry.label}
-                                                        </Text>
-                                                        <Text style={popupStyles.accEntryAmount}>
-                                                            ₹{entry.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {entry.drCr}
-                                                        </Text>
-                                                    </View>
-                                                ))}
-                                            </View>
-
-                                            <View style={[popupStyles.accSectionHead, popupStyles.accSectionHeadSpaced]}>
-                                                <Icon name="earth" size={20} color="#1f3a89" />
-                                                <Text style={popupStyles.accSectionTitle}>More Details</Text>
-                                            </View>
-                                            <View style={popupStyles.accSectionBlock}>
-                                                <View style={popupStyles.accEntryRow}>
-                                                    <Text style={popupStyles.accEntryName}>Created by</Text>
-                                                    <Text style={popupStyles.accEntryAmount} numberOfLines={1}>
-                                                        {accountingCreatedBy}
-                                                    </Text>
-                                                </View>
-                                                <View style={popupStyles.accEntryRow}>
-                                                    <Text style={popupStyles.accEntryName}>Name on receipt</Text>
-                                                    <Text style={popupStyles.accEntryAmount} numberOfLines={1}>
-                                                        {accountingNameOnReceipt}
-                                                    </Text>
-                                                </View>
-                                                <View style={popupStyles.accNarrationWrap}>
-                                                    <Text style={popupStyles.accNarrationLabel}>Narration</Text>
-                                                    <View style={popupStyles.accNarrationBox}>
-                                                        <Text style={popupStyles.accNarrationText}>{accountingNarration}</Text>
-                                                    </View>
-                                                </View>
-                                            </View>
-                                        </View>
-                                    )}
-                                </>
-                            )}
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={popupStyles.ledgerDetailsBar}
-                            onPress={toggleLedger}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={popupStyles.ledgerDetailsBarText}>LEDGER DETAILS</Text>
-                            <View style={[popupStyles.ledgerDetailsChevron, ledgerExpanded && { transform: [{ rotate: '90deg' }] }]}>
-                                <ChevronRightWhiteSvg width={8} height={14} />
-                            </View>
-                        </TouchableOpacity>
-
-                        {ledgerExpanded && (
-                            <View style={popupStyles.ledgerDetailsExpand}>
-                                {ledgerRows.length > 0 ? (
-                                    ledgerRows.map((row, i) => (
-                                        <View key={i} style={popupStyles.ledgerDetailsRow}>
-                                            <Text style={popupStyles.ledgerDetailsRowLabel} numberOfLines={1}>
-                                                {row.label}
-                                            </Text>
-                                            <View style={popupStyles.ledgerDetailsRowRight}>
-                                                {row.percentage ? (
-                                                    <Text style={popupStyles.ledgerDetailsRowPct}>{row.percentage}</Text>
-                                                ) : null}
-                                                <Text style={popupStyles.ledgerDetailsRowVal}>
-                                                    ₹{Math.abs(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                    ))
-                                ) : (
-                                    <Text style={popupStyles.ledgerDetailsEmpty}>No additional ledger details</Text>
-                                )}
-                            </View>
-                        )}
-
-                        <View style={popupStyles.summaryRowLarge}>
-                            <Text style={popupStyles.summaryLabelLarge}>Grand Total</Text>
-                            <Text style={popupStyles.summaryValueLarge}>
-                                {voucherDetail?.amount ?? (voucherDetail
-                                    ? (Number(voucherDetail.DEBITAMT) !== 0 ? `${voucherDetail.DEBITAMT} Dr` : `${voucherDetail.CREDITAMT} Cr`)
-                                    : (selectedVoucher?.AMOUNT))}
-                            </Text>
-                        </View>
-                        <View style={popupStyles.detailAction}>
-                            {activeTab === 'rejected' ? (
-                                <View style={popupStyles.detailActionRow}>
-                                    <TouchableOpacity
-                                        style={popupStyles.rejectionReasonBannerBtn}
-                                        onPress={() => {
-                                            setShowRejectionReasonModal(true);
-                                        }}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Text style={popupStyles.rejectionReasonBannerBtnText}>Rejection Reason</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={[
-                                            popupStyles.updateOrderBtn,
-                                            popupStyles.updateOrderBtnBlue,
-                                            !canModifyOrder && popupStyles.updateOrderBtnDisabled,
-                                        ]}
-                                        onPress={() => {
-                                            if (!canModifyOrder) return;
-                                            if (!selectedVoucher) return;
-                                            const masterId = String(selectedVoucher.MASTERID ?? '').trim();
-                                            if (!masterId) {
-                                                setShowDetailModal(false);
-                                                return;
-                                            }
-                                            setShowDetailModal(false);
-                                            const tabNav = navigation.getParent() as
-                                                | { navigate?: (name: string, params?: object) => void }
-                                                | undefined;
-                                            tabNav?.navigate?.('OrdersTab', {
-                                                screen: 'OrderEntry',
-                                                params: {
-                                                    updateFromApproval: {
-                                                        masterId,
-                                                        voucher: voucherDetail || selectedVoucher,
-                                                    },
-                                                },
-                                            });
-                                        }}
-                                        activeOpacity={0.8}
-                                        disabled={!canModifyOrder}
-                                    >
-                                        <Text
-                                            style={[
-                                                popupStyles.updateOrderBtnText,
-                                                !canModifyOrder && popupStyles.updateOrderBtnTextDisabled,
-                                            ]}
-                                        >
-                                            Modify Order
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            ) : activeTab === 'approved' ? null : (
-                                <TouchableOpacity
-                                    style={[
-                                        popupStyles.updateOrderBtn,
-                                        !canModifyOrder && popupStyles.updateOrderBtnDisabled,
-                                    ]}
-                                    onPress={() => {
-                                        if (!canModifyOrder) return;
-                                        if (!selectedVoucher) return;
-                                        const masterId = String(selectedVoucher.MASTERID ?? '').trim();
-                                        if (!masterId) {
-                                            setShowDetailModal(false);
-                                            return;
-                                        }
-                                        setShowDetailModal(false);
-                                        const tabNav = navigation.getParent() as
-                                            | { navigate?: (name: string, params?: object) => void }
-                                            | undefined;
-                                        tabNav?.navigate?.('OrdersTab', {
-                                            screen: 'OrderEntry',
-                                            params: {
-                                                updateFromApproval: {
-                                                    masterId,
-                                                    voucher: voucherDetail || selectedVoucher,
-                                                },
-                                            },
-                                        });
-                                    }}
-                                    activeOpacity={0.8}
-                                    disabled={!canModifyOrder}
-                                >
-                                    <Text
-                                        style={[
-                                            popupStyles.updateOrderBtnText,
-                                            !canModifyOrder && popupStyles.updateOrderBtnTextDisabled,
-                                        ]}
-                                    >
-                                        Modify Order
-                                    </Text>
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </Pressable>
-                </Pressable>
-            </Modal>
-
-            {/* Rejection Reason Modal */}
-            <Modal
-                visible={showRejectionReasonModal}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowRejectionReasonModal(false)}
-            >
-                <Pressable
-                    style={reasonPopupStyles.overlay}
-                    onPress={() => setShowRejectionReasonModal(false)}
-                >
-                    <Pressable style={reasonPopupStyles.popup}>
-                        <View style={reasonPopupStyles.header}>
-                            <Text style={reasonPopupStyles.headerTitle}>Rejection Reason</Text>
-                            <TouchableOpacity
-                                onPress={() => setShowRejectionReasonModal(false)}
-                                style={reasonPopupStyles.closeBtn}
-                            >
-                                <CloseSvg width={14} height={14} fill="#fff" />
-                            </TouchableOpacity>
-                        </View>
-                        <View style={reasonPopupStyles.content}>
-                            <Text style={reasonPopupStyles.reasonText}>
-                                {selectedVoucher?.REJECTION_REASON || 'No reason specified'}
-                            </Text>
-                        </View>
                     </Pressable>
                 </Pressable>
             </Modal>
@@ -2997,17 +2551,6 @@ const styles = StyleSheet.create({
     },
     iconBtnDisabled: {
         opacity: 0.4,
-    },
-    detailLoadingOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 999,
-        backgroundColor: 'rgba(0,0,0,0.15)',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
 
     overdueBillsLoadingOverlay: {
@@ -3783,12 +3326,15 @@ const popupStyles = StyleSheet.create({
         fontSize: 18,
         color: '#131313',
     },
+    rejectLabelFieldBlock: {
+        width: '100%',
+    },
     rejectFieldLabel: {
         fontFamily: 'Roboto',
         fontWeight: '500',
         fontSize: 14,
         color: '#131313',
-        marginBottom: 8,
+        marginBottom: 4,
     },
     rejectTextArea: {
         borderWidth: 1,
@@ -3847,7 +3393,7 @@ const popupStyles = StyleSheet.create({
         borderTopLeftRadius: 18,
         borderTopRightRadius: 18,
         paddingHorizontal: 20,
-        paddingBottom: 24,
+        // paddingBottom: set on sheet + safe area in Filter / Sort modals
     },
     filterTitleRow: {
         flexDirection: 'row' as const,
@@ -4421,52 +3967,6 @@ const popupStyles = StyleSheet.create({
     updateOrderBtnBlue: {
         backgroundColor: '#1f3a89',
         flex: 1,
-    },
-});
-
-const reasonPopupStyles = StyleSheet.create({
-    overlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    popup: {
-        width: '100%',
-        maxWidth: 320,
-        backgroundColor: '#fff',
-        borderRadius: 4,
-        borderWidth: 1,
-        borderColor: '#1f3a89',
-        overflow: 'hidden',
-    },
-    header: {
-        backgroundColor: '#1f3a89',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-    },
-    headerTitle: {
-        fontFamily: 'Roboto',
-        fontWeight: '500',
-        fontSize: 16,
-        color: '#fff',
-    },
-    closeBtn: {
-        padding: 4,
-    },
-    content: {
-        padding: 16,
-        backgroundColor: '#fff',
-    },
-    reasonText: {
-        fontFamily: 'Roboto',
-        fontSize: 14,
-        color: '#131313',
-        lineHeight: 20,
     },
 });
 

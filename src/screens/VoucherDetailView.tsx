@@ -2,7 +2,7 @@
  * Voucher Detail View - Figma 3045-58170 (Datalynkr Mobile)
  * Layout: Header | Customer bar | Voucher summary | Inventory Allocations (n) | ITEM TOTAL | LEDGER DETAILS | Grand Total
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -62,6 +62,7 @@ import Share, { Social } from 'react-native-share';
 import { SharePopup, type ShareOptionId } from '../components/SharePopup';
 import { strings } from '../constants/strings';
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
+import { ledgerGrandTotalBottomOffset, ledgerGrandTotalScrollSlidePx } from './ledger/LedgerShared';
 
 type Route = RouteProp<LedgerStackParamList, 'VoucherDetailView'>;
 
@@ -133,8 +134,11 @@ export default function VoucherDetailView() {
   const { setScrollDirection, setFooterCollapseValue } = useScroll();
   const initialVoucher = (route.params?.voucher ?? {}) as Record<string, unknown>;
   const ledgerName = (route.params?.ledger_name ?? '') as string;
+  const returnToApprovalsOnBack = Boolean((route.params as { returnToApprovalsOnBack?: boolean })?.returnToApprovalsOnBack);
   const returnToOrderEntryClear = Boolean(route.params?.returnToOrderEntryClear);
   const returnToOrderEntryDraftMode = Boolean(route.params?.returnToOrderEntryDraftMode);
+  const fromApprovals = Boolean((route.params as any)?.fromApprovals);
+  const approvalsActiveTab = String((route.params as any)?.approvalsActiveTab ?? 'pending');
 
   const [v, setV] = useState<Record<string, unknown>>(initialVoucher);
   const [loading, setLoading] = useState(true);
@@ -149,6 +153,10 @@ export default function VoucherDetailView() {
   const [pdfLoading, setPdfLoading] = useState(false);
   /** In-app attachment preview for "ITEM TO BE ALLOCATED" (same UX as Order Entry cart view attachment) */
   const [attachmentPreviewItems, setAttachmentPreviewItems] = useState<string[] | null>(null);
+  /** Measured height of the docked "Modify Order" bar (so ledger footer clears it). */
+  const [modifyOrderDockMeasured, setModifyOrderDockMeasured] = useState(0);
+  /** LEDGER DETAILS accordion open (for footer styling + scroll inset only; do not change absolute bottom or the block jumps). */
+  const [ledgerDetailsExpanded, setLedgerDetailsExpanded] = useState(false);
   const fetchDone = useRef(false);
   const { width: winWidth, height: winHeight } = useWindowDimensions();
   const isTablet = winWidth >= 600;
@@ -227,7 +235,13 @@ export default function VoucherDetailView() {
             (typeof body?.data === 'object' && body.data !== null && !Array.isArray(body.data) ? (body.data as Record<string, unknown>) : undefined);
         }
         if (!cancelled && full && typeof full === 'object') {
-          setV(full);
+          const initR = (initialVoucher as Record<string, unknown>).REJECTION_REASON
+            ?? (initialVoucher as Record<string, unknown>).rejection_reason;
+          if (initR != null && String(initR).trim() !== '') {
+            setV({ ...full, REJECTION_REASON: initR });
+          } else {
+            setV(full);
+          }
         } else if (__DEV__ && !cancelled) {
           console.warn('[VoucherDetailView] getVoucherData could not extract voucher; body keys:', body ? Object.keys(body) : 'null', 'vouchersRaw type:', typeof vouchersRaw, Array.isArray(vouchersRaw) ? `length=${vouchersRaw.length}` : '');
         }
@@ -282,6 +296,24 @@ export default function VoucherDetailView() {
     raw.persistedview ?? raw.PERSISTEDVIEW ?? raw.PersistedView ?? ''
   ).trim().toLowerCase();
   const isAccountingView = persistedView === 'accounting voucher view';
+  const isInvoiceVoucherView = persistedView === 'invoice voucher view';
+  const approvalsTabNorm = approvalsActiveTab.trim().toLowerCase();
+  /** Invoice vouchers from Approvals: pending = Modify Order only; rejected = Rejection reason + Modify Order. */
+  const showApprovalsInvoiceDock =
+    fromApprovals &&
+    isInvoiceVoucherView &&
+    (approvalsTabNorm === 'pending' || approvalsTabNorm === 'rejected');
+  const showRejectionReasonBtn = showApprovalsInvoiceDock && approvalsTabNorm === 'rejected';
+  const rejectionReasonText = String(
+    (v as Record<string, unknown>).REJECTION_REASON ??
+      (v as Record<string, unknown>).rejection_reason ??
+      ''
+  ).trim();
+  const [rejectionReasonModalVisible, setRejectionReasonModalVisible] = useState(false);
+
+  useEffect(() => {
+    if (!showApprovalsInvoiceDock) setModifyOrderDockMeasured(0);
+  }, [showApprovalsInvoiceDock]);
 
   const voucherAmt = getLedgerEntryAmount(v as LedgerEntryDetail);
   let isDebit = voucherAmt.isDebit;
@@ -381,12 +413,27 @@ export default function VoucherDetailView() {
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const programmaticScrollRef = useRef(false); // true while scroll is from item expand/collapse – don't drive footer
   const collapseProgress = useRef(new Animated.Value(0)).current; // 0 = expanded, 1 = collapsed (accounting + tab bar)
-  /** Order/Invoice: translateY – 0 = visible, FOOTER_COLLAPSE_HEIGHT = slid down. All footer anims use useNativeDriver: true to avoid native/JS conflict. */
+  /** Order/Invoice: translateY – 0 = expanded tab bar; collapsed slide matches ledger voucher reports (PastOrders, LedgerVoucher). */
   const footerTranslateY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
-  const TAB_BAR_OFFSET = insets.bottom + (isTablet ? 60 : 49); // Space for tab bar + safe area
+  /** Match FooterTabBar + safe-area math used on ledger report screens (fixes footer sitting low on some Android nav modes). */
+  const TAB_BAR_OFFSET = ledgerGrandTotalBottomOffset(insets, isTablet);
+  /** Slide voucher footer down when tab bar is collapsed on scroll (same px as ledger GRAND TOTAL bars). */
+  const invoiceFooterCollapseSlidePx = ledgerGrandTotalScrollSlidePx(isTablet, insets);
+  /** When opened from Approvals the tab bar is hidden (height:0 in MainTabs) — no bottom padding is reserved,
+   *  so the footer only needs to clear the safe area inset rather than the full tab-bar offset. */
+  const orderInvoiceFooterBottom = fromApprovals
+    ? Math.max(insets.bottom, 8)
+    : TAB_BAR_OFFSET;
+  /** Scroll padding when LEDGER DETAILS is expanded — matches ~ledger panel height so list rows do not show under the footer. */
+  const ledgerExpandedFooterExtraScrollPad = useMemo(() => {
+    if (!ledgerDetailsExpanded) return 0;
+    const rowH = isTablet ? 46 : 42;
+    const expandChrome = 20;
+    const rowsH = ledgerRows.length > 0 ? ledgerRows.length * rowH : 52;
+    return expandChrome + rowsH;
+  }, [ledgerDetailsExpanded, ledgerRows.length, isTablet]);
   const SCROLL_UP_THRESHOLD = 10;
-  const FOOTER_COLLAPSE_HEIGHT = isTablet ? 60 : 49; // Match tab bar content height to keep footer visible above safe area
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
@@ -403,7 +450,7 @@ export default function VoucherDetailView() {
         if (!isAccountingView) {
           Animated.parallel([
             Animated.timing(footerTranslateY, {
-              toValue: FOOTER_COLLAPSE_HEIGHT,
+              toValue: invoiceFooterCollapseSlidePx,
               duration: 300,
               useNativeDriver: true,
             }),
@@ -464,6 +511,7 @@ export default function VoucherDetailView() {
   // When returning to this screen, show footer expanded (same as SalesOrderLedgerOutstandings)
   useFocusEffect(
     React.useCallback(() => {
+      setLedgerDetailsExpanded(false);
       if (localScrollDirection.current === 'down') {
         localScrollDirection.current = 'up';
         collapseProgress.setValue(0);
@@ -492,8 +540,21 @@ export default function VoucherDetailView() {
     }, [isAccountingView, footerTranslateY, collapseProgress, setFooterCollapseValue])
   );
 
+  const modifyOrderSafeBottom = Math.max(insets.bottom, 12);
+  /** Conservative until onLayout: paddingTop 12 + border + one row of btn(s) + safe inset */
+  const modifyOrderDockFallback = showApprovalsInvoiceDock
+    ? 12 + 1 + 52 + modifyOrderSafeBottom
+    : 0;
+  const modifyOrderDockHeight = showApprovalsInvoiceDock
+    ? Math.max(modifyOrderDockMeasured, modifyOrderDockFallback)
+    : 0;
+
   // Accounting: footer via translateY (native driver); Order/Invoice: fixed bottom + translateY
-  const footerBottomStyle = isAccountingView ? 0 : TAB_BAR_OFFSET;
+  const footerBottomStyle = isAccountingView
+    ? 0
+    : showApprovalsInvoiceDock
+      ? modifyOrderDockHeight
+      : orderInvoiceFooterBottom;
   const footerTransform = isAccountingView
     ? [{ translateY: collapseProgress.interpolate({ inputRange: [0, 1], outputRange: [-TAB_BAR_OFFSET, 0] }) }]
     : [{ translateY: footerTranslateY }];
@@ -854,45 +915,79 @@ export default function VoucherDetailView() {
     }
   };
 
-  /** When opened from Order Success "View Order", back goes to cleared Order Entry instead of Past Orders. */
+  const handleModifyOrder = useCallback(() => {
+    const masterId = getMasterId(v);
+    if (!masterId) return;
+    const tabNav = nav.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
+    if (tabNav?.navigate) {
+      tabNav.navigate('OrdersTab', {
+        screen: 'OrderEntry',
+        params: {
+          updateFromApproval: {
+            masterId,
+            voucher: v,
+          },
+        },
+      });
+    }
+  }, [v, nav]);
+
+  /** When opened from Order Success "View Order", back goes to cleared Order Entry or Approvals (approval-update flow). */
   const handleBack = useCallback(() => {
-    if (returnToOrderEntryClear) {
-      const tabNav = nav.getParent() as { navigate: (a: string, b?: object) => void } | undefined;
-      if (tabNav?.navigate) {
-        // Reset LedgerTab to clean initial state first so footer Ledger button won't show this voucher
-        tabNav.navigate('LedgerTab', {
-          state: {
-            routes: [{ name: 'LedgerEntries' }],
-            index: 0,
-          },
-        });
-        // Then navigate to OrdersTab last so it becomes the active/focused tab
-        tabNav.navigate('OrdersTab', {
-          state: {
-            routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode: returnToOrderEntryDraftMode } }],
-            index: 0,
-          },
-        });
-        return;
-      }
+    const tabNav = nav.getParent() as { navigate?: (a: string, b?: object) => void } | undefined;
+    if (returnToApprovalsOnBack && tabNav?.navigate) {
+      tabNav.navigate('LedgerTab', {
+        state: {
+          routes: [{ name: 'LedgerEntries' }],
+          index: 0,
+        },
+      });
+      tabNav.navigate('OrdersTab', {
+        state: {
+          routes: [{ name: 'OrderEntry', params: { clearOrder: true } }],
+          index: 0,
+        },
+      });
+      tabNav.navigate('ApprovalsTab', {
+        screen: 'ApprovalsScreen',
+        params: { refreshToken: Date.now() },
+      });
+      return;
+    }
+    if (returnToOrderEntryClear && tabNav?.navigate) {
+      // Reset LedgerTab to clean initial state first so footer Ledger button won't show this voucher
+      tabNav.navigate('LedgerTab', {
+        state: {
+          routes: [{ name: 'LedgerEntries' }],
+          index: 0,
+        },
+      });
+      // Then navigate to OrdersTab last so it becomes the active/focused tab
+      tabNav.navigate('OrdersTab', {
+        state: {
+          routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode: returnToOrderEntryDraftMode } }],
+          index: 0,
+        },
+      });
+      return;
     }
     (nav as { goBack?: () => void }).goBack?.();
-  }, [returnToOrderEntryClear, returnToOrderEntryDraftMode, nav]);
+  }, [returnToApprovalsOnBack, returnToOrderEntryClear, returnToOrderEntryDraftMode, nav]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!returnToOrderEntryClear) return undefined;
+      if (!returnToOrderEntryClear && !returnToApprovalsOnBack) return undefined;
       const onHardwareBack = () => {
         handleBack();
         return true;
       };
       BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
       return () => BackHandler.removeEventListener('hardwareBackPress', onHardwareBack);
-    }, [returnToOrderEntryClear, handleBack]),
+    }, [returnToOrderEntryClear, returnToApprovalsOnBack, handleBack]),
   );
 
   return (
-    <View style={[styles.root, { paddingBottom: 10 }]}>
+    <View style={[styles.root, { paddingBottom: showApprovalsInvoiceDock ? 0 : 10 }]}>
       <StatusBarTopBar
         title="Voucher Details"
         leftIcon="back"
@@ -1212,7 +1307,13 @@ export default function VoucherDetailView() {
                 style={styles.scroll}
                 contentContainerStyle={[
                   styles.scrollContent,
-                  { paddingTop: 0, paddingBottom: TAB_BAR_OFFSET + 75 }
+                  {
+                    paddingTop: 0,
+                    paddingBottom:
+                      (showApprovalsInvoiceDock ? modifyOrderDockHeight : orderInvoiceFooterBottom) +
+                      75 +
+                      ledgerExpandedFooterExtraScrollPad,
+                  },
                 ]}
                 showsVerticalScrollIndicator={true}
                 onScroll={handleScroll}
@@ -1257,12 +1358,85 @@ export default function VoucherDetailView() {
                   drCr={drCr}
                   ledgerRows={ledgerRows}
                   invoiceOrder={true}
+                  onLedgerDetailsExpandedChange={setLedgerDetailsExpanded}
                 />
               </Animated.View>
             </>
           )}
         </>
       )}
+
+      {showApprovalsInvoiceDock && (
+        <View
+          style={[styles.modifyOrderFooter, { paddingBottom: modifyOrderSafeBottom }]}
+          accessibilityRole="toolbar"
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0) setModifyOrderDockMeasured(h);
+          }}
+        >
+          {showRejectionReasonBtn ? (
+            <View style={styles.approvalsInvoiceDockRow}>
+              <TouchableOpacity
+                style={[styles.rejectionReasonBtn, styles.approvalsInvoiceDockBtnHalf]}
+                onPress={() => setRejectionReasonModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.rejectionReasonBtnText} numberOfLines={1}>
+                  Rejected Reason
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modifyOrderBtn, styles.approvalsInvoiceDockBtnHalf]}
+                onPress={handleModifyOrder}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modifyOrderBtnText} numberOfLines={1}>
+                  Modify Order
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.modifyOrderBtn}
+              onPress={handleModifyOrder}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modifyOrderBtnText}>Modify Order</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      <Modal
+        visible={rejectionReasonModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRejectionReasonModalVisible(false)}
+      >
+        <View style={styles.rejectionReasonModalRoot}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setRejectionReasonModalVisible(false)}
+          />
+          <View style={styles.rejectionReasonModalCard}>
+            <Text style={styles.rejectionReasonModalTitle}>Rejection reason</Text>
+            <ScrollView style={styles.rejectionReasonModalScroll} showsVerticalScrollIndicator>
+              <Text style={styles.rejectionReasonModalBody}>
+                {rejectionReasonText || 'No reason provided.'}
+              </Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.rejectionReasonModalOk}
+              onPress={() => setRejectionReasonModalVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.rejectionReasonModalOkText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1314,6 +1488,107 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 999,
+  },
+  modifyOrderFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1002,
+    elevation: 12,
+    backgroundColor: colors.white,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  approvalsInvoiceDockRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  approvalsInvoiceDockBtnHalf: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    height: 52,
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modifyOrderBtn: {
+    backgroundColor: colors.approve_green,
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modifyOrderBtnText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Roboto',
+  },
+  rejectionReasonBtn: {
+    backgroundColor: '#000000',
+    borderRadius: 8,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectionReasonBtnText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Roboto',
+  },
+  rejectionReasonModalRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  rejectionReasonModalCard: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    padding: 20,
+    maxHeight: '70%' as const,
+  },
+  rejectionReasonModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0e172b',
+    marginBottom: 12,
+    fontFamily: 'Roboto',
+  },
+  rejectionReasonModalScroll: {
+    maxHeight: 280,
+    marginBottom: 16,
+  },
+  rejectionReasonModalBody: {
+    fontSize: 15,
+    color: '#374151',
+    lineHeight: 22,
+    fontFamily: 'Roboto',
+  },
+  rejectionReasonModalOk: {
+    backgroundColor: colors.white,
+    borderWidth: 2,
+    borderColor: colors.primary_blue,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  rejectionReasonModalOkText: {
+    color: colors.primary_blue,
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Roboto',
   },
   invSectionWrap: {
     marginHorizontal: -16,

@@ -23,9 +23,15 @@ import { getStockItemNamesFromDataManagementCache } from '../cache';
 import type { StockVoucherEntry, StockQtyValue } from '../api';
 import { getTallylocId, getCompany, getGuid, getBooksfrom } from '../store/storage';
 import { useScroll } from '../store/ScrollContext';
+import { useStockDateRange } from '../store/StockDateRangeContext';
 import { colors } from '../constants/colors';
 import { strings } from '../constants/strings';
-import { sharedStyles } from './ledger';
+import {
+    sharedStyles,
+    ledgerGrandTotalBottomOffset,
+    ledgerGrandTotalScrollSlidePx,
+    ledgerGrandTotalListPaddingBottom,
+} from './ledger';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -176,10 +182,17 @@ export default function StockItemVouchers() {
     const insets = useSafeAreaInsets();
     const { width: windowWidth } = useWindowDimensions();
     const isTablet = windowWidth >= 600;
+    const stockClosingBarBottom = ledgerGrandTotalBottomOffset(insets, isTablet);
+    const closingBarSlidePxRef = useRef(0);
+    closingBarSlidePxRef.current = ledgerGrandTotalScrollSlidePx(isTablet, insets);
 
     const stockitemParam: string = route.params?.stockitem ?? '';
     const paramFromdate: string | undefined = route.params?.fromdate;
     const paramTodate: string | undefined = route.params?.todate;
+
+    const { sharedDateRange, setSharedDateRange } = useStockDateRange();
+    const sharedDateRangeRef = useRef(sharedDateRange);
+    sharedDateRangeRef.current = sharedDateRange;
 
     const [selectedStockItem, setSelectedStockItem] = useState(stockitemParam);
     const [stockItemNames, setStockItemNames] = useState<string[]>([]);
@@ -189,19 +202,30 @@ export default function StockItemVouchers() {
     const [error, setError] = useState('');
     const [opening, setOpening] = useState<StockQtyValue | null>(null);
     const [vouchers, setVouchers] = useState<StockVoucherEntry[]>([]);
-    const [dateRange, setDateRange] = useState({ fromdate: '', todate: '' });
+    const [dateRange, setDateRange] = useState(() => {
+        if (paramFromdate && paramTodate) {
+            return {
+                fromdate: normalizeToYyyymmdd(paramFromdate),
+                todate: normalizeToYyyymmdd(paramTodate),
+            };
+        }
+        if (sharedDateRange?.fromdate && sharedDateRange?.todate) return sharedDateRange;
+        return { fromdate: '', todate: '' };
+    });
+    const dateRangeRef = useRef(dateRange);
+    dateRangeRef.current = dateRange;
     const [periodOpen, setPeriodOpen] = useState(false);
-    /** Scroll-driven collapse: tab bar (footer) collapses on scroll; closing balance bar stays visible */
+    /** Same duration as tab bar hide; distance is only tab stack height so the bar stays above system nav (not full 100px tab hide). */
+    const FOOTER_ANIM_MS = 300;
     const scrollY = useRef(new Animated.Value(0)).current;
     const FOOTER_HEIGHT = 44;
     /** Scroll distance over which tab bar fully collapses */
     const SCROLL_RANGE = 140;
 
     const { setScrollDirection, setFooterCollapseValue } = useScroll();
-    /** 0 = visible, 1 = collapsed; shared with FooterTabBar so tab bar collapses with scroll */
+    /** 0 = visible, 1 = collapsed; legacy shared value (tab bar uses scrollDirection) */
     const footerCollapseProgress = useRef(new Animated.Value(0)).current;
 
-    // Collapsible bar logic
     const lastScrollY = useRef(0);
     const localScrollDirection = useRef<'up' | 'down'>('up');
     const footerTranslateY = useRef(new Animated.Value(0)).current;
@@ -216,15 +240,14 @@ export default function StockItemVouchers() {
                 : 0.65 + (raw - 0.5) * 0.7;
             footerCollapseProgress.setValue(Math.min(1, eased));
 
-            // Sync bar collapse with scroll direction
             const diff = value - lastScrollY.current;
             if (diff > 0 && value > 10) {
                 if (localScrollDirection.current !== 'down') {
                     localScrollDirection.current = 'down';
                     setScrollDirection('down');
                     Animated.timing(footerTranslateY, {
-                        toValue: 60,
-                        duration: 300,
+                        toValue: closingBarSlidePxRef.current,
+                        duration: FOOTER_ANIM_MS,
                         useNativeDriver: true,
                     }).start();
                 }
@@ -234,7 +257,7 @@ export default function StockItemVouchers() {
                     setScrollDirection('up');
                     Animated.timing(footerTranslateY, {
                         toValue: 0,
-                        duration: 300,
+                        duration: FOOTER_ANIM_MS,
                         useNativeDriver: true,
                     }).start();
                 }
@@ -246,7 +269,7 @@ export default function StockItemVouchers() {
             setScrollDirection(null);
             setFooterCollapseValue(null);
         };
-    }, [scrollY, footerCollapseProgress, setScrollDirection, setFooterCollapseValue, SCROLL_RANGE]);
+    }, [scrollY, footerCollapseProgress, setScrollDirection, setFooterCollapseValue, SCROLL_RANGE, footerTranslateY, FOOTER_ANIM_MS]);
 
     useFocusEffect(
         useCallback(() => {
@@ -259,7 +282,7 @@ export default function StockItemVouchers() {
                 duration: 200,
                 useNativeDriver: true,
             }).start();
-        }, [setScrollDirection, footerTranslateY, footerCollapseProgress])
+        }, [setScrollDirection, footerCollapseProgress, footerTranslateY])
     );
 
     useEffect(() => {
@@ -295,10 +318,14 @@ export default function StockItemVouchers() {
                 setLoading(false);
                 return;
             }
-            const range = computeDateRange(bf);
-            // Use override, then route params, then full FY — always normalize to YYYYMMDD
-            const fd = normalizeToYyyymmdd(overrideRange?.fromdate || paramFromdate || range.fromdate);
-            const td = normalizeToYyyymmdd(overrideRange?.todate || paramTodate || range.todate);
+            const current = dateRangeRef.current;
+            const shared = sharedDateRangeRef.current;
+            const resolved = overrideRange
+                ?? (current.fromdate && current.todate ? current : null)
+                ?? (shared?.fromdate && shared?.todate ? shared : null)
+                ?? computeDateRange(bf);
+            const fd = normalizeToYyyymmdd(resolved.fromdate);
+            const td = normalizeToYyyymmdd(resolved.todate);
             setDateRange({ fromdate: fd, todate: td });
 
             const res = await apiService.getStockItemVouchers({
@@ -317,12 +344,13 @@ export default function StockItemVouchers() {
         } finally {
             setLoading(false);
         }
-    }, [selectedStockItem, paramFromdate, paramTodate]);
+    }, [selectedStockItem]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
         const newRange = { fromdate: msToYyyymmdd(fromMs), todate: msToYyyymmdd(toMs) };
+        setSharedDateRange(newRange);
         fetchData(newRange);
-    }, [fetchData]);
+    }, [fetchData, setSharedDateRange]);
 
     useEffect(() => {
         fetchData();
@@ -360,7 +388,11 @@ export default function StockItemVouchers() {
                     <Text style={s.ioValText} numberOfLines={1}>{fmtQty(data.qty)}</Text>
                 </View>
                 <View style={s.ioValue}>
-                    <Text style={s.ioValText} numberOfLines={1}>{fmtValue(data.value)}</Text>
+                    <Text style={s.ioValText} numberOfLines={1}>
+                        {typeof data.amt === 'string' && data.amt !== ''
+                            ? fmtAmt(data.amt)
+                            : fmtValue(data.value)}
+                    </Text>
                 </View>
             </View>
         </View>
@@ -383,9 +415,13 @@ export default function StockItemVouchers() {
                         <View style={s.ioQty}>
                             <Text style={s.openingValText} numberOfLines={1}>{fmtQty(opening?.qty)}</Text>
                         </View>
-                        <View style={s.ioValue}>
-                            <Text style={s.openingValText} numberOfLines={1}>{fmtValue(opening?.value)}</Text>
-                        </View>
+                <View style={s.ioValue}>
+                    <Text style={s.openingValText} numberOfLines={1}>
+                        {typeof opening?.amt === 'string' && opening.amt !== ''
+                            ? fmtAmt(opening.amt)
+                            : fmtValue(opening?.value)}
+                    </Text>
+                </View>
                     </View>
                 </View>
             );
@@ -446,7 +482,7 @@ export default function StockItemVouchers() {
         <View style={s.root}>
             <StatusBarTopBar
                 title={strings.stock_item_vouchers}
-                rightIcons="share-bell"
+                rightIcons="none"
                 leftIcon="back"
                 onLeftPress={() => nav.goBack()}
                 compact
@@ -519,7 +555,10 @@ export default function StockItemVouchers() {
                     renderItem={(info) => renderItem({ item: info.item as ListItem })}
                     contentContainerStyle={[
                         s.listContent,
-                        { paddingBottom: FOOTER_HEIGHT + (isTablet ? 50 : 40) + insets.bottom + 16 },
+                        {
+                            paddingBottom:
+                                ledgerGrandTotalListPaddingBottom(insets, isTablet) + 16,
+                        },
                     ]}
                     showsVerticalScrollIndicator={false}
                     onScroll={onScroll}
@@ -527,12 +566,12 @@ export default function StockItemVouchers() {
                 />
             )}
 
-            {/* Closing balance bar: always visible above tab bar (use safe area so not hidden behind tab bar) */}
+            {/* Closing balance: same bottom / scroll slide as ledger & Stock Summary footers */}
             <Animated.View
                 style={[
                     s.footerWrapper,
                     {
-                        bottom: (isTablet ? 60 : 49) + insets.bottom,
+                        bottom: stockClosingBarBottom,
                         height: FOOTER_HEIGHT,
                         transform: [{ translateY: footerTranslateY }],
                     },
@@ -611,7 +650,6 @@ export default function StockItemVouchers() {
                                             setSelectedStockItem(item);
                                             setStockItemDropdownOpen(false);
                                             setStockItemSearch('');
-                                            fetchData();
                                         }}
                                         activeOpacity={0.7}
                                     >

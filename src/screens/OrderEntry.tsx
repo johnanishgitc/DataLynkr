@@ -46,7 +46,14 @@ import { AppSidebar, type AppSidebarMenuItem } from '../components/AppSidebar';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { StatusBarTopBar, GlobalDropdownModal } from '../components';
 import { SIDEBAR_MENU_ORDER_ENTRY } from '../components/appSidebarMenu';
-import { StockBreakdownModal } from '../components';
+import {
+  StockBreakdownModal,
+  DetailPopup,
+  amt,
+  getQtyPopupBody,
+  normalizeQtyDisplay,
+  normalizeRateDisplay,
+} from '../components';
 import { PopupModal } from '../components/PopupModal';
 import { strings } from '../constants/strings';
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
@@ -93,6 +100,7 @@ import { QRCodeScanner } from '../components/QRCodeScanner';
 import { ClipDocsPopup } from '../components/ClipDocsPopup';
 import CalendarPicker from '../components/CalendarPicker';
 import { useModuleAccess } from '../store/ModuleAccessContext';
+import type { PlaceOrderTransConfig } from '../hooks/useUserAccess';
 import { useS3Attachment, type S3Attachment } from '../hooks/useS3Attachment';
 import { sendOrderInvoiceEmail } from '../utils/sendOrderInvoiceEmail';
 import Svg, { Circle, Path, Line } from 'react-native-svg';
@@ -116,6 +124,28 @@ const ADD_CUSTOMER_OPTION = '__add_customer_option__';
 
 /** Class dropdown option: when selected, no class or class ledgers are sent in place order payload. */
 const NOT_APPLICABLE_CLASS = 'Not Applicable';
+
+/** Default class for the selected voucher type from `trans_config.place_order` (per vouchertype) or legacy single vouchertype/class. */
+function resolveDefaultClassFromTransConfig(
+  voucherType: string,
+  transConfig: PlaceOrderTransConfig,
+  classNames: string[],
+): string | undefined {
+  const vt = voucherType.trim();
+  if (!vt || classNames.length === 0) return undefined;
+  const fromMap = transConfig.placeOrderDefaultClassByVoucherType?.[vt.toLowerCase()]?.trim();
+  if (fromMap) {
+    const found = classNames.find((c) => c.toLowerCase() === fromMap.toLowerCase());
+    if (found) return found;
+  }
+  const cfgVt = transConfig.vouchertype?.trim();
+  const cfgCl = transConfig.class?.trim();
+  if (cfgCl && cfgVt && cfgVt.toLowerCase() === vt.toLowerCase()) {
+    const found = classNames.find((c) => c.toLowerCase() === cfgCl.toLowerCase());
+    if (found) return found;
+  }
+  return undefined;
+}
 
 /** Show "-" when value is null, undefined, or empty string. */
 function displayValue(v: unknown): string {
@@ -203,8 +233,12 @@ function voucherToOrderEntryPrefill(
 ): {
   customerName: string;
   voucherType: string;
+  /** Voucher class from payload (`classname` / `CLASSNAME`). If empty, class is taken from api/tally/vouchertype (`VOUCHERCLASSLIST`). */
+  voucherClassName: string;
   addDetailsForm: AddDetailsFormShape;
   items: Omit<OrderEntryOrderItem, 'id'>[];
+  /** Map of viewUrl → s3Key for each attachment found across all items. */
+  attachmentS3Map: Map<string, string>;
 } {
   const customerName =
     voucherField(voucher, 'PARTYLEDGERNAME', 'PARTYNAME', 'partyname', 'partyledgername', 'BASICBUYERNAME', 'basicbuyername') ||
@@ -220,6 +254,17 @@ function voucherToOrderEntryPrefill(
     'vchtype'
   );
   const voucherType = voucherTypeRaw || 'Sales Order';
+  const voucherClassName = String(
+    voucherField(
+      voucher,
+      'CLASSNAME',
+      'classname',
+      'ClassName',
+      'VOUCHERCLASS',
+      'voucherclass',
+      'VOUCHER_CLASS',
+    ) || '',
+  ).trim();
 
   const address =
     voucherField(voucher, 'BASICBUYERADDRESS', 'basicbuyeraddress', 'ADDRESS', 'address') || '';
@@ -284,7 +329,7 @@ function voucherToOrderEntryPrefill(
     (voucher as any).inventoryallocations;
   const invArray = Array.isArray(invRaw) ? invRaw : invRaw ? [invRaw] : [];
 
-  const items: Omit<OrderEntryOrderItem, 'id'>[] = invArray.map((row: any) => {
+  const mapped = invArray.map((row: any) => {
     const name = row.stockitemname ?? row.STOCKITEMNAME ?? '';
     const qty = row.actualqty ?? row.billedqty ?? row.BILLEDQTY ?? row.ACTUALQTY ?? '1';
     const rateRaw = String(row.rate ?? row.RATE ?? '0');
@@ -298,6 +343,35 @@ function voucherToOrderEntryPrefill(
     const tax = Number(row.tax ?? row.TAX ?? 0) || 0;
     const godown = (row.godownname ?? row.GODOWNNAME ?? '') as string;
     const batch = (row.batchname ?? row.BATCHNAME ?? '') as string;
+
+    const parsePipe = (v: unknown): string[] => {
+      if (typeof v !== 'string') return [];
+      return v.split('|').map(s => s.trim()).filter(Boolean);
+    };
+    const extractViewUrls = (v: unknown): string[] => {
+      const fromStr = parsePipe(v);
+      if (fromStr.length > 0) return fromStr;
+      if (Array.isArray(v)) {
+        const out: string[] = [];
+        for (const el of v) {
+          if (typeof el === 'string') { out.push(...parsePipe(el)); continue; }
+          if (el && typeof el === 'object') {
+            const vu = (el as Record<string, unknown>).viewurl ?? (el as Record<string, unknown>).viewUrl ?? (el as Record<string, unknown>).VIEWURL;
+            out.push(...parsePipe(vu));
+          }
+        }
+        return out.filter(Boolean);
+      }
+      return [];
+    };
+    const viewUrlVal = row.viewurl ?? row.viewUrl ?? row.VIEWURL ?? row.viewurls ?? row.VIEWURLS ?? row.attachmentviewurl ?? row.attachmentViewUrl;
+    let itemAttachLinks = extractViewUrls(viewUrlVal);
+    const attachDescVal = String(row.ATTACHDESCRIPTION ?? row.attachdescription ?? '');
+    const itemS3Keys = parsePipe(attachDescVal);
+    if (itemAttachLinks.length === 0) {
+      itemAttachLinks = itemS3Keys;
+    }
+    const itemDesc = String(row.description ?? row.DESCRIPTION ?? '').trim();
 
     const base: Omit<OrderEntryOrderItem, 'id'> = {
       name: String(name || '').trim(),
@@ -315,19 +389,29 @@ function voucherToOrderEntryPrefill(
       expiryDate: undefined,
       godown,
       batch,
-      description: '',
-      attachmentLinks: [],
-      attachmentUris: [],
+      description: itemDesc,
+      attachmentLinks: itemAttachLinks,
+      attachmentUris: itemAttachLinks,
       stockItem: undefined,
     };
-    return base;
+    return { base, itemAttachLinks, itemS3Keys };
   });
+
+  const items = mapped.map((m) => m.base);
+  const attachmentS3Map = new Map<string, string>();
+  for (const { itemAttachLinks: links, itemS3Keys: keys } of mapped) {
+    for (let i = 0; i < links.length; i++) {
+      attachmentS3Map.set(links[i], keys[i] ?? links[i]);
+    }
+  }
 
   return {
     customerName: customerName || '',
     voucherType,
+    voucherClassName,
     addDetailsForm: baseForm,
     items,
+    attachmentS3Map,
   };
 }
 
@@ -487,7 +571,11 @@ export default function OrderEntry() {
   const [draftDescriptionValidationError, setDraftDescriptionValidationError] = useState(false);
   const [previewAttachmentUri, setPreviewAttachmentUri] = useState<string | null>(null);
   /** Cart "item to be allocated" attachment preview: list of uri/link per attachment, swipe between them. */
-  const [cartAttachmentPreview, setCartAttachmentPreview] = useState<{ items: string[] } | null>(null);
+  const [cartAttachmentPreview, setCartAttachmentPreview] = useState<string[] | null>(null);
+  /** Cart expanded line: Qty / Rate tap — same DetailPopup pattern as voucher inventory allocations. */
+  const [cartItemQtyRateDetailPopup, setCartItemQtyRateDetailPopup] = useState<
+    null | { title: 'Qty' | 'Rate'; body: string }
+  >(null);
   const [draftAttachmentDeleteIdx, setDraftAttachmentDeleteIdx] = useState<number | null>(null);
   const [company, setCompany] = useState('');
   const [companyStateName, setCompanyStateName] = useState('');
@@ -628,6 +716,9 @@ export default function OrderEntry() {
   const openedFromApprovalRef = useRef(false);
   /** True if user has made any change after the approval prefill (add/remove items, change customer, etc.). */
   const approvalPrefillDirtyRef = useRef(false);
+  /** After Approvals prefill: sync `classOptions` / `selectedClass` once voucher types are loaded. */
+  const shouldSyncClassFromPrefillRef = useRef(false);
+  const prefillClassNameRef = useRef('');
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const addDetailsPagerRef = useRef<ScrollView>(null);
   const addDetailsTabOrder: ('buyer' | 'consignee' | 'order')[] = ['buyer', 'consignee', 'order'];
@@ -776,32 +867,51 @@ export default function OrderEntry() {
     return `${qty}*${rate}${disc}=${amount}`;
   };
 
-  /** Parent line: always "Qty: qty*rate(discount%)=amount" (amount bold). For multiple children uses totalQty, totalAmt, and first item's rate/discount. */
-  const formatParentQtyLine = (
-    opts: { totalQty: number; totalAmt: number; singleItem?: { enteredQty?: string; qty: string | number; rate?: number | string; discount?: number; total: number }; discount?: number; firstRate?: number | string; firstDiscount?: number }
-  ) => {
-    const amountStr = permissions.show_rateamt_Column ? `₹${Number(opts.totalAmt).toFixed(2)}` : '';
-    const qty = opts.singleItem ? (opts.singleItem.enteredQty || opts.singleItem.qty) : opts.totalQty;
-    if (!permissions.show_rateamt_Column && !permissions.show_disc_Column) {
-      return { left: `Qty: ${qty}`, right: null, amountStr };
-    }
-    const rate = permissions.show_rateamt_Column
-      ? (opts.singleItem
-        ? (opts.singleItem.rate != null ? String(opts.singleItem.rate) : '-')
-        : (opts.firstRate != null ? String(opts.firstRate) : '-'))
+  /** Collapsed cart card: qty / rate / discount segments for hyperlinks (same text as former "Qty: qty*rate(disc%)=₹"). */
+  const getParentCartQtyRateParts = (group: (typeof groupedOrderItems)[number]) => {
+    const single = group.items.length === 1 ? group.items[0] : undefined;
+    const first = group.items[0];
+    const amountStr = permissions.show_rateamt_Column ? `₹${Number(group.totalAmt).toFixed(2)}` : '';
+    const qtyVal = single ? (single.enteredQty || single.qty) : group.totalQty;
+    const showRate = permissions.show_rateamt_Column;
+    const rateLabel = showRate
+      ? (single != null
+        ? (single.rate != null ? String(single.rate) : '-')
+        : (first?.rate != null ? String(first.rate) : '-'))
       : '';
-    const disc = permissions.show_disc_Column
-      ? ((opts.singleItem ? opts.singleItem.discount : opts.firstDiscount) != null &&
-        !Number.isNaN(Number(opts.singleItem ? opts.singleItem.discount : opts.firstDiscount))
-        ? `(${Number(opts.singleItem ? opts.singleItem.discount : opts.firstDiscount)}%)`
-        : '')
-      : '';
-    const parts = [`Qty: ${qty}`];
-    if (rate) parts.push(`*${rate}`);
-    if (disc) parts.push(disc);
-    if (amountStr) parts.push(`=`);
-    const left = parts.join('');
-    return { left, right: null, amountStr };
+    const rateSource = single ?? first;
+    const rAmt = amt(rateSource?.rate);
+    const ru =
+      rateSource?.rateUnit != null && String(rateSource.rateUnit).trim() !== ''
+        ? String(rateSource.rateUnit).trim()
+        : '';
+    const ratePopupBody = normalizeRateDisplay(ru ? `${rAmt}/${ru}` : rAmt);
+    const discRaw = single != null ? single.discount : first?.discount;
+    const discStr =
+      permissions.show_disc_Column &&
+      discRaw != null &&
+      !Number.isNaN(Number(discRaw))
+        ? `(${Number(discRaw)}%)`
+        : '';
+    const qtyPopupBody =
+      single != null
+        ? getQtyPopupBody({
+            ACTUALQTY:
+              single.enteredQty != null && String(single.enteredQty).trim() !== ''
+                ? single.enteredQty
+                : single.qty,
+            BILLEQTY: single.qty,
+          })
+        : `Total Qty: ${qtyVal}\n(${group.items.length} batch${group.items.length === 1 ? '' : 'es'})`;
+    return {
+      amountStr,
+      qtyVal,
+      showRate,
+      rateLabel,
+      ratePopupBody,
+      discStr,
+      qtyPopupBody,
+    };
   };
 
   /** Build "Stock: x | Tax%: y%" showing only available. */
@@ -904,6 +1014,32 @@ export default function OrderEntry() {
     fetchVoucherTypesAsync();
   }, [fetchVoucherTypesAsync]);
 
+  /** Approvals prefill: class options + selection from api/tally/vouchertype (`VOUCHERCLASSLIST`). Match voucher `classname` when present; else first class. */
+  useEffect(() => {
+    if (!shouldSyncClassFromPrefillRef.current || !selectedVoucherType.trim()) return;
+    if (voucherTypesList.length === 0) return;
+    const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
+    if (!vt) {
+      setClassOptions([]);
+      setSelectedClass('');
+      shouldSyncClassFromPrefillRef.current = false;
+      return;
+    }
+    const classes = vt.VOUCHERCLASSLIST ?? [];
+    const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
+    const hasClasses = classNames.length > 0;
+    setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
+    if (hasClasses) {
+      const want = prefillClassNameRef.current.trim();
+      const match = want ? classNames.find((c) => c.toLowerCase() === want.toLowerCase()) : undefined;
+      const fromConfig = resolveDefaultClassFromTransConfig(selectedVoucherType, transConfig, classNames);
+      setSelectedClass(match ?? fromConfig ?? classNames[0] ?? '');
+    } else {
+      setSelectedClass('');
+    }
+    shouldSyncClassFromPrefillRef.current = false;
+  }, [voucherTypesList, selectedVoucherType, transConfig]);
+
   // Fetch voucher types when Voucher Type dropdown is opened (if not already loaded)
   useEffect(() => {
     let cancel = false;
@@ -956,6 +1092,8 @@ export default function OrderEntry() {
         approvalPrefillDirtyRef.current = false;
         needsAutoOpenCustomerRef.current = false;
         setIsDraftMode(false);
+        setLedgerDetailsExpanded(false);
+        setLedgerDetailsContentHeight(null);
         setEditingMasterId(updateFromApproval.masterId ?? null);
         // Consume approval payload once so it does not auto-fill on later fresh Order Entry opens.
         navigation.setParams({ updateFromApproval: undefined } as any);
@@ -963,9 +1101,17 @@ export default function OrderEntry() {
         let cancelled = false;
         const applyPrefillFromVoucher = (voucher: Record<string, unknown> | null | undefined) => {
           if (!voucher || typeof voucher !== 'object' || cancelled) return;
-          const { customerName, voucherType, addDetailsForm: mappedForm, items } =
-            voucherToOrderEntryPrefill(voucher, initialAddDetailsForm);
+          const {
+            customerName,
+            voucherType,
+            voucherClassName,
+            addDetailsForm: mappedForm,
+            items,
+            attachmentS3Map,
+          } = voucherToOrderEntryPrefill(voucher, initialAddDetailsForm);
           const voucherDate = voucherDateFromVoucher(voucher);
+          prefillClassNameRef.current = voucherClassName;
+          shouldSyncClassFromPrefillRef.current = true;
 
           if (customerName) {
             setSelectedCustomer(customerName);
@@ -992,6 +1138,18 @@ export default function OrderEntry() {
               return withIds;
             });
           }
+          const allLinks: string[] = [];
+          for (const it of items) {
+            if (it.attachmentLinks?.length) allLinks.push(...it.attachmentLinks);
+          }
+          if (allLinks.length > 0) {
+            const s3Items: S3Attachment[] = allLinks.map((url, idx) => ({
+              viewUrl: url,
+              s3Key: attachmentS3Map.get(url) ?? url,
+              fileName: `approval_attachment_${idx + 1}`,
+            }));
+            s3Attachment.setAllAttachments(s3Items);
+          }
         };
 
         // Immediate fallback prefill from Approvals payload, so UI is populated even if API fails.
@@ -1005,6 +1163,11 @@ export default function OrderEntry() {
               getGuid(),
             ]);
             if (!tallylocId || !companyName || !guid || cancelled) return;
+
+            // No classname on voucher: ensure voucher types (classes) are loaded from API before final prefill/sync.
+            if (!prefillClassNameRef.current.trim()) {
+              await fetchVoucherTypesAsync();
+            }
 
             const { data } = await apiService.getVoucherData({
               tallyloc_id: tallylocId,
@@ -1045,6 +1208,8 @@ export default function OrderEntry() {
         setSelectedLedger(null);
         setSelectedVoucherType('');
         setSelectedClass('');
+        setLedgerDetailsExpanded(false);
+        setLedgerDetailsContentHeight(null);
         setLedgerValues({});
         setLedgerPctEditing({});
         setCustomerDropdownOpen(false);
@@ -1060,7 +1225,7 @@ export default function OrderEntry() {
         }, 250);
         return () => clearTimeout(openDropdownTimer);
       }
-    }, [route.params?.clearOrder, route.params?.openInDraftMode, route.params?.updateFromApproval, navigation])
+    }, [route.params?.clearOrder, route.params?.openInDraftMode, route.params?.updateFromApproval, navigation, fetchVoucherTypesAsync])
   );
 
   // Process Add to Cart / Update Cart params when they appear (useEffect so we run after route has params, not dependent on focus timing).
@@ -1208,13 +1373,15 @@ export default function OrderEntry() {
     [navigation],
   );
 
+  const hasUnsavedOrderChanges = (!isDraftMode && orderItems.length > 0) || (isDraftMode && (orderItems.length > 0 || draftDescription.trim().length > 0));
+
   const onSidebarItemPress = useCallback(
     (item: AppSidebarMenuItem) => {
       if (item.target === 'OrderEntry') {
         closeSidebar();
         return;
       }
-      if (orderItems.length > 0) {
+      if (hasUnsavedOrderChanges) {
         pendingLeaveActionRef.current = () => {
           closeSidebar();
           performSidebarNavigation(item);
@@ -1225,7 +1392,7 @@ export default function OrderEntry() {
       closeSidebar();
       performSidebarNavigation(item);
     },
-    [closeSidebar, orderItems.length, performSidebarNavigation],
+    [closeSidebar, hasUnsavedOrderChanges, performSidebarNavigation],
   );
 
   const handleCustomerClick = () => setCustomerDropdownOpen(true);
@@ -1294,10 +1461,8 @@ export default function OrderEntry() {
   /** No-op for backwards compatibility if anything still references the removed refresh button. */
   const handleRefreshSessionCache = useCallback(async () => { }, []);
 
-  const canSelectItem =
-    !!selectedCustomer &&
-    !!selectedVoucherType &&
-    (classOptions.length === 0 || !!selectedClass);
+  /** Class is optional for picking items; prefill sets class from voucher `classname` when present. */
+  const canSelectItem = !!selectedCustomer && !!selectedVoucherType;
 
   /** Non-draft: attachments greyed out until both customer and voucher type selected. Draft: only customer (no voucher type in draft UI). */
   const attachmentsDisabledNonDraft = !selectedCustomer || !selectedVoucherType;
@@ -1608,37 +1773,63 @@ export default function OrderEntry() {
 
   const handleAddDetails = () => setAddDetailsModalVisible(true);
 
-  /** Ledgers for the selected voucher class (order = display/calculation order). See TRANSACTION_SUMMARY_CALCULATION.md. Empty when "Not Applicable" is selected. */
-  const selectedClassLedgers = useMemo((): LedgerEntryConfig[] => {
-    if (!selectedVoucherType?.trim() || !selectedClass?.trim() || selectedClass.trim() === NOT_APPLICABLE_CLASS) return [];
+  /**
+   * Class used for LEDGERENTRIESLIST / LEDGERFORINVENTORYLIST and place_order `classname` + `ledgers`.
+   * If the voucher has no `classname` or UI class is still empty, use the first class from the voucher type
+   * so ledger lines stay in sync with line items. Explicit "Not Applicable" keeps ledgers empty.
+   */
+  const effectiveClassForOrderCalcs = useMemo(() => {
+    if (!selectedVoucherType?.trim()) return '';
     const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
     const classes = vt?.VOUCHERCLASSLIST ?? [];
-    const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim());
-    const list = cls?.LEDGERENTRIESLIST ?? (cls as Record<string, unknown> | undefined)?.LEDGERENTRIESLIST;
+    const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
+    const hasClasses = classNames.length > 0;
+    const sel = (selectedClass ?? '').trim();
+    if (sel === NOT_APPLICABLE_CLASS) return '';
+    if (sel && classNames.includes(sel)) return sel;
+    if (hasClasses && classNames[0]) {
+      return (
+        resolveDefaultClassFromTransConfig(selectedVoucherType, transConfig, classNames) ?? classNames[0]
+      );
+    }
+    return '';
+  }, [selectedVoucherType, selectedClass, voucherTypesList, transConfig]);
+
+  /** Ledgers for the selected voucher class (order = display/calculation order). See TRANSACTION_SUMMARY_CALCULATION.md. Empty when "Not Applicable" is selected. */
+  const selectedClassLedgers = useMemo((): LedgerEntryConfig[] => {
+    if (!selectedVoucherType?.trim() || !effectiveClassForOrderCalcs.trim()) return [];
+    const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
+    const classes = vt?.VOUCHERCLASSLIST ?? [];
+    const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === effectiveClassForOrderCalcs.trim());
+    const cr = cls as Record<string, unknown> | undefined;
+    const list =
+      (Array.isArray(cls?.LEDGERENTRIESLIST) ? cls.LEDGERENTRIESLIST : null) ??
+      (Array.isArray(cr?.ledgerentrieslist) ? cr.ledgerentrieslist : null) ??
+      (Array.isArray(cr?.LedgerEntriesList) ? cr.LedgerEntriesList : null);
     return Array.isArray(list) ? (list as LedgerEntryConfig[]) : [];
-  }, [selectedVoucherType, selectedClass, voucherTypesList]);
+  }, [selectedVoucherType, effectiveClassForOrderCalcs, voucherTypesList]);
 
   /** True when selected class has a NAME in LEDGERFORINVENTORYLIST (first row). */
   const hasClassSalesLedgerName = useMemo((): boolean => {
-    if (!selectedClass?.trim() || selectedClass === NOT_APPLICABLE_CLASS || !selectedVoucherType?.trim()) return false;
+    if (!effectiveClassForOrderCalcs.trim() || !selectedVoucherType?.trim()) return false;
     const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
     const classes = vt?.VOUCHERCLASSLIST ?? [];
-    const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim());
+    const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === effectiveClassForOrderCalcs.trim());
     const list = cls?.LEDGERFORINVENTORYLIST ?? [];
     const first = Array.isArray(list) && list.length > 0 ? list[0] : null;
     const name = (first?.NAME ?? '').trim();
     return !!name;
-  }, [selectedVoucherType, selectedClass, voucherTypesList]);
+  }, [selectedVoucherType, effectiveClassForOrderCalcs, voucherTypesList]);
 
   /** In Edit Details: show API dropdown when class has no NAME in LEDGERFORINVENTORYLIST; when it has NAME we show static value. */
   const shouldUseSalesLedgerDropdown = !hasClassSalesLedgerName;
 
   /** Sales Ledger for details UI: class LEDGERFORINVENTORYLIST NAME wins; otherwise use user-selected override or ledger SALESLEDGER/NAME. */
   const salesLedgerDisplayValue = useMemo((): string => {
-    if (hasClassSalesLedgerName && selectedClass?.trim() && selectedClass !== NOT_APPLICABLE_CLASS && selectedVoucherType?.trim()) {
+    if (hasClassSalesLedgerName && effectiveClassForOrderCalcs.trim() && selectedVoucherType?.trim()) {
       const vt = voucherTypesList.find((v) => (v.NAME ?? '').trim() === selectedVoucherType.trim());
       const classes = vt?.VOUCHERCLASSLIST ?? [];
-      const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim());
+      const cls = classes.find((c) => (c.CLASSNAME ?? '').trim() === effectiveClassForOrderCalcs.trim());
       const list = cls?.LEDGERFORINVENTORYLIST ?? [];
       const first = Array.isArray(list) && list.length > 0 ? list[0] : null;
       const name = (first?.NAME ?? '').trim();
@@ -1647,7 +1838,7 @@ export default function OrderEntry() {
     if (salesLedgerOverride.trim()) return salesLedgerOverride.trim();
     const fromLedger = ledgerField(selectedLedger, 'SALESLEDGER', 'salesledger');
     return fromLedger !== '-' ? fromLedger : displayValue(selectedLedger?.NAME);
-  }, [hasClassSalesLedgerName, selectedVoucherType, selectedClass, voucherTypesList, selectedLedger, salesLedgerOverride]);
+  }, [hasClassSalesLedgerName, selectedVoucherType, effectiveClassForOrderCalcs, voucherTypesList, selectedLedger, salesLedgerOverride]);
 
   /** Parse numeric field from ledger config (CLASSRATE, ROUNDLIMIT, GSTRATE, RATEOFTAXCALCULATION). Tries key as-is then lowercase for API casing. */
   const ledgerNum = useCallback((ledger: LedgerEntryConfig, key: string): number => {
@@ -1937,8 +2128,8 @@ export default function OrderEntry() {
     // Resolve inventory ledger from selected voucher type + class (for item ledgername from api/tally/vouchertype)
     const vtForLedger = voucherTypesList.find((v) => (v.NAME ?? '').trim() === (selectedVoucherType || '').trim());
     const classesForLedger = vtForLedger?.VOUCHERCLASSLIST ?? [];
-    const selectedClassObj = selectedClass && selectedClass !== NOT_APPLICABLE_CLASS
-      ? classesForLedger.find((c) => (c.CLASSNAME ?? '').trim() === selectedClass.trim())
+    const selectedClassObj = effectiveClassForOrderCalcs.trim()
+      ? classesForLedger.find((c) => (c.CLASSNAME ?? '').trim() === effectiveClassForOrderCalcs.trim())
       : null;
     const ledgerForInventoryList = selectedClassObj?.LEDGERFORINVENTORYLIST ?? [];
     const firstInventoryLedger = Array.isArray(ledgerForInventoryList) && ledgerForInventoryList.length > 0 ? ledgerForInventoryList[0] : null;
@@ -2011,7 +2202,7 @@ export default function OrderEntry() {
       date: dateStr,
       effectivedate: dateStr,
       vouchertype: selectedVoucherType || 'Sales Order',
-      classname: selectedClass === NOT_APPLICABLE_CLASS ? '' : (selectedClass || ''),
+      classname: selectedClass === NOT_APPLICABLE_CLASS ? '' : (effectiveClassForOrderCalcs || ''),
       vouchernumber,
       customer: (f.buyerBillTo || selectedCustomer).trim(),
       address: buyerAddress,
@@ -2093,13 +2284,15 @@ export default function OrderEntry() {
         }
         // Auto-open customer dropdown when user returns from OrderSuccess
         needsAutoOpenCustomerRef.current = true;
+        const fromApprovalUpdate = !!editingMasterId;
         navigation.navigate('OrderSuccess', {
           voucherNumber: res.data.voucherNumber ?? vouchernumber,
           reference: res.data.reference ?? reference,
           lastVchId: res.data.lastVchId ?? null,
           fromDraftMode: isDraftMode,
-          fromApprovalUpdate: !!editingMasterId,
+          fromApprovalUpdate,
         });
+        setEditingMasterId(null);
       } else {
         const lineError = res?.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LINEERROR;
         Alert.alert('Order Failed', lineError || res?.message || 'Order creation failed in Tally.');
@@ -2124,11 +2317,13 @@ export default function OrderEntry() {
     autoOrderNo,
     selectedVoucherType,
     selectedClass,
+    effectiveClassForOrderCalcs,
     voucherTypesList,
     calculatedLedgerAmounts,
     selectedClassLedgers,
     attachmentLinks,
     navigation,
+    editingMasterId,
   ]);
   const handleAddDetailsClose = () => {
     setAddDetailsModalVisible(false);
@@ -2196,6 +2391,7 @@ export default function OrderEntry() {
     setSelectedLedger(null);
     setSelectedVoucherType('');
     setSelectedClass('');
+    setClassOptions([]);
     setLedgerValues({});
     setLedgerPctEditing({});
     setLatestOrder(null);
@@ -2246,6 +2442,8 @@ export default function OrderEntry() {
       exportPortCode: '',
       exportDate: null,
     });
+    setDraftDescription('');
+    setDraftDescriptionValidationError(false);
     needsAutoOpenCustomerRef.current = true;
     setVoucherTypeDropdownOpen(false);
     setClassDropdownOpen(false);
@@ -2267,6 +2465,7 @@ export default function OrderEntry() {
     setShowQRScanner(false);
     setSelectedItem('');
     setItemSearch('');
+    setEditingMasterId(null);
   }, []);
 
   /** Clear all order entry form state and run the pending leave action (e.g. goBack or tab switch). */
@@ -2277,15 +2476,33 @@ export default function OrderEntry() {
     action?.();
   }, [clearOrderEntryState]);
 
-  /** When toggling draft mode on or off, clear the order entry screen so the user gets a fresh form. If switching to Quick Order with items in cart, show confirmation. */
-  const handleDraftModeChange = useCallback((value: boolean) => {
-    if (value && orderItems.length > 0) {
-      setDraftModeSwitchConfirmVisible(true);
-      return;
-    }
-    clearOrderEntryState();
-    setIsDraftMode(value);
-  }, [clearOrderEntryState, orderItems.length]);
+  /** When toggling draft mode on or off, clear the order entry screen so the user gets a fresh form.
+   * If switching to Quick Order with items in cart, show confirmation.
+   * If switching from Quick Order back to Order Entry with unsaved changes (items or description), show the same leave confirmation popup.
+   */
+  const handleDraftModeChange = useCallback(
+    (value: boolean) => {
+      // Normal → Quick Order: if there are items, use dedicated confirmation modal.
+      if (value && orderItems.length > 0) {
+        setDraftModeSwitchConfirmVisible(true);
+        return;
+      }
+
+      // Quick Order → Normal: if there are unsaved changes (items or description), reuse the leave-confirm popup.
+      if (!value && hasUnsavedOrderChanges) {
+        pendingLeaveActionRef.current = () => {
+          setIsDraftMode(false);
+        };
+        setLeaveConfirmVisible(true);
+        return;
+      }
+
+      // No special confirmation needed – just clear and switch mode.
+      clearOrderEntryState();
+      setIsDraftMode(value);
+    },
+    [clearOrderEntryState, hasUnsavedOrderChanges, orderItems.length],
+  );
 
   /** When user switches to Order Entry from another tab, clear the form. When user switches away to another tab, clear immediately (including customer/voucher even if no items). Do not clear when returning from OrderEntryItemDetail with Add to Cart (addedItems) or Update Cart (replace params). */
   useFocusEffect(
@@ -2454,7 +2671,7 @@ export default function OrderEntry() {
             const tabNav = navigation.getParent()?.getParent() as { navigate?: (name: string) => void } | undefined;
             tabNav?.navigate?.('LedgerTab');
           };
-          if (orderItems.length > 0) {
+          if (hasUnsavedOrderChanges) {
             pendingLeaveActionRef.current = goToLedger;
             setLeaveConfirmVisible(true);
           } else {
@@ -2568,7 +2785,7 @@ export default function OrderEntry() {
                   ) : null}
                 </View>
 
-                {!permissions.disable_attachment && (
+                {!permissions.disable_attachment && attachmentLinks.length > 0 && (
                   <View style={[styles.draftAttachmentsSection, !selectedCustomer && styles.draftAttachmentsSectionDisabled]}>
                     <View style={styles.draftAttachmentsHeader}>
                       {/* Placeholder for complex vector icon, using multiple icons to simulate */}
@@ -2615,7 +2832,11 @@ export default function OrderEntry() {
               {!isKeyboardVisible && (
                 <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 8, 32), borderTopWidth: 1, borderTopColor: '#ffffff', backgroundColor: '#fff' }]}>
                   {!permissions.disable_attachment && (
-                    <TouchableOpacity style={[styles.footerAttachDraft, !selectedCustomer && styles.footerAttachDraftDisabled]} onPress={handleAttachment} disabled={!selectedCustomer || uploadingAttachments}>
+                    <TouchableOpacity
+                      style={[styles.footerAttachDraft, !selectedCustomer && styles.footerAttachDraftDisabled]}
+                      onPress={handleAttachment}
+                      disabled={!selectedCustomer || uploadingAttachments}
+                    >
                       {uploadingAttachments ? (
                         <ActivityIndicator size="small" color={selectedCustomer ? '#0E172B' : '#9ca3af'} />
                       ) : (
@@ -2644,7 +2865,9 @@ export default function OrderEntry() {
                     ) : uploadingAttachments ? (
                       <Text style={styles.footerBtnTextDraft}>Uploading...</Text>
                     ) : (
-                      <Text style={styles.footerBtnTextDraft}>{openedFromApprovalRef.current ? 'Modify Order' : 'Place Order'}</Text>
+                      <Text style={styles.footerBtnTextDraft}>
+                        {editingMasterId ? 'Modify Order' : 'Place Order'}
+                      </Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -2690,9 +2913,11 @@ export default function OrderEntry() {
                       </View>
                       <Text style={styles.rowLabel} numberOfLines={1}>
                         {displayValue(selectedVoucherType) !== '-'
-                          ? selectedClass && selectedClass.trim() !== NOT_APPLICABLE_CLASS
-                            ? `${selectedVoucherType} (${selectedClass})`
-                            : selectedVoucherType
+                          ? selectedClass.trim() === NOT_APPLICABLE_CLASS
+                            ? selectedVoucherType
+                            : effectiveClassForOrderCalcs || selectedClass
+                              ? `${selectedVoucherType} (${effectiveClassForOrderCalcs || selectedClass})`
+                              : selectedVoucherType
                           : strings.voucher_type}
                       </Text>
                     </View>
@@ -2946,18 +3171,48 @@ export default function OrderEntry() {
                                         if (isAlloc) {
                                           return null;
                                         }
-                                        const single = group.items.length === 1 ? group.items[0] : undefined;
-                                        const first = group.items[0] as AddedOrderItemWithStock | undefined;
-                                        const { left, amountStr } = formatParentQtyLine({
-                                          totalQty: group.totalQty,
-                                          totalAmt: group.totalAmt,
-                                          singleItem: single
-                                            ? { enteredQty: (single as AddedOrderItemWithStock)?.enteredQty, qty: single.qty, rate: single.rate, discount: (single as AddedOrderItemWithStock)?.discount, total: single.total ?? 0 }
-                                            : undefined,
-                                          firstRate: first?.rate,
-                                          firstDiscount: first?.discount,
-                                        });
-                                        return <><Text style={styles.orderItemQty}>{left}</Text><Text style={styles.orderItemTotal}>{amountStr}</Text></>;
+                                        const p = getParentCartQtyRateParts(group);
+                                        return (
+                                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 0 }}>
+                                            <Text style={styles.orderItemQty}>Qty: </Text>
+                                            <TouchableOpacity
+                                              onPress={() =>
+                                                setCartItemQtyRateDetailPopup({
+                                                  title: 'Qty',
+                                                  body: p.qtyPopupBody,
+                                                })
+                                              }
+                                              activeOpacity={0.7}
+                                            >
+                                              <Text style={styles.orderItemCartQtyRateLink}>
+                                                {normalizeQtyDisplay(String(p.qtyVal ?? '—'))}
+                                              </Text>
+                                            </TouchableOpacity>
+                                            {p.showRate && p.rateLabel !== '' ? (
+                                              <>
+                                                <Text style={styles.orderItemQty}>*</Text>
+                                                <TouchableOpacity
+                                                  onPress={() =>
+                                                    setCartItemQtyRateDetailPopup({
+                                                      title: 'Rate',
+                                                      body: p.ratePopupBody,
+                                                    })
+                                                  }
+                                                  activeOpacity={0.7}
+                                                >
+                                                  <Text style={styles.orderItemCartQtyRateLink}>{p.rateLabel}</Text>
+                                                </TouchableOpacity>
+                                              </>
+                                            ) : null}
+                                            {p.discStr !== '' ? (
+                                              <Text style={styles.orderItemQty}>{p.discStr}</Text>
+                                            ) : null}
+                                            {p.amountStr !== '' ? (
+                                              <Text style={styles.orderItemQty}>=</Text>
+                                            ) : null}
+                                            <Text style={styles.orderItemTotal}>{p.amountStr}</Text>
+                                          </View>
+                                        );
                                       })()}
                                     </View>
                                     {(group as { isAllocItem?: boolean }).isAllocItem ? (
@@ -2972,7 +3227,7 @@ export default function OrderEntry() {
                                         return (
                                           <TouchableOpacity
                                             style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 }}
-                                            onPress={() => setCartAttachmentPreview({ items })}
+                                            onPress={() => setCartAttachmentPreview(items)}
                                             activeOpacity={0.7}
                                           >
                                             <Icon name="eye" size={18} color="#1f3a89" />
@@ -3123,30 +3378,53 @@ export default function OrderEntry() {
                                         ]}
                                       >
                                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                          <View pointerEvents="none" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+                                          <View style={{ flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginRight: 6 }}>
                                             {!(group as { isAllocItem?: boolean }).isAllocItem ? (
-                                              <Text style={[styles.orderItemExpandedQty, { fontWeight: '700' }]}>
-                                                <Text style={{ color: '#6a7282' }}>Qty: </Text><Text style={{ color: '#000' }}>{oi.enteredQty || oi.qty}</Text>
-                                              </Text>
-                                            ) : null}
-                                            {oi.dueDate != null && String(oi.dueDate).trim() !== '' ? (
-                                              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                                                <Text style={styles.orderItemExpandedDue}>
-                                                  <Text style={{ color: '#6a7282' }}>Due date : </Text><Text style={{ color: '#000' }}>{oi.dueDate}</Text>
-                                                </Text>
+                                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                <Text style={styles.orderItemCartQtyRateMetaLabel}>Qty: </Text>
+                                                <TouchableOpacity
+                                                  onPress={() =>
+                                                    setCartItemQtyRateDetailPopup({
+                                                      title: 'Qty',
+                                                      body: getQtyPopupBody({
+                                                        ACTUALQTY:
+                                                          oi.enteredQty != null && String(oi.enteredQty).trim() !== ''
+                                                            ? oi.enteredQty
+                                                            : oi.qty,
+                                                        BILLEQTY: oi.qty,
+                                                      }),
+                                                    })
+                                                  }
+                                                  activeOpacity={0.7}
+                                                >
+                                                  <Text style={styles.orderItemCartQtyRateLink}>
+                                                    {normalizeQtyDisplay(String(oi.enteredQty ?? oi.qty ?? '—'))}
+                                                  </Text>
+                                                </TouchableOpacity>
                                               </View>
                                             ) : null}
+                                          </View>
+                                          {oi.dueDate != null && String(oi.dueDate).trim() !== '' ? (
+                                            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 }}>
+                                              <Text style={styles.orderItemExpandedDue}>
+                                                <Text style={{ color: '#6a7282' }}>Due date : </Text><Text style={{ color: '#000' }}>{oi.dueDate}</Text>
+                                              </Text>
+                                            </View>
+                                          ) : (
+                                            <View style={{ flex: 1 }} />
+                                          )}
+                                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                             <Text style={[styles.orderItemExpandedQty, { fontWeight: '700', color: '#000' }]}>
                                               ₹{Number(oi.total ?? 0).toFixed(2)}
                                             </Text>
+                                            <TouchableOpacity
+                                              style={[styles.orderItemOptionsBtn, { backgroundColor: '#d1d5db' }]}
+                                              onPress={() => setOrderItemMenuId((prev) => (prev === oi.id ? null : oi.id))}
+                                              accessibilityLabel="Batch options"
+                                            >
+                                              <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
+                                            </TouchableOpacity>
                                           </View>
-                                          <TouchableOpacity
-                                            style={[styles.orderItemOptionsBtn, { backgroundColor: '#d1d5db' }]}
-                                            onPress={() => setOrderItemMenuId((prev) => (prev === oi.id ? null : oi.id))}
-                                            accessibilityLabel="Batch options"
-                                          >
-                                            <IconSvg width={16} height={4} style={styles.orderItemOptionsIcon} />
-                                          </TouchableOpacity>
                                         </View>
                                         <View pointerEvents="none" style={{ marginTop: 4 }}>
                                           {((oi.godown != null && String(oi.godown).trim() !== '') || (oi.batch != null && String(oi.batch).trim() !== '')) ? (
@@ -3288,14 +3566,22 @@ export default function OrderEntry() {
                   (() => {
                     const windowHeight = Dimensions.get('window').height;
                     const ledgerMaxHeight = windowHeight * 0.55;
-                    const contentH = ledgerDetailsContentHeight ?? 0;
-                    const scrollH = Math.min(contentH, ledgerMaxHeight);
-                    const needsScroll = ledgerDetailsContentHeight != null && ledgerDetailsContentHeight > ledgerMaxHeight;
+                    const measured = ledgerDetailsContentHeight;
+                    // Never use height: 0 before first layout — that prevents children from measuring and leaves the panel blank.
+                    const scrollStyle =
+                      measured == null
+                        ? { maxHeight: ledgerMaxHeight, backgroundColor: colors.white }
+                        : {
+                            maxHeight: ledgerMaxHeight,
+                            height: Math.min(measured, ledgerMaxHeight),
+                            backgroundColor: colors.white,
+                          };
+                    const needsScroll = measured != null && measured > ledgerMaxHeight;
                     return (
                   <ScrollView
                     keyboardShouldPersistTaps="handled"
                     automaticallyAdjustKeyboardInsets={true}
-                    style={{ maxHeight: ledgerMaxHeight, height: scrollH }}
+                    style={scrollStyle}
                     contentContainerStyle={styles.ledgerDetailsContent}
                     scrollEnabled={needsScroll}
                     onContentSizeChange={(_w, h) => {
@@ -3339,7 +3625,7 @@ export default function OrderEntry() {
                       const isUserDefined = methodType === 'As User Defined Value';
                       const showEditableInputs = isUserDefined;
                       return (
-                        <View key={`${selectedClass}-${name}-${idx}`}>
+                        <View key={`${effectiveClassForOrderCalcs || selectedClass}-${name}-${idx}`}>
                           <View style={styles.ledgerDetailsRow}>
                             <Text style={styles.ledgerDetailsLabel} numberOfLines={1}>{name}</Text>
                             {showEditableInputs ? (
@@ -3378,6 +3664,7 @@ export default function OrderEntry() {
                                     }}
                                     keyboardType="decimal-pad"
                                     placeholder="0.00"
+                                    placeholderTextColor={LABEL_GRAY}
                                   />
                                   <Text style={styles.ledgerDetailsPctSuffix}>%</Text>
                                 </View>
@@ -3393,6 +3680,7 @@ export default function OrderEntry() {
                                     onChangeText={(txt) => setLedgerValues((prev) => ({ ...prev, [name]: txt }))}
                                     keyboardType="decimal-pad"
                                     placeholder="0.00"
+                                    placeholderTextColor={LABEL_GRAY}
                                   />
                                 </View>
                               </>
@@ -3504,7 +3792,9 @@ export default function OrderEntry() {
                   {placeOrderLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={styles.footerBtnText}>{openedFromApprovalRef.current ? 'Modify Order' : strings.place_order}</Text>
+                    <Text style={styles.footerBtnText}>
+                      {editingMasterId ? 'Modify Order' : strings.place_order}
+                    </Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -4031,66 +4321,19 @@ export default function OrderEntry() {
         </View>
       </Modal>
 
-      {/* Cart "item to be allocated" attachment preview – swipe between multiple attachments */}
-      <Modal
-        visible={cartAttachmentPreview != null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCartAttachmentPreview(null)}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)' }}>
-          <TouchableOpacity
-            style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
-            onPress={() => setCartAttachmentPreview(null)}
-            activeOpacity={0.7}
-          >
-            <Icon name="close" size={24} color="#fff" />
-          </TouchableOpacity>
-          {cartAttachmentPreview && cartAttachmentPreview.items.length > 0 ? (
-            <FlatList
-              data={cartAttachmentPreview.items}
-              keyExtractor={(_, i) => String(i)}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              renderItem={({ item: uri, index }) => {
-                const lower = (uri || '').toLowerCase();
-                const isImage = lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp') || lower.includes('camera') || lower.includes('photo') || lower.includes('image') || lower.startsWith('file://');
-                const pageWidth = Dimensions.get('window').width;
-                const pageHeight = Dimensions.get('window').height;
-                return (
-                  <View style={{ width: pageWidth, height: pageHeight, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 }}>
-                    {isImage && uri ? (
-                      <Image
-                        source={{ uri }}
-                        style={{ width: pageWidth - 32, height: pageHeight * 0.7, borderRadius: 8 }}
-                        resizeMode="contain"
-                      />
-                    ) : (
-                      <View style={{ alignItems: 'center', gap: 16 }}>
-                        <Icon name="file-document-outline" size={64} color="rgba(255,255,255,0.6)" />
-                        <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }}>Document or non-image file</Text>
-                        <TouchableOpacity
-                          style={{ backgroundColor: 'rgba(255,255,255,0.2)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8 }}
-                          onPress={() => uri && Linking.openURL(uri).catch(() => Alert.alert('Error', 'Cannot open this file.'))}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={{ color: '#fff', fontWeight: '600' }}>Open</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
-                );
-              }}
-            />
-          ) : null}
-          {cartAttachmentPreview && cartAttachmentPreview.items.length > 1 ? (
-            <View style={{ position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center' }}>
-              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>Swipe for more</Text>
-            </View>
-          ) : null}
-        </View>
-      </Modal>
+      {/* Cart "item to be allocated" attachment preview – same modal as voucher details (pipe URLs, Prev/Next, safe area) */}
+      <AttachmentPreviewModal
+        visible={cartAttachmentPreview != null && cartAttachmentPreview.length > 0}
+        items={cartAttachmentPreview ?? []}
+        onClose={() => setCartAttachmentPreview(null)}
+      />
+
+      <DetailPopup
+        visible={cartItemQtyRateDetailPopup != null}
+        title={cartItemQtyRateDetailPopup?.title ?? 'Qty'}
+        body={cartItemQtyRateDetailPopup?.body ?? ''}
+        onClose={() => setCartItemQtyRateDetailPopup(null)}
+      />
 
       {/* Upload error popup – dark blue header, white body with status + message */}
       <Modal
@@ -4338,6 +4581,7 @@ export default function OrderEntry() {
       <GlobalDropdownModal
         visible={customerDropdownOpen}
         title="Select Customer"
+        headerBackgroundColor={isDraftMode ? '#0e172b' : undefined}
         data={customerDropdownOptions}
         onClose={() => {
           setCustomerDropdownOpen(false);
@@ -4366,7 +4610,6 @@ export default function OrderEntry() {
             setVoucherTypeLoading(false);
           }
           const defaultType = transConfig?.vouchertype?.trim();
-          const defaultClass = transConfig?.class?.trim();
           const matchedVoucher = defaultType ? list.find((v) => (v.NAME ?? '').trim().toLowerCase() === defaultType.toLowerCase()) : undefined;
           const first = matchedVoucher || list[0];
           if (first) {
@@ -4379,11 +4622,10 @@ export default function OrderEntry() {
             const hasClasses = classNames.length > 0;
             setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
 
-            let clsToSelect = hasClasses ? classNames[0] : '';
-            if (hasClasses && defaultClass) {
-              const matchedClass = classNames.find(c => c.toLowerCase() === defaultClass.toLowerCase());
-              if (matchedClass) clsToSelect = matchedClass;
-            }
+            const fromConfig = hasClasses
+              ? resolveDefaultClassFromTransConfig(name, transConfig, classNames)
+              : undefined;
+            const clsToSelect = hasClasses ? (fromConfig ?? classNames[0]) : '';
 
             setSelectedClass(clsToSelect);
             setItemDropdownOpen(true);
@@ -4462,7 +4704,13 @@ export default function OrderEntry() {
                     const classNames = classes.map((c) => (c.CLASSNAME ?? '').trim()).filter(Boolean);
                     const hasClasses = classNames.length > 0;
                     setClassOptions(hasClasses ? [NOT_APPLICABLE_CLASS, ...classNames] : []);
-                    setSelectedClass((prev) => (hasClasses ? (classNames.includes(prev) || prev === NOT_APPLICABLE_CLASS ? prev : '') : ''));
+                    setSelectedClass((prev) => {
+                      if (!hasClasses) return '';
+                      if (classNames.includes(prev) || prev === NOT_APPLICABLE_CLASS) return prev;
+                      return (
+                        resolveDefaultClassFromTransConfig(item, transConfig, classNames) ?? classNames[0] ?? ''
+                      );
+                    });
                     setVoucherTypeDropdownOpen(false);
                     if (hasClasses) setClassDropdownOpen(true);
                   }}
@@ -4812,6 +5060,7 @@ export default function OrderEntry() {
 
       {/* Overdue Bills Details modal - shown when closing balance is tapped */}
       <Modal
+        statusBarTranslucent
         visible={overdueBillsModalVisible}
         transparent
         animationType="fade"
@@ -5644,6 +5893,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6a7282',
   },
+  orderItemCartQtyRateMetaLabel: {
+    fontFamily: 'Roboto',
+    fontSize: 12,
+    color: '#6a7282',
+    fontWeight: '400',
+  },
+  orderItemCartQtyRateLink: {
+    fontFamily: 'Roboto',
+    fontSize: 13,
+    color: '#1f3a89',
+    fontWeight: '400',
+    textDecorationLine: 'underline',
+  },
   orderItemExpandedDue: {
     fontFamily: 'Roboto',
     fontSize: 13,
@@ -5757,7 +6019,7 @@ const styles = StyleSheet.create({
   },
   ledgerDetailsChevron: {},
   ledgerDetailsContent: {
-    backgroundColor: SECTION_BG,
+    backgroundColor: colors.white,
     paddingVertical: 10,
     paddingHorizontal: 12,
     paddingBottom: 5,
@@ -5772,16 +6034,16 @@ const styles = StyleSheet.create({
   ledgerDetailsLabel: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
     flex: 1,
     minWidth: 100,
   },
   ledgerDetailsPct: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
     minWidth: 45,
     textAlign: 'right',
     flexShrink: 0,
@@ -5789,8 +6051,8 @@ const styles = StyleSheet.create({
   ledgerDetailsAmt: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
     minWidth: 70,
     textAlign: 'right',
     flexShrink: 0,
@@ -5808,8 +6070,8 @@ const styles = StyleSheet.create({
   ledgerDetailsInputSmall: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
     paddingVertical: 4,
     paddingHorizontal: 0,
     minWidth: 36,
@@ -5817,20 +6079,20 @@ const styles = StyleSheet.create({
   ledgerDetailsPctSuffix: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
   },
   ledgerDetailsRupee: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
   },
   ledgerDetailsInputAmt: {
     fontFamily: 'Roboto',
     fontSize: 14,
-    fontWeight: '500',
-    color: '#0e172b',
+    fontWeight: '600',
+    color: '#000000',
     paddingVertical: 4,
     paddingHorizontal: 0,
     minWidth: 56,

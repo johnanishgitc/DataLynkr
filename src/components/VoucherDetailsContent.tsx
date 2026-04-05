@@ -86,12 +86,35 @@ export function normalizeRateDisplay(s: string): string {
   return t.replace(/\s*\/\s*/, '/').replace(/\s+(\S+)$/, '$1');
 }
 
+/**
+ * When actual qty includes a unit (e.g. "5 CAR") but billed is numeric-only ("5") and the numbers match,
+ * show billed with the same unit so the popup matches Tally / order-entry behaviour.
+ */
+function enrichBilledQtyWithUnitFromActual(actualStr: string, billedStr: string): string {
+  const t = String(actualStr).trim();
+  const numUnit = t.match(/^([\d.,]+)\s*(.+)$/);
+  if (!numUnit) return billedStr;
+  const actualNum = parseFloat(numUnit[1].replace(/,/g, ''));
+  const unitRest = numUnit[2].trim();
+  if (unitRest === '' || !/[A-Za-z]/.test(unitRest)) return billedStr;
+  const billedTrim = String(billedStr).trim();
+  if (!/^[\d.,]+$/.test(billedTrim)) return billedStr;
+  const billedNum = parseFloat(billedTrim.replace(/,/g, ''));
+  if (isNaN(actualNum) || isNaN(billedNum) || Math.abs(actualNum - billedNum) > 1e-6) {
+    return billedStr;
+  }
+  return `${billedTrim} ${unitRest}`;
+}
+
 /** Build popup body text showing actualqty and billedqty for Qty tap */
-function getQtyPopupBody(raw: Record<string, unknown>): string {
+export function getQtyPopupBody(raw: Record<string, unknown>): string {
   const actual = raw.ACTUALQTY ?? raw.actualqty;
   const billed = raw.BILLEQTY ?? raw.billedqty;
   const actualStr = actual != null && String(actual).trim() !== '' ? String(actual) : '—';
-  const billedStr = billed != null && String(billed).trim() !== '' ? String(billed) : '—';
+  let billedStr = billed != null && String(billed).trim() !== '' ? String(billed) : '—';
+  if (actualStr !== '—' && billedStr !== '—') {
+    billedStr = enrichBilledQtyWithUnitFromActual(actualStr, billedStr);
+  }
   return `Actual Qty: ${actualStr}\nBilled Qty: ${billedStr}`;
 }
 
@@ -889,34 +912,20 @@ export function ExpandableInventoryRow({
   const rateDisplay = rateVal != null ? amt(rateVal) : '—';
   const qtyDisplay = getQtyDisplay(itemRaw);
 
-  /** "ITEM TO BE ALLOCATED": show only attachment(s); no qty, rate, discount, amount */
-  if (isItemToBeAllocated) {
-    return (
-      <View style={[
-        styles.invRow,
-        altBg && styles.invRowAltBg,
-        invoiceOrder && styles.invRowInvoiceOrder,
-      ]}>
-        <View style={styles.invRowHead}>
-          <Text style={styles.invRowName} numberOfLines={2}>{name}</Text>
-        </View>
-        {attachmentLinks.length > 0 && onViewAttachments && (
-          <View style={[styles.invRowMeta, invoiceOrder && styles.invRowMetaInvoiceOrder]}>
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-              onPress={() => onViewAttachments(attachmentLinks)}
-              activeOpacity={0.7}
-            >
-              <Icon name="eye" size={18} color="#1f3a89" />
-              <Text style={[styles.invRowMetaValQtyRate, { color: '#1f3a89', textDecorationLine: 'underline' }]}>
-                View Attachment ({attachmentLinks.length})
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  }
+  /** Shown in expanded area; alloc items use "Description: …" prefix */
+  const descriptionBlockText =
+    basicUserDescription !== ''
+      ? isItemToBeAllocated
+        ? `Description: ${basicUserDescription}`
+        : basicUserDescription
+      : '';
+
+  /** Alloc line expands only for user description (no batch/qty sub-rows shown for this item) */
+  const canExpandAllocItem = isItemToBeAllocated && descriptionBlockText !== '';
+
+  useEffect(() => {
+    setHasDescriptionOverflow(false);
+  }, [descriptionBlockText]);
 
   const openQtyFromMain = () => {
     setQtyPopupBody(getQtyPopupBody(itemRaw));
@@ -932,14 +941,54 @@ export function ExpandableInventoryRow({
     setPopupSource(null);
   };
 
-  const mainRow = (
-    <View style={[
-      styles.invRow,
-      altBg && styles.invRowAltBg,
-      invoiceOrder && styles.invRowInvoiceOrder,
-      expanded && subAllocs.length > 0 && { borderBottomWidth: 0 },
-      popupSource === 'main' && styles.invRowHighlight,
-    ]}>
+  const expandedConnectsSubRows =
+    expanded &&
+    (isItemToBeAllocated
+      ? descriptionBlockText !== ''
+      : subAllocs.length > 0 || descriptionBlockText !== '');
+
+  /** "ITEM TO BE ALLOCATED": name + attachment only (no qty/rate/amount) */
+  const allocMainRow = (
+    <View
+      style={[
+        styles.invRow,
+        altBg && styles.invRowAltBg,
+        invoiceOrder && styles.invRowInvoiceOrder,
+        expandedConnectsSubRows && { borderBottomWidth: 0 },
+      ]}
+    >
+      <View style={styles.invRowHead}>
+        <Text style={styles.invRowName} numberOfLines={2}>
+          {name}
+        </Text>
+      </View>
+      {attachmentLinks.length > 0 && onViewAttachments && (
+        <View style={[styles.invRowMeta, invoiceOrder && styles.invRowMetaInvoiceOrder]}>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            onPress={() => onViewAttachments(attachmentLinks)}
+            activeOpacity={0.7}
+          >
+            <Icon name="eye" size={18} color="#1f3a89" />
+            <Text style={[styles.invRowMetaValQtyRate, { color: '#1f3a89', textDecorationLine: 'underline' }]}>
+              View Attachment ({attachmentLinks.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+
+  const standardMainRow = (
+    <View
+      style={[
+        styles.invRow,
+        altBg && styles.invRowAltBg,
+        invoiceOrder && styles.invRowInvoiceOrder,
+        expandedConnectsSubRows && { borderBottomWidth: 0 },
+        popupSource === 'main' && styles.invRowHighlight,
+      ]}
+    >
       <View style={styles.invRowHead}>
         <View style={styles.invRowHeadLeft}>
           <Text style={styles.invRowName} numberOfLines={2}>
@@ -952,19 +1001,19 @@ export function ExpandableInventoryRow({
         <View style={[styles.invRowMetaLine1, invoiceOrder && styles.invRowMetaLine1InvoiceOrder]}>
           <View style={[styles.invRowMetaItem, invoiceOrder && styles.invRowMetaItemInvoiceOrder]}>
             <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Qty: </Text>
-            <TouchableOpacity
-              onPress={openQtyFromMain}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={openQtyFromMain} activeOpacity={0.7}>
               <Text style={styles.invRowMetaValQtyRate}>{normalizeQtyDisplay(qtyDisplay)}</Text>
             </TouchableOpacity>
           </View>
-          <View style={[styles.invRowMetaItem, invoiceOrder && styles.invRowMetaItemInvoiceOrder, invoiceOrder && styles.invRowMetaItemRateInvoiceOrder]}>
+          <View
+            style={[
+              styles.invRowMetaItem,
+              invoiceOrder && styles.invRowMetaItemInvoiceOrder,
+              invoiceOrder && styles.invRowMetaItemRateInvoiceOrder,
+            ]}
+          >
             <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Rate: </Text>
-            <TouchableOpacity
-              onPress={openRateFromMain}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={openRateFromMain} activeOpacity={0.7}>
               <Text style={styles.invRowMetaValRate}>{normalizeRateDisplay(rateDisplay)}</Text>
             </TouchableOpacity>
           </View>
@@ -972,19 +1021,33 @@ export function ExpandableInventoryRow({
         <View style={[styles.invRowMetaItem, invoiceOrder && styles.invRowMetaItemInvoiceOrder]}>
           <Text style={[styles.invRowMetaLabel, invoiceOrder && styles.invRowMetaLabelColonInvoiceOrder]}>Discount: </Text>
           <Text style={styles.invRowMetaValDiscount}>
-            {item.DISCOUNT ?? itemRaw.discount != null
-              ? formatDiscountDisplay(itemRaw.discount)
-              : '0'}
+            {item.DISCOUNT ?? itemRaw.discount != null ? formatDiscountDisplay(itemRaw.discount) : '0'}
           </Text>
         </View>
       </View>
     </View>
   );
 
-  if (subAllocs.length === 0) {
+  const combinedMainRow = isItemToBeAllocated ? allocMainRow : standardMainRow;
+
+  const toggleExpanded = () => {
+    LayoutAnimation.configureNext({
+      duration: 320,
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+    setExpanded((e) => {
+      const next = !e;
+      onExpandChange?.(next);
+      return next;
+    });
+  };
+
+  if (subAllocs.length === 0 && !canExpandAllocItem) {
     return (
       <>
-        {mainRow}
+        {combinedMainRow}
         <DetailPopup
           visible={qtyPopupBody != null}
           title="Qty"
@@ -1001,34 +1064,21 @@ export function ExpandableInventoryRow({
     );
   }
 
-  const toggleExpanded = () => {
-    LayoutAnimation.configureNext({
-      duration: 320,
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-    });
-    setExpanded((e) => {
-      const next = !e;
-      onExpandChange?.(next);
-      return next;
-    });
-  };
-
   return (
     <View>
-      <TouchableOpacity
-        onPress={toggleExpanded}
-        activeOpacity={0.7}
-      >
-        {mainRow}
+      <TouchableOpacity onPress={toggleExpanded} activeOpacity={0.7}>
+        {combinedMainRow}
       </TouchableOpacity>
       {expanded && (
         <View style={styles.invSubAllocWrap}>
-          {basicUserDescription !== '' && (
+          {descriptionBlockText !== '' && (
             <View style={styles.invBasicDescriptionBox}>
-              <Text style={styles.invBasicDescriptionText} numberOfLines={3} ellipsizeMode="tail">
-                {basicUserDescription}
+              <Text
+                style={styles.invBasicDescriptionText}
+                numberOfLines={3}
+                ellipsizeMode={hasDescriptionOverflow ? 'clip' : 'tail'}
+              >
+                {descriptionBlockText}
               </Text>
               <Text
                 style={styles.invBasicDescriptionMeasure}
@@ -1038,12 +1088,12 @@ export function ExpandableInventoryRow({
                   if (lineCount <= 3 && hasDescriptionOverflow) setHasDescriptionOverflow(false);
                 }}
               >
-                {basicUserDescription}
+                {descriptionBlockText}
               </Text>
               {hasDescriptionOverflow && (
                 <TouchableOpacity
                   style={styles.invBasicDescriptionMoreWrap}
-                  onPress={() => setDescriptionPopup(basicUserDescription)}
+                  onPress={() => setDescriptionPopup(descriptionBlockText)}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.invBasicDescriptionMore}>...</Text>
@@ -1051,119 +1101,116 @@ export function ExpandableInventoryRow({
               )}
             </View>
           )}
-          {subAllocs.map((sub, idx) => {
-            const hasQty = sub.qty !== '' && sub.qty !== '—';
-            const hasMfg = sub.mfgDate != null && sub.mfgDate !== '';
-            const hasDue = sub.dueDate != null && sub.dueDate !== '';
-            const hasExpiry = sub.expiryDate != null && sub.expiryDate !== '';
-            const hasGodown = sub.godown !== '' && sub.godown !== '—';
-            const hasBatch = sub.batch !== '' && sub.batch !== '—';
-            const isLastRow = idx === subAllocs.length - 1;
-            // Expiry line: prefer EXPIRYDATE, else due date as fallback
-            const expiryForLine = hasExpiry ? sub.expiryDate : hasDue ? sub.dueDate : null;
-            const hasExpiryLine = expiryForLine != null && expiryForLine !== '';
-            const hasLine2 = hasBatch || hasGodown;
-            const hasLine3 = hasMfg || hasExpiryLine;
-            return (
-              <View
-                key={idx}
-                style={[
-                  styles.invSubAllocRow,
-                  isLastRow && styles.invSubAllocRowLast,
-                  popupSource === idx && styles.invSubAllocRowHighlight,
-                ]}
-              >
-                {/* Line 1: Qty and Amount only (no repeated item name) */}
-                <View style={styles.invSubAllocHead}>
-                  <View style={styles.invSubAllocDetailLine}>
-                    {hasQty ? (
-                      <>
-                        <Text style={styles.invSubAllocDetailLabel}>Qty</Text>
-                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setQtyPopupBody(`Actual Qty: ${sub.actualQty ?? '—'}\nBilled Qty: ${sub.billedQty ?? '—'}`);
-                            setPopupSource(idx);
-                          }}
-                          activeOpacity={0.7}
+          {!isItemToBeAllocated &&
+            subAllocs.map((sub, idx) => {
+              const hasQty = sub.qty !== '' && sub.qty !== '—';
+              const hasMfg = sub.mfgDate != null && sub.mfgDate !== '';
+              const hasDue = sub.dueDate != null && sub.dueDate !== '';
+              const hasExpiry = sub.expiryDate != null && sub.expiryDate !== '';
+              const hasGodown = sub.godown !== '' && sub.godown !== '—';
+              const hasBatch = sub.batch !== '' && sub.batch !== '—';
+              const isLastRow = idx === subAllocs.length - 1;
+              const expiryForLine = hasExpiry ? sub.expiryDate : hasDue ? sub.dueDate : null;
+              const hasExpiryLine = expiryForLine != null && expiryForLine !== '';
+              const hasLine2 = hasBatch || hasGodown;
+              const hasLine3 = hasMfg || hasExpiryLine;
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.invSubAllocRow,
+                    isLastRow && styles.invSubAllocRowLast,
+                    popupSource === idx && styles.invSubAllocRowHighlight,
+                  ]}
+                >
+                  <View style={styles.invSubAllocHead}>
+                    <View style={styles.invSubAllocDetailLine}>
+                      {hasQty ? (
+                        <>
+                          <Text style={styles.invSubAllocDetailLabel}>Qty</Text>
+                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setQtyPopupBody(`Actual Qty: ${sub.actualQty ?? '—'}\nBilled Qty: ${sub.billedQty ?? '—'}`);
+                              setPopupSource(idx);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.invSubAllocDetailVal, styles.invSubAllocQtyLink]}>{sub.qty}</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <Text style={styles.invSubAllocDetailLabel}>Qty : —</Text>
+                      )}
+                    </View>
+                    <Text style={styles.invSubAllocAmt}>₹{fmtNum(sub.amount)}</Text>
+                  </View>
+                  {hasLine2 && (
+                    <View
+                      style={[
+                        styles.invSubAllocDetailRow,
+                        styles.invSubAllocMeta,
+                        !hasBatch || !hasGodown ? { justifyContent: 'flex-start' } : null,
+                      ]}
+                    >
+                      {hasBatch && (
+                        <View style={[styles.invSubAllocDetailLine, { marginBottom: 0, flexShrink: 1 }]}>
+                          <Text style={styles.invSubAllocDetailLabel}>Batch#</Text>
+                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                          <Text style={styles.invSubAllocDetailVal} numberOfLines={2}>{sub.batch}</Text>
+                        </View>
+                      )}
+                      {hasGodown && (
+                        <View
+                          style={[
+                            styles.invSubAllocDetailLine,
+                            { marginBottom: 0, flexShrink: 1 },
+                            hasBatch && { marginLeft: 12 },
+                            hasBatch && { alignSelf: 'flex-end' },
+                          ]}
                         >
-                          <Text style={[styles.invSubAllocDetailVal, styles.invSubAllocQtyLink]}>{sub.qty}</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <Text style={styles.invSubAllocDetailLabel}>Qty : —</Text>
-                    )}
-                  </View>
-                  <Text style={styles.invSubAllocAmt}>₹{fmtNum(sub.amount)}</Text>
+                          <Text style={styles.invSubAllocDetailLabel}>Godown</Text>
+                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                          <Text style={styles.invSubAllocDetailVal} numberOfLines={2}>{sub.godown}</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                  {hasLine3 && (
+                    <View
+                      style={[
+                        styles.invSubAllocDetailRow,
+                        styles.invSubAllocMeta,
+                        { marginTop: hasLine2 ? 4 : 0 },
+                        !hasMfg || !hasExpiryLine ? { justifyContent: 'flex-start' } : null,
+                      ]}
+                    >
+                      {hasMfg && (
+                        <View style={[styles.invSubAllocDetailLine, { marginBottom: 0, flexShrink: 1 }]}>
+                          <Text style={styles.invSubAllocDetailLabel}>Mfg</Text>
+                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                          <Text style={styles.invSubAllocDetailVal}>{sub.mfgDate}</Text>
+                        </View>
+                      )}
+                      {hasExpiryLine && (
+                        <View
+                          style={[
+                            styles.invSubAllocDetailLine,
+                            { marginBottom: 0, flexShrink: 1 },
+                            hasMfg && { marginLeft: 12 },
+                            hasMfg && { alignSelf: 'flex-end' },
+                          ]}
+                        >
+                          <Text style={styles.invSubAllocDetailLabel}>Expiry</Text>
+                          <Text style={styles.invSubAllocDetailLabel}> : </Text>
+                          <Text style={styles.invSubAllocDetailVal}>{expiryForLine}</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
-                {/* Line 2: Batch and Godown on one line (space-between when both) */}
-                {hasLine2 && (
-                  <View
-                    style={[
-                      styles.invSubAllocDetailRow,
-                      styles.invSubAllocMeta,
-                      !hasBatch || !hasGodown ? { justifyContent: 'flex-start' } : null,
-                    ]}
-                  >
-                    {hasBatch && (
-                      <View style={[styles.invSubAllocDetailLine, { marginBottom: 0, flexShrink: 1 }]}>
-                        <Text style={styles.invSubAllocDetailLabel}>Batch#</Text>
-                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                        <Text style={styles.invSubAllocDetailVal} numberOfLines={2}>{sub.batch}</Text>
-                      </View>
-                    )}
-                    {hasGodown && (
-                      <View
-                        style={[
-                          styles.invSubAllocDetailLine,
-                          { marginBottom: 0, flexShrink: 1 },
-                          hasBatch && { marginLeft: 12 },
-                          hasBatch && { alignSelf: 'flex-end' },
-                        ]}
-                      >
-                        <Text style={styles.invSubAllocDetailLabel}>Godown</Text>
-                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                        <Text style={styles.invSubAllocDetailVal} numberOfLines={2}>{sub.godown}</Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-                {/* Line 3: Mfg and Expiry on one line */}
-                {hasLine3 && (
-                  <View
-                    style={[
-                      styles.invSubAllocDetailRow,
-                      styles.invSubAllocMeta,
-                      { marginTop: hasLine2 ? 4 : 0 },
-                      (!hasMfg || !hasExpiryLine) ? { justifyContent: 'flex-start' } : null,
-                    ]}
-                  >
-                    {hasMfg && (
-                      <View style={[styles.invSubAllocDetailLine, { marginBottom: 0, flexShrink: 1 }]}>
-                        <Text style={styles.invSubAllocDetailLabel}>Mfg</Text>
-                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                        <Text style={styles.invSubAllocDetailVal}>{sub.mfgDate}</Text>
-                      </View>
-                    )}
-                    {hasExpiryLine && (
-                      <View
-                        style={[
-                          styles.invSubAllocDetailLine,
-                          { marginBottom: 0, flexShrink: 1 },
-                          hasMfg && { marginLeft: 12 },
-                          hasMfg && { alignSelf: 'flex-end' },
-                        ]}
-                      >
-                        <Text style={styles.invSubAllocDetailLabel}>Expiry</Text>
-                        <Text style={styles.invSubAllocDetailLabel}> : </Text>
-                        <Text style={styles.invSubAllocDetailVal}>{expiryForLine}</Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-            );
-          })}
+              );
+            })}
         </View>
       )}
       <DetailPopup
@@ -1180,7 +1227,7 @@ export function ExpandableInventoryRow({
       />
       <DetailPopup
         visible={descriptionPopup != null}
-        title="Basic User Description"
+        title="Description"
         body={descriptionPopup ?? ''}
         onClose={() => setDescriptionPopup(null)}
       />
@@ -1244,11 +1291,14 @@ export interface LedgerDetailsRow {
 export interface LedgerDetailsExpandableProps {
   rows: LedgerDetailsRow[];
   emptyMessage?: string;
+  /** Fired when the ledger details panel opens/closes (e.g. parent adjusts scroll inset). */
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 export function LedgerDetailsExpandable({
   rows,
   emptyMessage = 'No additional ledger details',
+  onExpandedChange,
 }: LedgerDetailsExpandableProps) {
   const [expanded, setExpanded] = useState(false);
   const toggleExpanded = () => {
@@ -1258,7 +1308,9 @@ export function LedgerDetailsExpandable({
       create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
       delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
     });
-    setExpanded((prev) => !prev);
+    const next = !expanded;
+    setExpanded(next);
+    onExpandedChange?.(next);
   };
   return (
     <View style={styles.ledgerDetailsWrap}>
@@ -1318,6 +1370,7 @@ export interface VoucherDetailsFooterProps {
   ledgerEmptyMessage?: string;
   /** When true, use VDInv (invoice/order) spacing: item total 13px, grand total 16px vertical */
   invoiceOrder?: boolean;
+  onLedgerDetailsExpandedChange?: (expanded: boolean) => void;
 }
 
 export function VoucherDetailsFooter({
@@ -1327,6 +1380,7 @@ export function VoucherDetailsFooter({
   ledgerRows,
   ledgerEmptyMessage,
   invoiceOrder,
+  onLedgerDetailsExpandedChange,
 }: VoucherDetailsFooterProps) {
   return (
     <View style={[styles.footerWrap, invoiceOrder && styles.footerWrapInvoiceOrder]}>
@@ -1339,8 +1393,11 @@ export function VoucherDetailsFooter({
       <LedgerDetailsExpandable
         rows={ledgerRows}
         emptyMessage={ledgerEmptyMessage}
+        onExpandedChange={onLedgerDetailsExpandedChange}
       />
-      <View style={[styles.grandTotalBar, invoiceOrder && styles.grandTotalBarInvoiceOrder]}>
+      <View
+        style={[styles.grandTotalBar, invoiceOrder && styles.grandTotalBarInvoiceOrder]}
+      >
         <Text style={styles.grandTotalLabel}>Grand Total</Text>
         <Text style={styles.grandTotalVal}>
           {fmtNum(grandTotal)} {drCr}
