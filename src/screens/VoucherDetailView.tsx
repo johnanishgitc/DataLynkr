@@ -981,8 +981,8 @@ export default function VoucherDetailView() {
         handleBack();
         return true;
       };
-      BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
-      return () => BackHandler.removeEventListener('hardwareBackPress', onHardwareBack);
+      const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+      return () => sub.remove();
     }, [returnToOrderEntryClear, returnToApprovalsOnBack, handleBack]),
   );
 

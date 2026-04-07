@@ -1,0 +1,75 @@
+# DataLynkr Cursor Rules
+
+## 16KB Page Alignment (Android)
+
+This project enforces 16KB ELF segment alignment for all native (`.so`) libraries
+targeting arm64-v8a. This is required for Android 15+ devices and will be mandatory
+for Google Play Store uploads.
+
+### How alignment is achieved
+
+1. **React Native 0.77.3** ships prebuilt `.so` files (`libreactnative.so`,
+   `libhermes.so`, `libjsi.so`, etc.) that are already 16KB-aligned.
+
+2. **CMake linker flags** in `android/build.gradle` inject
+   `-Wl,-z,max-page-size=16384` into every native subproject (libraries that
+   compile C/C++ from source via CMake, such as `react-native-vision-camera` and
+   `react-native-quick-sqlite`).
+
+3. **NDK 27.1** (`ndkVersion = "27.1.12297006"`) produces 16KB-compatible
+   `libc++_shared.so` and avoids the `__cxa_init_primary_exception` symbol issue
+   present in NDK 28.
+
+### Rules when modifying native dependencies
+
+- **Do not downgrade React Native** below 0.77. Versions ≤ 0.76 ship prebuilt
+  `.so` files with 4KB (0x1000) alignment that will fail on 16KB-page devices.
+
+- **Do not remove** the `subprojects` block in `android/build.gradle` that sets
+  the CMake `-Wl,-z,max-page-size=16384` linker flag.
+
+- **Do not change** `ndkVersion` without verifying that the new NDK's
+  `libc++_shared.so` is 16KB-aligned and symbol-compatible with all native
+  modules.
+
+- **After adding any new native module** (one that includes `.so` files or
+  compiles C/C++ code), verify alignment:
+  ```bash
+  # Pull APK from device
+  adb shell pm path com.datalynkr
+  adb pull <path> app.apk
+
+  # Extract and check arm64-v8a LOAD segment alignment
+  # Every LOAD segment must show alignment >= 0x4000
+  llvm-readelf -l lib/arm64-v8a/<new-library>.so | grep LOAD
+  ```
+
+### Kotlin and Compose constraints
+
+- **Kotlin stays at 1.9.24.** Many third-party React Native libraries do not
+  compile with Kotlin 2.0's stricter type checking. Do not upgrade Kotlin
+  without testing all native modules.
+
+- **Compose is disabled** (`buildFeatures { compose = false }` is implicit by
+  omission). The project uses React Native for its UI. Do not add
+  `compose = true` or Compose dependencies — they force the Kotlin 2.0 Compose
+  Compiler Gradle plugin, which conflicts with Kotlin 1.9.
+
+### Dependency update checklist
+
+When upgrading any React Native or native Android dependency:
+
+1. Check the library's changelog for 16KB alignment support.
+2. Build the debug APK: `cd android && .\gradlew.bat :app:installDebug`
+3. Pull the APK from the device and verify ALL arm64-v8a `.so` files show
+   `0x4000` alignment in their LOAD segments via `llvm-readelf -l`.
+4. Launch the app and check `adb logcat` for `UnsatisfiedLinkError` or
+   `dlopen failed` errors.
+5. If a library ships a `.so` with 4KB alignment, open an issue upstream or
+   apply the CMake linker flag workaround.
+
+### Architecture targets
+
+The project builds for `arm64-v8a` and `x86_64` (set in
+`android/gradle.properties`). Only arm64-v8a requires 16KB alignment; x86_64
+libraries with 4KB alignment are acceptable (emulator-only architecture).

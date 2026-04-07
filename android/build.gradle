@@ -12,7 +12,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.7.3")
+        classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
     }
@@ -23,6 +23,23 @@ allprojects {
         resolutionStrategy {
             force "androidx.core:core-ktx:1.15.0"
             force "androidx.core:core:1.15.0"
+        }
+    }
+}
+
+subprojects { subproject ->
+    afterEvaluate {
+        if (subproject.plugins.hasPlugin("com.android.library") ||
+            subproject.plugins.hasPlugin("com.android.application")) {
+            subproject.android {
+                defaultConfig {
+                    externalNativeBuild {
+                        cmake {
+                            arguments "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384"
+                        }
+                    }
+                }
+            }
         }
     }
 }
