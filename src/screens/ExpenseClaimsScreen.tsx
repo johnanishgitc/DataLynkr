@@ -32,6 +32,7 @@ import { formatDateDmmmYy, parseDateDmmmYy } from '../utils/dateUtils';
 import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { useS3Attachment } from '../hooks/useS3Attachment';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import OrderEntryStyleDropdownModal from '../components/OrderEntryStyleDropdownModal';
 import { PopupModal } from '../components/PopupModal';
 
@@ -46,6 +47,7 @@ export default function ExpenseClaimsScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
 
   const [category, setCategory] = useState('');
   const [voucherType, setVoucherType] = useState('');
@@ -618,6 +620,7 @@ export default function ExpenseClaimsScreen() {
         onItemPress={onSidebarItemPress}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
       <OrderEntryStyleDropdownModal
         visible={voucherTypeOpen}
         title="Select Voucher Type"

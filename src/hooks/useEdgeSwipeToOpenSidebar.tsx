@@ -42,7 +42,7 @@ function EdgeSwipeOverlay({ onSwipeOpen, enabled }: EdgeSwipeOverlayProps) {
 
 /**
  * Returns a component to render at the root of a screen that captures left-edge swipe gestures
- * to open the sidebar. Only active when Android navigation is set to buttons (not gestures).
+ * to open the sidebar. Only active on Android with 3-button or 2-button navigation (not gesture nav).
  *
  * Usage:
  * ```

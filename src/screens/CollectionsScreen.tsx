@@ -33,6 +33,7 @@ import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 import { getLedgerListNamesFromDataManagementCache } from '../cache';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../components/ClipDocsPopup';
 import { useS3Attachment } from '../hooks/useS3Attachment';
+import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import OrderEntryStyleDropdownModal from '../components/OrderEntryStyleDropdownModal';
 import { PopupModal } from '../components/PopupModal';
 
@@ -47,6 +48,7 @@ export default function CollectionsScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
 
   const [customer, setCustomer] = useState('');
   const [voucherType, setVoucherType] = useState('');
@@ -616,6 +618,7 @@ export default function CollectionsScreen() {
         onItemPress={onSidebarItemPress}
         onCompanyChange={() => resetNavigationOnCompanyChange()}
       />
+      <EdgeSwipe />
       <OrderEntryStyleDropdownModal
         visible={voucherTypeOpen}
         title="Select Voucher Type"
