@@ -1,0 +1,86 @@
+﻿> Task :gradle-plugin:settings-plugin:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:shared:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:shared:processResources NO-SOURCE
+> Task :gradle-plugin:settings-plugin:pluginDescriptors
+> Task :gradle-plugin:settings-plugin:processResources
+> Task :gradle-plugin:shared:compileKotlin
+> Task :gradle-plugin:shared:compileJava NO-SOURCE
+> Task :gradle-plugin:shared:classes UP-TO-DATE
+> Task :gradle-plugin:shared:jar
+> Task :gradle-plugin:settings-plugin:compileKotlin
+> Task :gradle-plugin:settings-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:settings-plugin:classes
+> Task :gradle-plugin:settings-plugin:jar
+> Task :gradle-plugin:react-native-gradle-plugin:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:react-native-gradle-plugin:pluginDescriptors
+> Task :gradle-plugin:react-native-gradle-plugin:processResources
+
+> Task :gradle-plugin:react-native-gradle-plugin:compileKotlin
+w: file:///C:/Users/johna/OneDrive/Desktop/DataLynkr-app/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/tasks/BundleHermesCTask.kt:130:13 'exec(Action<in ExecSpec!>!): ExecResult!' is deprecated. Deprecated in Java
+
+> Task :gradle-plugin:react-native-gradle-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:react-native-gradle-plugin:classes
+> Task :gradle-plugin:react-native-gradle-plugin:jar
+
+> Configure project :react-native-vision-camera
+[VisionCamera] Thank you for using VisionCamera Γ¥ñ∩╕Å
+[VisionCamera] If you enjoy using VisionCamera, please consider sponsoring this project: https://github.com/sponsors/mrousavy
+[VisionCamera] node_modules found at C:\Users\johna\OneDrive\Desktop\DataLynkr-app\node_modules
+[VisionCamera] VisionCamera_enableFrameProcessors is set to true!
+[VisionCamera] react-native-worklets-core not found, Frame Processors are disabled!
+[VisionCamera] VisionCamera_enableCodeScanner is set to true!
+WARNING: The specified Android SDK Build Tools version (31.0.0) is ignored, as it is below the minimum supported version (34.0.0) for Android Gradle Plugin 8.7.3.
+Android SDK Build Tools 34.0.0 will be used.
+To suppress this warning, remove "buildToolsVersion '31.0.0'" from your build.gradle file, as each version of the Android Gradle Plugin now has a default version of the build tools.
+
+> Task :app:clean
+> Task :lottie-react-native:clean
+> Task :react-native-async-storage_async-storage:clean
+> Task :react-native-document-picker:clean
+> Task :react-native-file-viewer:clean
+> Task :react-native-fs:clean
+> Task :react-native-geolocation-service:clean
+> Task :react-native-html-to-pdf:clean
+> Task :react-native-image-picker:clean
+> Task :react-native-keep-awake:clean
+> Task :react-native-linear-gradient:clean
+> Task :react-native-permissions:clean
+> Task :react-native-print:clean
+
+> Task :react-native-quick-sqlite:externalNativeBuildCleanDebug
+Clean RNQuickSQLite-arm64-v8a
+Clean RNQuickSQLite-x86_64
+Clean RNQuickSQLite-armeabi-v7a
+Clean RNQuickSQLite-x86
+
+> Task :react-native-quick-sqlite:externalNativeBuildCleanRelease
+Clean RNQuickSQLite-arm64-v8a
+Clean RNQuickSQLite-x86_64
+Clean RNQuickSQLite-armeabi-v7a
+Clean RNQuickSQLite-x86
+
+> Task :react-native-quick-sqlite:clean
+> Task :react-native-safe-area-context:clean
+
+> Task :react-native-screens:externalNativeBuildCleanDebug
+Clean rnscreens-arm64-v8a
+Clean rnscreens-x86_64
+Clean rnscreens-armeabi-v7a
+Clean rnscreens-x86
+
+> Task :react-native-screens:externalNativeBuildCleanRelease
+Clean rnscreens-arm64-v8a
+Clean rnscreens-x86_64
+Clean rnscreens-armeabi-v7a
+Clean rnscreens-x86
+
+> Task :react-native-screens:clean
+> Task :react-native-share:clean
+> Task :react-native-svg:clean
+> Task :react-native-system-navigation-bar:clean
+> Task :react-native-vector-icons:clean
+> Task :react-native-vision-camera:deleteCmakeCache
+> Task :react-native-vision-camera:externalNativeBuildCleanDebug
+> Task :react-native-vision-camera:externalNativeBuildCleanRelease
+> Task :react-native-vision-camera:clean UP-TO-DATE
+> Task :react-native-webview:clean

@@ -51,6 +51,8 @@ export type PlaceOrderPermissions = {
 export type PlaceOrderTransConfig = {
     vouchertype?: string;
     class?: string;
+    /** Lowercase voucher type → default class from `trans_config.place_order` rows (matched to current voucher type). */
+    placeOrderDefaultClassByVoucherType?: Record<string, string>;
     /** Default quantity for new items in OrderEntryItemDetail (from configuration/permissions, e.g. permission_key "def_qty"). */
     defaultQty?: number;
     /** When true, new orders are saved as Optional by default (from configuration/permissions, e.g. permission_key "save_optional"). */
@@ -196,13 +198,29 @@ export function useUserAccess(): UseUserAccessReturn {
                 if (transConfigArr.length > 0) {
                     const firstConfig = transConfigArr[0];
 
-                    // Existing vouchertype/class extraction from place_order[0]
+                    // Voucher type / class defaults: every place_order row with vouchertype+class (plus permission rows).
                     if (Array.isArray((firstConfig as any)?.place_order) && (firstConfig as any).place_order.length > 0) {
                         const poConfigArr = (firstConfig as any).place_order as Array<Record<string, unknown>>;
+                        const classByVt: Record<string, string> = {};
+                        let firstPairVt: string | undefined;
+                        let firstPairCl: string | undefined;
+                        for (const cfg of poConfigArr) {
+                            const vt = String((cfg as any).vouchertype ?? '').trim();
+                            const cl = String((cfg as any).class ?? '').trim();
+                            if (vt && cl) {
+                                classByVt[vt.toLowerCase()] = cl;
+                                if (firstPairVt === undefined) {
+                                    firstPairVt = vt;
+                                    firstPairCl = cl;
+                                }
+                            }
+                        }
                         const poConfig = poConfigArr[0] ?? {};
                         pOrderTransConfig = {
-                            vouchertype: poConfig?.vouchertype as string | undefined,
-                            class: poConfig?.class as string | undefined,
+                            vouchertype: (firstPairVt ?? (poConfig?.vouchertype as string | undefined)) as string | undefined,
+                            class: (firstPairCl ?? (poConfig?.class as string | undefined)) as string | undefined,
+                            placeOrderDefaultClassByVoucherType:
+                                Object.keys(classByVt).length > 0 ? classByVt : undefined,
                         };
 
                         // Try to find configuration entries such as:

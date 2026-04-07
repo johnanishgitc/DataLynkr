@@ -14,6 +14,9 @@ export {
   toNum,
   fmtNum,
   amt,
+  getQtyPopupBody,
+  normalizeQtyDisplay,
+  normalizeRateDisplay,
   getInventoryAmount,
   getLedgerEntryAmount,
   getLedgerEntryPercentage,
@@ -25,6 +28,7 @@ export {
   LedgerDetailsExpandable,
   VoucherDetailsFooter,
   StockBreakdownModal,
+  DetailPopup,
 } from './VoucherDetailsContent';
 export type {
   VoucherCustomerBarProps,
@@ -34,4 +38,5 @@ export type {
   LedgerDetailsExpandableProps,
   VoucherDetailsFooterProps,
   StockBreakdownModalProps,
+  DetailPopupProps,
 } from './VoucherDetailsContent';

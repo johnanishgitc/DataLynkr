@@ -3,16 +3,10 @@ import { BackHandler, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, ScrollProvider } from './src/store';
 import RootNavigator from './src/navigation/RootNavigator';
-import { requestBackgroundPermissions } from './src/utils/permissions';
 import { navigationRef } from './src/navigation/navigationRef';
 
 export default function App() {
   const [showExitModal, setShowExitModal] = useState(false);
-
-  useEffect(() => {
-    // Request background usage and background data usage permissions when app opens
-    requestBackgroundPermissions();
-  }, []);
 
   useEffect(() => {
     const onBackPress = () => {

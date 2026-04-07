@@ -7,7 +7,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import type { MainStackParamList } from '../navigation/types';
+import type { LedgerStackParamList } from '../navigation/types';
 import type { SalesOrderOutstandingRow, SalesOrderOutstandingVoucher } from '../api/models/ledger';
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
@@ -19,7 +19,7 @@ import apiService from '../api/client';
 import type { SalesOrderOutstandingResponse } from '../api/models/ledger';
 import InventoryAllocationIcon from '../components/InventoryAllocationIcon';
 
-type Route = RouteProp<MainStackParamList, 'SalesOrderVoucherDetails'>;
+type Route = RouteProp<LedgerStackParamList, 'SalesOrderVoucherDetails'>;
 
 const TOP_BG = '#e6ecfd';
 const TOP_BORDER = '#c4d4ff';

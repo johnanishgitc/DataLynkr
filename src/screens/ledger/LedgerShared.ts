@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { formatDate } from '../../utils/dateUtils';
 import type {
   LedgerReportData,
@@ -27,6 +27,58 @@ export const REPORT_OPTIONS = [
 export type ReportType = (typeof REPORT_OPTIONS)[number];
 
 export const DEFAULT_REPORT: ReportType = 'Ledger Vouchers';
+
+/**
+ * Distance from the physical bottom of the screen to the top edge of the app FooterTabBar.
+ * Keeps ledger “GRAND TOTAL” and similar bars above the tab bar (matches paddingBottom / gesture logic there).
+ */
+export function appFooterTabBarOffsetFromBottom(insets: { bottom: number }): number {
+  const isAndroidGestureNav =
+    Platform.OS === 'android' && insets.bottom > 0 && insets.bottom < 40;
+  const gestureNavPadding = isAndroidGestureNav ? 10 : 0;
+  const barPaddingBottom =
+    Math.max(insets.bottom - Platform.select({ ios: 4, default: 0 }), 0) + gestureNavPadding;
+  const paddingTop = 8;
+  const tabColumnHeight = 24 + 2 + 14;
+  return paddingTop + tabColumnHeight + barPaddingBottom;
+}
+
+/** Pull GRAND TOTAL down vs measured tab-bar height (devices / nav modes vary). */
+export const LEDGER_GRAND_TOTAL_BOTTOM_NUDGE = 0;
+
+/** Collapsed bar: borderTop + footerBar vertical padding + label row (~13px text). */
+export const LEDGER_GRAND_TOTAL_BAR_HEIGHT = 44;
+
+/**
+ * Android 3-button navigation usually reports a larger bottom inset (often ≥40);
+ * gesture bar is smaller. Used to tune scroll-slide so GRAND TOTAL does not sit on system keys.
+ */
+export function isAndroidThreeButtonNavInsets(insets: { bottom: number }): boolean {
+  return Platform.OS === 'android' && insets.bottom >= 40;
+}
+
+/**
+ * How far GRAND TOTAL translates down on scroll when the app tab bar hides (collapsed).
+ * On Android with 3-button nav the tab bar goes off-screen but the system bar stays — use a
+ * shorter slide than gesture mode so the bar stays above the hardware/software keys.
+ */
+export function ledgerGrandTotalScrollSlidePx(isTablet: boolean, insets: { bottom: number }): number {
+  const base = isTablet ? 68 : 58;
+  if (isAndroidThreeButtonNavInsets(insets)) {
+    // Between full slide (gesture) and the old 0.48 tweak — a bit lower without covering system keys
+    return Math.max(36, Math.round(base * 0.83));
+  }
+  return base;
+}
+
+export function ledgerGrandTotalBottomOffset(insets: { bottom: number }, isTablet: boolean): number {
+  return appFooterTabBarOffsetFromBottom(insets) + (isTablet ? 11 : 0) - LEDGER_GRAND_TOTAL_BOTTOM_NUDGE;
+}
+
+/** ScrollView padding so rows stay above the blue bar + tab strip (no peek-through when scrolled). */
+export function ledgerGrandTotalListPaddingBottom(insets: { bottom: number }, isTablet: boolean): number {
+  return ledgerGrandTotalBottomOffset(insets, isTablet) + LEDGER_GRAND_TOTAL_BAR_HEIGHT - 8;
+}
 
 // Map display names to API report types
 export const REPORT_TYPE_MAP: Record<string, string> = {
@@ -1325,7 +1377,7 @@ export const sharedStyles = StyleSheet.create({
     fontWeight: '500',
     color: '#6a7282',
   },
-  // Footer styles — bottom offset must clear app tab bar (content + safe area)
+  // Footer styles — use appFooterTabBarOffsetFromBottom(insets) + tablet fudge for `bottom` on screen
   footer: {
     position: 'absolute',
     left: 0,

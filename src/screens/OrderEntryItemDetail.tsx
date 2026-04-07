@@ -116,7 +116,41 @@ type OrderLineItem = {
   rateUnit?: string;
 };
 
+/**
+ * Same string as Cart parent row in OrderEntry (`formatParentQtyLine` for a single line).
+ * Uses `enteredQty` when set (compound UOM / display qty) so batch lines match the main cart.
+ */
+function formatCartStyleQtyLine(
+  line: Pick<OrderLineItem, 'enteredQty' | 'qty' | 'rate' | 'discount' | 'total'>,
+  perms: Pick<PlaceOrderPermissions, 'show_rateamt_Column' | 'show_disc_Column'>,
+): { left: string; amountStr: string } {
+  const qty = line.enteredQty != null && String(line.enteredQty).trim() !== '' ? line.enteredQty : line.qty;
+  const amountStr = perms.show_rateamt_Column ? `₹${Number(line.total).toFixed(2)}` : '';
+  if (!perms.show_rateamt_Column && !perms.show_disc_Column) {
+    return { left: `Qty: ${qty}`, amountStr };
+  }
+  const rate = perms.show_rateamt_Column ? (line.rate != null ? String(line.rate) : '-') : '';
+  const disc =
+    perms.show_disc_Column &&
+    line.discount != null &&
+    !Number.isNaN(Number(line.discount))
+      ? `(${Number(line.discount)}%)`
+      : '';
+  const parts: string[] = [`Qty: ${qty}`];
+  if (rate) parts.push(`*${rate}`);
+  if (disc) parts.push(disc);
+  if (amountStr) parts.push(`=`);
+  return { left: parts.join(''), amountStr };
+}
 
+/**
+ * When the qty field has no space separator, always use decimal-pad.
+ * The alphabet keyboard (default) is only needed when the cursor is in the unit part,
+ * i.e. after a space. Without a space the user is always editing the numeric portion.
+ */
+function qtyInputNoSpaceWantsNumericKeyboard(_value: string): boolean {
+  return true;
+}
 
 export default function OrderEntryItemDetail() {
   const insets = useSafeAreaInsets();
@@ -197,7 +231,8 @@ export default function OrderEntryItemDetail() {
   const [lineItems, setLineItems] = useState<OrderLineItem[]>([]);
   const [nextId, setNextId] = useState(1);
   const [qtySelection, setQtySelection] = useState<{ start: number; end: number } | undefined>();
-  const [qtyKeyboardType, setQtyKeyboardType] = useState<'numeric' | 'default'>('numeric');
+  /** decimal-pad while editing the numeric part; default when cursor is in the unit (after space). */
+  const [qtyKeyboardType, setQtyKeyboardType] = useState<'decimal-pad' | 'default'>('decimal-pad');
   const [itemMenuLineId, setItemMenuLineId] = useState<number | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
@@ -220,6 +255,8 @@ export default function OrderEntryItemDetail() {
   const godownBatchRowRef = useRef<View>(null);
   const perFieldRef = useRef<View | null>(null); // kept for compatibility (Per dropdown now inline; ref unused)
   const qtyInputRef = useRef<TextInput>(null);
+  /** Latest qty text for keyboard sync — onSelectionChange can run before state updates after a keystroke. */
+  const qtyTextRef = useRef(String(initialDefaultQty));
   /** Set when user clicks Update Batch so that Update Cart uses line item data (form is cleared after Update Batch). */
   const lastUpdateWasBatchRef = useRef(false);
   const [perDropdownOpen, setPerDropdownOpen] = useState(false);
@@ -252,6 +289,19 @@ export default function OrderEntryItemDetail() {
   const [validationAlert, setValidationAlert] = useState<{ title: string; message: string } | null>(null);
   const [qtyValidationError, setQtyValidationError] = useState(false);
   const [descriptionValidationError, setDescriptionValidationError] = useState(false);
+
+  useEffect(() => {
+    qtyTextRef.current = quantityInput;
+  }, [quantityInput]);
+
+  const syncQtyKeyboardFromTextAndCursor = useCallback((value: string, cursorPos: number) => {
+    const spaceIdx = value.indexOf(' ');
+    if (spaceIdx < 0) {
+      setQtyKeyboardType(qtyInputNoSpaceWantsNumericKeyboard(value) ? 'decimal-pad' : 'default');
+      return;
+    }
+    setQtyKeyboardType(cursorPos > spaceIdx ? 'default' : 'decimal-pad');
+  }, []);
 
   /** Fetch units from api/tally/stockitem for UOM (shared across items). */
   useEffect(() => {
@@ -1156,31 +1206,28 @@ export default function OrderEntryItemDetail() {
                         value={quantityInput}
                         onChangeText={(text) => {
                           const validated = validateQuantityInput(text, selectedItemUnitConfig, units, false);
+                          qtyTextRef.current = validated;
                           setQuantityInput(validated);
                           if (qtyValidationError) setQtyValidationError(false);
+                          // Cursor is at end after this edit; avoids stale quantityInput in onSelectionChange flipping keyboard to letters.
+                          syncQtyKeyboardFromTextAndCursor(validated, validated.length);
                         }}
                         onFocus={() => {
                           const s = quantityInput;
+                          qtyTextRef.current = s;
                           const spaceIdx = s.indexOf(' ');
-                          // When empty or no space yet, use default keyboard so user can type numbers or unit names
-                          if (s.trim() === '') {
-                            setQtyKeyboardType('default');
-                            setQtySelection(undefined);
-                            return;
-                          }
                           if (spaceIdx < 0) {
-                            // If only unit text remains (e.g. after backspacing numeric part), keep numeric keyboard
-                            // so user can re-enter quantity without keyboard mode switching.
-                            const hasLettersOnly = /^[A-Za-z]+$/.test(s.trim());
-                            setQtyKeyboardType(hasLettersOnly ? 'numeric' : 'default');
                             setQtySelection(undefined);
+                            syncQtyKeyboardFromTextAndCursor(s, s.length);
                             return;
                           }
-                          const endOfNumber = spaceIdx >= 0 ? spaceIdx : s.length;
+                          const endOfNumber = spaceIdx;
                           if (endOfNumber > 0) {
                             setQtySelection({ start: endOfNumber, end: endOfNumber });
+                          } else {
+                            setQtySelection(undefined);
                           }
-                          setQtyKeyboardType('numeric');
+                          syncQtyKeyboardFromTextAndCursor(s, endOfNumber > 0 ? endOfNumber : 0);
                         }}
                         onBlur={() => {
                           let validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units, true);
@@ -1265,19 +1312,7 @@ export default function OrderEntryItemDetail() {
                         onSelectionChange={(e) => {
                           if (qtySelection) setQtySelection(undefined);
                           const cursorPos = e.nativeEvent.selection.start;
-                          const spaceIdx = quantityInput.indexOf(' ');
-                          // Empty or no space: default keyboard (allow numbers and letters)
-                          if (spaceIdx < 0) {
-                            const hasLettersOnly = /^[A-Za-z]+$/.test(quantityInput.trim());
-                            const desiredKeyboard = hasLettersOnly && cursorPos === 0 ? 'numeric' : 'default';
-                            if (qtyKeyboardType !== desiredKeyboard) setQtyKeyboardType(desiredKeyboard);
-                            return;
-                          }
-                          if (cursorPos > spaceIdx) {
-                            if (qtyKeyboardType !== 'default') setQtyKeyboardType('default');
-                          } else {
-                            if (qtyKeyboardType !== 'numeric') setQtyKeyboardType('numeric');
-                          }
+                          syncQtyKeyboardFromTextAndCursor(qtyTextRef.current, cursorPos);
                         }}
                         placeholder={selectedItemUnitConfig?.BASEUNITS ? `0 ${selectedItemUnitConfig.BASEUNITS}` : '0'}
                         placeholderTextColor={LABEL_GRAY}
@@ -1752,10 +1787,19 @@ export default function OrderEntryItemDetail() {
                       <View style={[styles.lineItemMeta, { alignItems: 'flex-start' }]}>
                         {!isToBeAllocated && (
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontFamily: 'Roboto', fontSize: 13, color: '#111827' }}>
-                              Qty : {line.qty}{perms.show_rateamt_Column ? ` x ₹${line.rate}` : ''}{perms.show_disc_Column ? ` (${line.discount}%)` : ''}{perms.show_rateamt_Column ? ' = ' : ''}
-                              {perms.show_rateamt_Column ? <Text style={{ color: '#10b981', fontWeight: '500' }}>₹{line.total.toFixed(2)}</Text> : null}
-                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                              {(() => {
+                                const { left, amountStr } = formatCartStyleQtyLine(line, perms);
+                                return (
+                                  <>
+                                    <Text style={styles.lineItemQty}>{left}</Text>
+                                    {amountStr ? (
+                                      <Text style={styles.lineItemTotal}>{amountStr}</Text>
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
+                            </View>
                           </View>
                         )}
                         {!isToBeAllocated && (perms.show_ClsStck_Column || perms.show_ClsStck_yesno) ? (
@@ -2649,6 +2693,8 @@ const styles = StyleSheet.create({
     color: TEXT_ROW,
   },
   lineItemTotal: {
+    fontFamily: 'Roboto',
+    fontSize: 13,
     fontWeight: '700',
     color: FOOTER_PLACE_BG,
   },

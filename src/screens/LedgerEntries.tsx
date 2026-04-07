@@ -32,7 +32,7 @@ import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
-import { requestStoragePermissionForRootExport } from '../utils/permissions';
+import { requestStoragePermission } from '../utils/permissions';
 import { formatDate } from '../utils/dateUtils';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
@@ -330,6 +330,11 @@ export default function LedgerEntries() {
   const routeParams = route.params || {};
   const ledger_name = routeParams.ledger_name || '';
   const report_name = routeParams.report_name || DEFAULT_REPORT;
+  /** True when navigators/sidebar passed report_name (even if it is the default "Ledger Vouchers"). */
+  const hasExplicitReportParam =
+    route.params != null &&
+    typeof route.params.report_name === 'string' &&
+    route.params.report_name.length > 0;
   const from_date = routeParams.from_date ?? defaultFromDate();
   const to_date = routeParams.to_date ?? defaultToDate();
 
@@ -497,14 +502,20 @@ export default function LedgerEntries() {
         return () => clearTimeout(timer);
       }
 
-      if (!ledger_name && ledgerNames.length > 0 && report_name === DEFAULT_REPORT && !hasShownReportDropdownRef.current) {
+      if (
+        !ledger_name &&
+        ledgerNames.length > 0 &&
+        report_name === DEFAULT_REPORT &&
+        !hasShownReportDropdownRef.current &&
+        !hasExplicitReportParam
+      ) {
         hasShownReportDropdownRef.current = true;
         const timer = setTimeout(() => {
           setReportDropdownOpen(true);
         }, 100);
         return () => clearTimeout(timer);
       }
-    }, [ledger_name, ledgerNames, report_name, routeParams, nav])
+    }, [ledger_name, ledgerNames, report_name, hasExplicitReportParam, routeParams, nav])
   );
 
   const dateRangeStr = `${formatDate(from_date)} – ${formatDate(to_date)}`;
@@ -524,12 +535,11 @@ export default function LedgerEntries() {
   const onPeriodSelectionOpen = () => setPeriodSelectionOpen(true);
   const onExportOpen = () => setExportVisible(true);
 
-  /** Ensures DataLynkr/{connectionName} exists and returns its path. Tries storage root first (same level as Download); falls back to Download/Documents if creation fails. */
+  /** Ensures DataLynkr export directory exists in standard app-accessible public directories (Downloads/Documents) */
   const getExportDir = useCallback(async (): Promise<string> => {
-    await requestStoragePermissionForRootExport();
-    const downloadsOrDocs = RNFS.DownloadDirectoryPath || RNFS.DocumentDirectoryPath;
-    const storageRoot = downloadsOrDocs.replace(/\/[^/]+\/?$/, '');
-    const dataLynkrDir = `${storageRoot}/DataLynkr`;
+    await requestStoragePermission();
+    const baseDir = Platform.OS === 'android' ? RNFS.DownloadDirectoryPath : RNFS.DocumentDirectoryPath;
+    const dataLynkrDir = `${baseDir}/DataLynkr`;
     const safe = (s: string) => s.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_') || 'Default';
     const connectionName = company.trim() ? safe(company.trim()) : 'Default';
     const exportDir = `${dataLynkrDir}/${connectionName}`;
@@ -542,16 +552,7 @@ export default function LedgerEntries() {
       }
       return exportDir;
     } catch {
-      const fallbackBase = downloadsOrDocs;
-      const fallbackDataLynkr = `${fallbackBase}/DataLynkr`;
-      const fallbackDir = `${fallbackDataLynkr}/${connectionName}`;
-      if (!(await RNFS.exists(fallbackDataLynkr))) {
-        await RNFS.mkdir(fallbackDataLynkr);
-      }
-      if (!(await RNFS.exists(fallbackDir))) {
-        await RNFS.mkdir(fallbackDir);
-      }
-      return fallbackDir;
+      return baseDir;
     }
   }, [company]);
 

@@ -41,9 +41,10 @@ export function useAndroidNavMode(): AndroidNavMode {
 }
 
 /**
- * Returns true only when Android is using 3-button (classic) navigation.
+ * Returns true when Android is using 3-button or 2-button navigation (not full gesture nav).
+ * Edge swipe to open the sidebar is safe in these modes; gesture nav reserves the screen edge for back.
  */
 export function useIsButtonNavigation(): boolean {
   const mode = useAndroidNavMode();
-  return mode === 'buttons';
+  return mode === 'buttons' || mode === 'two_button';
 }

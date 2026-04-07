@@ -25,6 +25,9 @@ import { colors } from '../../constants/colors';
 import { toYyyyMmDd } from '../../utils/dateUtils';
 import { useScroll } from '../../store/ScrollContext';
 import {
+  ledgerGrandTotalBottomOffset,
+  ledgerGrandTotalListPaddingBottom,
+  ledgerGrandTotalScrollSlidePx,
   sharedStyles,
   toNum,
   fmtNum,
@@ -66,12 +69,14 @@ export default function BillWiseOutstanding({
   const { width: windowWidth } = useWindowDimensions();
   const isNarrowScreen = windowWidth < 360;
   const isTablet = windowWidth >= 600;
+  const tabBarOffset = ledgerGrandTotalBottomOffset(insets, isTablet);
+  const grandTotalScrollSlidePx = ledgerGrandTotalScrollSlidePx(isTablet, insets);
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<LedgerReportData | null>(null);
   const [footerExpanded, setFooterExpanded] = useState(false);
 
-  // Scroll-based footer collapse only (header stays visible)
+  // Tab bar + GRAND TOTAL: partial slide down on scroll
   const lastScrollY = useRef(0);
   const localScrollDirection = useRef<'up' | 'down'>('up');
   const footerTranslateY = useRef(new Animated.Value(0)).current;
@@ -79,19 +84,18 @@ export default function BillWiseOutstanding({
 
   const topContainerHeight = 90; // 3 rows (report, customer, date)
   const headerHeight = insets.top + 47 + topContainerHeight + 40; // +40 for table header
-  const footerHeight = 80;
   const SCROLL_UP_THRESHOLD = 10; // px: only show footer after meaningful upward scroll (avoids jitter)
 
   const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollDiff = currentScrollY - lastScrollY.current;
 
-    if (scrollDiff > 0 && currentScrollY > 50) {
+    if (scrollDiff > 0 && currentScrollY > 50 && !footerExpanded) {
       if (localScrollDirection.current !== 'down') {
         localScrollDirection.current = 'down';
         setScrollDirection('down');
         Animated.timing(footerTranslateY, {
-          toValue: 49,
+          toValue: grandTotalScrollSlidePx,
           duration: 300,
           useNativeDriver: true,
         }).start();
@@ -111,7 +115,6 @@ export default function BillWiseOutstanding({
     lastScrollY.current = currentScrollY;
   };
 
-  // Reset scroll state when screen gains focus so footer starts expanded.
   useFocusEffect(
     React.useCallback(() => {
       footerTranslateY.setValue(0);
@@ -355,7 +358,7 @@ export default function BillWiseOutstanding({
             contentContainerStyle={[
               sharedStyles.containerContent,
               { paddingTop: headerHeight + 10 },
-              { paddingBottom: (isTablet ? 60 : 49) + insets.bottom + -11 },
+              { paddingBottom: ledgerGrandTotalListPaddingBottom(insets, isTablet) },
             ]}
             onScroll={handleScroll}
             scrollEventThrottle={16}
@@ -371,12 +374,21 @@ export default function BillWiseOutstanding({
               sharedStyles.footer,
               isTablet && sharedStyles.footerTablet,
               {
-                bottom: (isTablet ? 60 : 49) + insets.bottom,
-                transform: [{ translateY: footerTranslateY }]
+                bottom: tabBarOffset,
+                transform: [{ translateY: footerTranslateY }],
               },
             ]}
           >
-            <TouchableOpacity style={sharedStyles.footerBar} onPress={() => setFooterExpanded((x) => !x)} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={sharedStyles.footerBar}
+              onPress={() => {
+                footerTranslateY.setValue(0);
+                localScrollDirection.current = 'up';
+                setScrollDirection('up');
+                setFooterExpanded((x) => !x);
+              }}
+              activeOpacity={0.8}
+            >
               <Text style={sharedStyles.footerBarTxt}>GRAND TOTAL</Text>
               <Icon
                 name="chevron-down"

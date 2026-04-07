@@ -24,10 +24,13 @@ export function ModuleAccessProvider({ children }: { children: ReactNode }) {
 export function useModuleAccess(): ModuleAccessContextValue {
     const ctx = useContext(ModuleAccessContext);
     if (!ctx) {
+        // No provider above (e.g. Payments/Collections/ExpenseClaims screens in the root stack).
+        // Default all modules to enabled so the sidebar items are clickable.
+        // These screens are not gated by configurations so this is safe.
         return {
             moduleAccess: {
-                place_order: false, ledger_book: false, approvals: false,
-                stock_summary: false, sales_dashboard: true,
+                place_order: true, ledger_book: true, approvals: true,
+                stock_summary: true, sales_dashboard: true, vendor_expenses: true,
             },
             permissions: {
                 show_rateamt_Column: true, edit_rate: true, show_disc_Column: true, edit_discount: true,

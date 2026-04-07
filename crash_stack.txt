@@ -1,0 +1,31 @@
+﻿04-05 22:26:30.985   357   482 E AndroidRuntime: FATAL EXCEPTION: create_react_context
+04-05 22:26:30.985   357   482 E AndroidRuntime: Process: com.datalynkr, PID: 357
+04-05 22:26:30.985   357   482 E AndroidRuntime: java.lang.UnsatisfiedLinkError: dlopen failed: cannot locate symbol "__cxa_init_primary_exception" referenced by "/data/app/~~mFPcD77G9eV6isWueCXioA==/com.datalynkr-mME5Gfz4ijEUQzfDXVybfg==/lib/arm64/libVisionCamera.so"...
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at java.lang.Runtime.loadLibrary0(Runtime.java:1090)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at java.lang.Runtime.loadLibrary0(Runtime.java:1012)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at java.lang.System.loadLibrary(System.java:1765)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.mrousavy.camera.react.CameraViewModule.<clinit>(CameraViewModule.kt:48)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.mrousavy.camera.react.CameraPackage.createNativeModules(CameraPackage.kt:11)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactPackageHelper.getNativeModuleIterator(ReactPackageHelper.java:35)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.NativeModuleRegistryBuilder.processPackage(NativeModuleRegistryBuilder.java:40)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactInstanceManager.processPackage(ReactInstanceManager.java:1560)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactInstanceManager.processPackages(ReactInstanceManager.java:1531)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactInstanceManager.createReactContext(ReactInstanceManager.java:1442)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactInstanceManager.lambda$runCreateReactContextOnNewThread$2(ReactInstanceManager.java:1210)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactInstanceManager.$r8$lambda$PrBhihCbbAFk4ZReAALGanVLCyc(Unknown Source:0)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at com.facebook.react.ReactInstanceManager$$ExternalSyntheticLambda1.run(D8$$SyntheticClass:0)
+04-05 22:26:30.985   357   482 E AndroidRuntime: 	at java.lang.Thread.run(Thread.java:1119)
+04-05 22:26:30.987   357   357 W pool-6-thread-1: type=1400 audit(0.0:125233): avc:  denied  { search } for  name="miuilog" dev="dm-78" ino=813 scontext=u:r:untrusted_app:s0:c101,c257,c512,c768 tcontext=u:object_r:data_log_file:s0 tclass=dir permissive=0 app=com.datalynkr
+04-05 22:26:30.991   357   357 W pool-6-thread-1: type=1400 audit(0.0:125234): avc:  denied  { search } for  name="miuilog" dev="dm-78" ino=813 scontext=u:r:untrusted_app:s0:c101,c257,c512,c768 tcontext=u:object_r:data_log_file:s0 tclass=dir permissive=0 app=com.datalynkr
+04-05 22:26:30.993   357   483 W FileUtils: Failed to chmod(/data/miuilog/stability/jetrace): android.system.ErrnoException: chmod failed: EACCES (Permission denied)
+04-05 22:26:30.991   357   357 W pool-6-thread-1: type=1400 audit(0.0:125235): avc:  denied  { search } for  name="miuilog" dev="dm-78" ino=813 scontext=u:r:untrusted_app:s0:c101,c257,c512,c768 tcontext=u:object_r:data_log_file:s0 tclass=dir permissive=0 app=com.datalynkr
+04-05 22:26:30.991   357   357 W pool-6-thread-1: type=1400 audit(0.0:125236): avc:  denied  { search } for  name="miuilog" dev="dm-78" ino=813 scontext=u:r:untrusted_app:s0:c101,c257,c512,c768 tcontext=u:object_r:data_log_file:s0 tclass=dir permissive=0 app=com.datalynkr
+04-05 22:26:30.994   357   483 W RuntimeInitImpl: dump java trace fail /data/miuilog/stability/jetrace/2026-04-05-22-26-30-990_com.datalynkr_357.trace.tmp: open failed: EACCES (Permission denied)
+04-05 22:26:30.991   357   357 W pool-6-thread-1: type=1400 audit(0.0:125237): avc:  denied  { search } for  name="miuilog" dev="dm-78" ino=813 scontext=u:r:untrusted_app:s0:c101,c257,c512,c768 tcontext=u:object_r:data_log_file:s0 tclass=dir permissive=0 app=com.datalynkr
+04-05 22:26:30.994  1716  1716 D RefreshRateSelector: Touch Boost
+04-05 22:26:30.994  1716  1716 D MI-SF   : modeGroup0 mIsSupportAutomodeForMaxFpsSetting is 0(0), getCurrentBrightness() = 0(0), mIsKeepAutoMode 0 isAutoModeAllowed() 1
+04-05 22:26:30.994  1716  1716 D RefreshRateSelector: fixedMode_group: 0, isFindModeGroup 0
+04-05 22:26:30.994  1716  1716 D RefreshRateSelector: find max refresh rate:60, mode Group:0
+04-05 22:26:30.995   357   482 W ScoutUtils: Failed to mkdir /data/miuilog/stability/hprof/
+04-05 22:26:30.996 10465 16147 W MQSEventManager: jeoccur
+04-05 22:26:30.997  2516 10693 I ActivityManager: note: ProcessRecord{b3bdc57 357:com.datalynkr/u0a357} is being killed, reason: APP CRASH(EXCEPTION), sub-reason: UNKNOWN, message: crash

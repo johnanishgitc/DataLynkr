@@ -26,7 +26,7 @@ export default function FooterTabBar({
   const focusedDescriptor = descriptors[focusedRoute.key];
   const tabBarStyle = focusedDescriptor?.options?.tabBarStyle as { display?: 'none' } | undefined;
   const isHidden = tabBarStyle?.display === 'none';
-  const footerHeight = 100; // Height to hide footer completely (including safe area)
+  const footerHeight = 100; // Full hide off-screen; stock closing bars use a smaller slide (see StockItemVouchers)
 
   // When VoucherDetailView is opened from Order Success "View Order" (on Ledger tab), show Orders as active in footer
   const displayTabIndex = (() => {
@@ -71,10 +71,18 @@ export default function FooterTabBar({
     };
   }, []);
 
+  // On Android with gesture navigation, insets.bottom is small (~20-34px for the
+  // thin gesture indicator bar). Add extra padding so the footer doesn't sit flush
+  // against the bottom edge. With button navigation insets.bottom is 0 or >= 40,
+  // so no extra padding is needed there.
+  const isAndroidGestureNav =
+    Platform.OS === 'android' && insets.bottom > 0 && insets.bottom < 40;
+  const gestureNavPadding = isAndroidGestureNav ? 10 : 0;
+
   const paddingBottom = Math.max(
     insets.bottom - Platform.select({ ios: 4, default: 0 }),
     0
-  );
+  ) + gestureNavPadding;
 
   const { moduleAccess } = useModuleAccess();
 
@@ -139,7 +147,7 @@ export default function FooterTabBar({
   };
 
   if (isHidden) {
-    return null;
+    return <View style={{ height: 0 }} />;
   }
 
   return (

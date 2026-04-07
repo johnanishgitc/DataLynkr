@@ -6,10 +6,6 @@ import SystemNavigationBar from 'react-native-system-navigation-bar';
 import type { MainStackParamList } from './types';
 import AdminDashboard from '../screens/AdminDashboard';
 import MainTabs from './MainTabs';
-import SalesOrderVoucherDetails from '../screens/SalesOrderVoucherDetails';
-import SalesOrderLineDetail from '../screens/SalesOrderLineDetail';
-import SalesOrderOrderDetails from '../screens/SalesOrderOrderDetails';
-import ClearedOrderDetails from '../screens/ClearedOrderDetails';
 import VoucherDetailView from '../screens/VoucherDetailView';
 import DataManagement from '../screens/CacheManagement2';
 import PaymentsScreen from '../screens/PaymentsScreen';
@@ -58,10 +54,6 @@ export default function MainStack() {
       <Stack.Screen name="Payments" component={PaymentsScreen} />
       <Stack.Screen name="ExpenseClaims" component={ExpenseClaimsScreen} />
       <Stack.Screen name="Collections" component={CollectionsScreen} />
-      <Stack.Screen name="SalesOrderVoucherDetails" component={SalesOrderVoucherDetails} />
-      <Stack.Screen name="SalesOrderLineDetail" component={SalesOrderLineDetail} />
-      <Stack.Screen name="SalesOrderOrderDetails" component={SalesOrderOrderDetails} />
-      <Stack.Screen name="ClearedOrderDetails" component={ClearedOrderDetails} />
       <Stack.Screen name="VoucherDetailView" component={VoucherDetailView} />
     </Stack.Navigator>
   );

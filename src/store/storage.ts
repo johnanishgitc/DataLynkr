@@ -84,6 +84,10 @@ export async function getUserEmail(): Promise<string | null> {
 export async function logoutStorage(): Promise<void> {
   await storage.setItem(K.is_logged_in, 'false');
   await storage.removeItem(K.auth_token);
+  // Clear saved company so the connections screen always shows after a fresh login
+  await storage.removeItem(K.company);
+  await storage.removeItem(K.guid);
+  await storage.removeItem(K.tallyloc_id);
 }
 
 // Company (full)
@@ -106,6 +110,34 @@ export interface CompanyInfo {
   startingfrom: string;
   booksfrom: string;
   createdAt: string;
+}
+
+export async function getCompanyInfo(): Promise<CompanyInfo | null> {
+  const tallylocRaw = await storage.getItem(K.tallyloc_id);
+  const company = (await storage.getItem(K.company)) ?? '';
+  if (!tallylocRaw && !company) return null;
+  const tallyloc_id = tallylocRaw ? parseInt(tallylocRaw, 10) : 0;
+  if (isNaN(tallyloc_id) && !company) return null;
+  return {
+    tallyloc_id: isNaN(tallyloc_id) ? 0 : tallyloc_id,
+    company,
+    guid: (await storage.getItem(K.guid)) ?? '',
+    conn_name: (await storage.getItem(K.conn_name)) ?? '',
+    shared_email: (await storage.getItem(K.shared_email)) ?? '',
+    status: (await storage.getItem(K.status)) ?? '',
+    access_type: (await storage.getItem(K.access_type)) ?? '',
+    address: (await storage.getItem(K.address)) ?? '',
+    pincode: (await storage.getItem(K.pincode)) ?? '',
+    statename: (await storage.getItem(K.statename)) ?? '',
+    countryname: (await storage.getItem(K.countryname)) ?? '',
+    company_email: (await storage.getItem(K.company_email)) ?? '',
+    phonenumber: (await storage.getItem(K.phonenumber)) ?? '',
+    mobilenumbers: (await storage.getItem(K.mobilenumbers)) ?? '',
+    gstinno: (await storage.getItem(K.gstinno)) ?? '',
+    startingfrom: (await storage.getItem(K.startingfrom)) ?? '',
+    booksfrom: (await storage.getItem(K.booksfrom)) ?? '',
+    createdAt: (await storage.getItem(K.createdAt)) ?? '',
+  };
 }
 
 export async function saveCompanyInfo(info: CompanyInfo): Promise<void> {

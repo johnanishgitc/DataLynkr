@@ -22,6 +22,7 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -46,7 +47,9 @@ const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
 
 const WHITE_NAVBAR_ROUTES = new Set([
   'DataManagement', 'AddCustomer',
-  'LedgerMain', 'LedgerEntries', 'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
+  'LedgerMain', 'LedgerEntries', 'SalesOrderVoucherDetails', 'SalesOrderLineDetail', 'SalesOrderOrderDetails',
+  'ClearedOrderDetails',
+  'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
   'ApprovalsScreen',
   'StockSummary', 'StockGroupSummary', 'StockItemMonthly', 'StockItemVouchers',
 ]);
@@ -261,6 +264,16 @@ export function AppSidebar({
       SystemNavigationBar.setNavigationColor(color, 'dark');
     }
   }, [showModal]);
+
+  // Android: hardware back / back gesture closes the sidebar first (Modal onRequestClose is not always enough).
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
 
   useEffect(() => {
     if (visible) {

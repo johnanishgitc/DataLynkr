@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
     View,
     Text,
     TouchableOpacity,
     StyleSheet,
+    StatusBar,
     Modal,
+    Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import DeletePopupIcon from '../assets/DeletePopupIcon';
@@ -77,102 +79,106 @@ export function PopupModal({
         }
         onConfirm?.();
     };
-    return (
-        <Modal
-            visible={visible}
-            transparent
-            animationType={isCenter ? 'fade' : 'slide'}
-            onRequestClose={onCancel}
-        >
-            <View style={[styles.overlay, isCenter && styles.overlayCenter]}>
-                <TouchableOpacity
-                    style={StyleSheet.absoluteFill}
-                    onPress={onCancel}
-                    activeOpacity={1}
-                />
-                <View style={[styles.contentWrap, isCenter && styles.contentWrapCenter]}>
-                    <View style={[styles.content, isCenter && styles.contentCenter, isSuccess && styles.contentSuccess]}>
-                        {!isCenter ? (
-                            <View style={styles.dragHandleContainer}>
-                                <View style={styles.dragHandle} />
-                            </View>
-                        ) : null}
-                        {!isCenter && !isSuccess ? (
-                            <View style={styles.closeContainer}>
-                                <TouchableOpacity onPress={onCancel} hitSlop={12} accessibilityLabel="Close">
-                                    <Icon name="close" size={24} color="#000" />
-                                </TouchableOpacity>
-                            </View>
-                        ) : null}
 
-                        <View style={styles.body}>
-                            {isSuccess ? (
-                                <>
-                                    <View style={styles.successAnimationWrap}>
-                                        {LottieView ? (
-                                            <LottieView source={lottieSource} style={styles.successLottie} loop={false} autoPlay />
-                                        ) : (
-                                            <View style={styles.successFallbackIcon}>
-                                                <Text style={styles.successFallbackCheck}>✅</Text>
-                                            </View>
-                                        )}
-                                    </View>
-                                    <Text style={styles.successTitle}>{effectiveTitle}</Text>
-                                    {subtitle ? (
-                                        <Text style={styles.successSubtitle}>{subtitle}</Text>
-                                    ) : null}
-                                    <TouchableOpacity
-                                        style={styles.successContinueBtn}
-                                        onPress={handleConfirm}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Text style={styles.successContinueBtnText}>{effectiveConfirmLabel}</Text>
+    return (
+        <>
+            <Modal
+                statusBarTranslucent
+                visible={visible}
+                transparent
+                animationType={isCenter ? 'fade' : 'slide'}
+                onRequestClose={onCancel}
+            >
+                <View style={[styles.overlay, isCenter && styles.overlayCenter]}>
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        onPress={onCancel}
+                        activeOpacity={1}
+                    />
+                    <View style={[styles.contentWrap, isCenter && styles.contentWrapCenter]}>
+                        <View style={[styles.content, isCenter && styles.contentCenter, isSuccess && styles.contentSuccess]}>
+                            {!isCenter ? (
+                                <View style={styles.dragHandleContainer}>
+                                    <View style={styles.dragHandle} />
+                                </View>
+                            ) : null}
+                            {!isCenter && !isSuccess ? (
+                                <View style={styles.closeContainer}>
+                                    <TouchableOpacity onPress={onCancel} hitSlop={12} accessibilityLabel="Close">
+                                        <Icon name="close" size={24} color="#000" />
                                     </TouchableOpacity>
-                                </>
-                            ) : (
-                                <>
-                                    <View style={styles.graphicContainer}>
-                                        <View
-                                            style={[
-                                                styles.graphicBackground,
-                                                variant === 'warning' && styles.graphicBackgroundWarning,
-                                                variant === 'info' && styles.graphicBackgroundInfo,
-                                            ]}
-                                        >
-                                            {variant === 'warning' ? (
-                                                <Icon name="alert-circle-outline" size={40} color="#fff" />
-                                            ) : variant === 'info' ? (
-                                                <Icon name="cart-plus" size={40} color="#fff" />
+                                </View>
+                            ) : null}
+
+                            <View style={styles.body}>
+                                {isSuccess ? (
+                                    <>
+                                        <View style={styles.successAnimationWrap}>
+                                            {LottieView ? (
+                                                <LottieView source={lottieSource} style={styles.successLottie} loop={false} autoPlay />
                                             ) : (
-                                                <DeletePopupIcon />
+                                                <View style={styles.successFallbackIcon}>
+                                                    <Text style={styles.successFallbackCheck}>✅</Text>
+                                                </View>
                                             )}
                                         </View>
-                                    </View>
-                                    <Text style={styles.title}>{effectiveTitle}</Text>
-
-                                    <View style={styles.buttonRow}>
+                                        <Text style={styles.successTitle}>{effectiveTitle}</Text>
+                                        {subtitle ? (
+                                            <Text style={styles.successSubtitle}>{subtitle}</Text>
+                                        ) : null}
                                         <TouchableOpacity
-                                            style={styles.cancelBtn}
-                                            onPress={onCancel}
-                                            activeOpacity={0.8}
-                                        >
-                                            <Text style={styles.cancelBtnText}>{cancelLabel}</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={styles.confirmBtn}
+                                            style={styles.successContinueBtn}
                                             onPress={handleConfirm}
                                             activeOpacity={0.8}
                                         >
-                                            <Text style={styles.confirmBtnText}>{effectiveConfirmLabel}</Text>
+                                            <Text style={styles.successContinueBtnText}>{effectiveConfirmLabel}</Text>
                                         </TouchableOpacity>
-                                    </View>
-                                </>
-                            )}
+                                    </>
+                                ) : (
+                                    <>
+                                        <View style={styles.graphicContainer}>
+                                            <View
+                                                style={[
+                                                    styles.graphicBackground,
+                                                    variant === 'warning' && styles.graphicBackgroundWarning,
+                                                    variant === 'info' && styles.graphicBackgroundInfo,
+                                                ]}
+                                            >
+                                                {variant === 'warning' ? (
+                                                    <Icon name="alert-circle-outline" size={40} color="#fff" />
+                                                ) : variant === 'info' ? (
+                                                    <Icon name="cart-plus" size={40} color="#fff" />
+                                                ) : (
+                                                    <DeletePopupIcon />
+                                                )}
+                                            </View>
+                                        </View>
+                                        <Text style={styles.title}>{effectiveTitle}</Text>
+
+                                        <View style={styles.buttonRow}>
+                                            <TouchableOpacity
+                                                style={styles.cancelBtn}
+                                                onPress={onCancel}
+                                                activeOpacity={0.8}
+                                            >
+                                                <Text style={styles.cancelBtnText}>{cancelLabel}</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={styles.confirmBtn}
+                                                onPress={handleConfirm}
+                                                activeOpacity={0.8}
+                                            >
+                                                <Text style={styles.confirmBtnText}>{effectiveConfirmLabel}</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </>
+                                )}
+                            </View>
                         </View>
                     </View>
                 </View>
-            </View>
-        </Modal>
+            </Modal>
+        </>
     );
 }
 

@@ -67,20 +67,6 @@ function getPresetRange(id: string): { from: number; to: number } {
       const from = now >= apr1 ? startOfDay(apr1) : startOfDay(new Date(y - 1, 3, 1));
       return { from, to: today };
     }
-    case 'financial-year': {
-      const y = now.getFullYear();
-      const m = now.getMonth();
-      if (m >= 3) {
-        return {
-          from: startOfDay(new Date(y, 3, 1)),
-          to: startOfDay(new Date(y + 1, 2, 31)),
-        };
-      }
-      return {
-        from: startOfDay(new Date(y - 1, 3, 1)),
-        to: startOfDay(new Date(y, 2, 31)),
-      };
-    }
     default:
       return { from: today, to: today };
   }
@@ -94,7 +80,6 @@ const PRESETS: { id: string; label: string }[] = [
   { id: 'current-quarter', label: 'Current Quarter (Start to today)' },
   { id: 'last-quarter', label: 'Last Quarter' },
   { id: 'current-fy', label: 'Current Financial Year (1 Apr to today)' },
-  { id: 'financial-year', label: 'Financial Year' },
 ];
 
 export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }: PeriodSelectionProps) {

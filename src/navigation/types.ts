@@ -26,6 +26,31 @@ export type LedgerStackParamList = {
     from_date?: number;
     to_date?: number;
   };
+  /** Sales order outstanding drill-down — lives on ledger stack so the main tab bar stays visible. */
+  SalesOrderVoucherDetails: {
+    row: object;
+    ledger_name?: string;
+    from_date?: number;
+    to_date?: number;
+    report_name?: string;
+    /** Multiple rows when stock items are grouped */
+    groupedRows?: object[];
+  };
+  SalesOrderLineDetail: {
+    row: object;
+    voucher: object;
+    ledger_name?: string;
+  };
+  SalesOrderOrderDetails: {
+    row: object;
+    ledger_name?: string;
+  };
+  /** Cleared Orders drill-down — on ledger stack so the main tab bar stays visible. */
+  ClearedOrderDetails: {
+    ledger_name?: string;
+    order_no?: string;
+    rows?: object[];
+  };
   VoucherDetailView: {
     voucher: object;
     ledger_name?: string;
@@ -33,6 +58,8 @@ export type LedgerStackParamList = {
     returnToOrderEntryClear?: boolean;
     /** When true with returnToOrderEntryClear, Order Entry opens in draft mode (order was placed from draft). */
     returnToOrderEntryDraftMode?: boolean;
+    /** When true (e.g. View Order after Approvals → Modify Order → success), back goes to Approvals with refresh instead of Order Entry. */
+    returnToApprovalsOnBack?: boolean;
   };
   BillAllocations: {
     voucher: object;
@@ -181,6 +208,8 @@ export type ApprovalsStackParamList = {
     ledger_name?: string;
     returnToOrderEntryClear?: boolean;
     returnToOrderEntryDraftMode?: boolean;
+    fromApprovals?: boolean;
+    approvalsActiveTab?: string;
   };
 };
 
@@ -217,32 +246,7 @@ export type MainStackParamList = {
   Payments: undefined;
   ExpenseClaims: undefined;
   Collections: undefined;
-  SalesOrderVoucherDetails: {
-    row: object;
-    ledger_name?: string;
-    from_date?: number;
-    to_date?: number;
-    report_name?: string;
-    /** Multiple rows when stock items are grouped */
-    groupedRows?: object[];
-  };
-  SalesOrderLineDetail: {
-    row: object;
-    voucher: object;
-    ledger_name?: string;
-  };
-  /** Cleared Order Details - Figma 3045-62731: Ledger, Order No, voucher list */
-  ClearedOrderDetails: {
-    ledger_name?: string;
-    order_no?: string;
-    rows?: object[];
-  };
-  /** Order Details - Figma 3062-25213: third screen after Sales Order Outstandings; Ledger, Stock Item, Order No + entries */
-  SalesOrderOrderDetails: {
-    row: object;
-    ledger_name?: string;
-  };
-  /** Voucher detail on root stack so back from voucher returns to sales-order trail (e.g. SalesOrderVoucherDetails) */
+  /** Root-stack voucher detail (rare); ledger flows use LedgerStack.VoucherDetailView */
   VoucherDetailView: {
     voucher: object;
     ledger_name?: string;
