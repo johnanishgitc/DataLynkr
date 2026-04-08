@@ -1,5 +1,23 @@
 # DataLynkr Cursor Rules
 
+## Navigation & UI
+
+### Global Sidebar System
+Every screen that requires a hamburger menu button or allows opening the sidebar via edge swipe MUST use the global sidebar system. 
+
+1. **No Local Sidebars**: Do NOT instantiate a local `AppSidebar` or `EdgeSwipeToOpenSidebar` component inside a screen. 
+2. **Accessing Sidebar**: Use the `useGlobalSidebar()` hook from `src/store/GlobalSidebarContext.tsx` to call `openSidebar()`.
+3. **Edge Swipe**: The edge-to-open gesture is automatically provided at the root level by `GlobalSidebarProvider`. Do not re-implement it.
+4. **Context-Aware Configuration**:
+   - To change the menu list (e.g., from Sales to Ledger) or toggle module access enforcement, use `setSidebarConfig({ menuItems, restrictAccess })`.
+   - **Main Tabs**: Screens inside `MainTabs` should have `restrictAccess: true`.
+   - **Utility Screens**: Screens in the root stack (like Payments) should have `restrictAccess: false` (unrestricted).
+5. **Persistence Across Screens**:
+   - Sidebar configuration is global state and should persist when navigating between screens unless a deliberate reset is required.
+   - Do **not** auto-reset sidebar config on `DataManagement` focus; opening sidebar there must reflect current global config.
+
+---
+
 ## 16KB Page Alignment (Android)
 
 This project enforces 16KB ELF segment alignment for all native (`.so`) libraries

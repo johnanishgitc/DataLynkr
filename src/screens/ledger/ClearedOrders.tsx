@@ -29,7 +29,7 @@ import {
   parseQtyStr,
   parseQtyUnit,
   parseRateStr,
-} from './LedgerShared';
+} from './utils/LedgerShared';
 
 interface ClearedOrdersProps {
   ledger_name: string;

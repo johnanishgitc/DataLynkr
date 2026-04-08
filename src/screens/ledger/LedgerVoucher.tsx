@@ -37,7 +37,7 @@ import {
   ledgerGrandTotalBottomOffset,
   ledgerGrandTotalListPaddingBottom,
   ledgerGrandTotalScrollSlidePx,
-} from './LedgerShared';
+} from './utils/LedgerShared';
 
 interface LedgerVoucherProps {
   ledger_name: string;

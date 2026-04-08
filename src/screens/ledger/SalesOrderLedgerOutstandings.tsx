@@ -29,7 +29,7 @@ import {
   parseQtyStr,
   parseRateStr,
   parseQtyUnit,
-} from './LedgerShared';
+} from './utils/LedgerShared';
 
 interface SalesOrderLedgerOutstandingsProps {
   ledger_name: string;

@@ -1,0 +1,74 @@
+﻿
+  const refreshEntries = useCallback(async () => {
+    try {
+      const [loadedEntries, stockItemsEntries, customersEntries, stockGroupsEntries] = await Promise.all([
+        loadCacheEntries(),
+        loadStockItemsCacheEntries(),
+        loadCustomersCacheEntries(),
+        loadStockGroupsCacheEntries(),
+      ]);
+
+      // For each main entry, compute file size (if file exists)
+      const entriesWithSize: CacheEntry[] = await Promise.all(
+        loadedEntries.map(async (entry) => {
+          try {
+            const stat = await RNFS.stat(entry.json_path);
+            const sizeBytes = stat.size ?? 0;
+            return { ...entry, sizeBytes };
+          } catch (e) {
+            console.warn('Failed to stat cache file for size:', entry.json_path, e);
+            return { ...entry, sizeBytes: 0 };
+          }
+        })
+      );
+
+      // Merge sales/dashboard entries with stock items, customers, and stock groups for View Data Contents
+      const merged = [...entriesWithSize, ...stockItemsEntries, ...customersEntries, ...stockGroupsEntries].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setEntries(merged);
+
+      // Pre-cache the most recently downloaded SMALL file in the background for instant "View Raw"
+      // For large files we intentionally do NOT pre-cache to avoid OutOfMemory
+      if (entriesWithSize.length > 0) {
+        // Sort by created_at descending to get the most recent
+        const sortedEntries = [...entriesWithSize].sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        const mostRecentEntry = sortedEntries[0];
+        if (mostRecentEntry.json_path && !sessionCache.has(mostRecentEntry.json_path)) {
+          const fileSize = mostRecentEntry.sizeBytes || 0;
+          const isSmallFile = fileSize < 1024 * 1024; // Less than 1MB
+
+          if (isSmallFile) {
+            // For very small files, cache immediately (fast enough not to block)
+            (async () => {
+              try {
+                const fileExists = await RNFS.exists(mostRecentEntry.json_path);
+                if (fileExists) {
+                  console.log('[CacheManagement2] Pre-caching small file immediately...');
+                  const startTime = Date.now();
+                  const content = await RNFS.readFile(mostRecentEntry.json_path, 'utf8');
+                  sessionCache.set(mostRecentEntry.json_path, content);
+                  console.log('[CacheManagement2] Pre-cached file in', Date.now() - startTime, 'ms, size:', content.length, 'chars');
+                }
+              } catch (precacheError) {
+                console.warn('[CacheManagement2] Failed to pre-cache file:', precacheError);
+              }
+            })();
+          } else {
+            // For large files, don't pre-cache to avoid OOM â€“ they'll be read lazily with size checks
+            console.log('[CacheManagement2] Skipping pre-cache for large file; will rely on on-demand reading.');
+          }
+        } else if (mostRecentEntry.json_path && sessionCache.has(mostRecentEntry.json_path)) {
+          console.log('[CacheManagement2] Most recent file already cached');
+        }
+      }
+    } catch (error) {
+      if (isUnauthorizedError(error)) return;
+      console.error('Failed to load cache entries:', error);
+      setErrorMessage('Failed to load cache entries');
+    }
+  }, []);
+

@@ -4,10 +4,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import type { SummaryStackParamList } from './types';
-import StockSummary from '../screens/StockSummary';
-import StockItemMonthly from '../screens/StockItemMonthly';
-import StockItemVouchers from '../screens/StockItemVouchers';
-import VoucherDetailView from '../screens/VoucherDetailView';
+import StockSummary from '../screens/StockSummary/StockSummary';
+import StockItemMonthly from '../screens/StockSummary/StockItemMonthly';
+import StockItemVouchers from '../screens/StockSummary/StockItemVouchers';
+import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
 import { StockDateRangeProvider } from '../store/StockDateRangeContext';
 
 const Stack = createNativeStackNavigator<SummaryStackParamList>();

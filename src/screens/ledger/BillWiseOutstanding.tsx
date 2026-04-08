@@ -33,7 +33,7 @@ import {
   fmtNum,
   formatBalance,
   REPORT_TYPE_MAP,
-} from './LedgerShared';
+} from './utils/LedgerShared';
 
 interface BillWiseOutstandingProps {
   ledger_name: string;

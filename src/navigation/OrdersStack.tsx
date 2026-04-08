@@ -1,9 +1,9 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { OrdersStackParamList } from './types';
-import OrderEntry from '../screens/OrderEntry';
-import OrderEntryItemDetail from '../screens/OrderEntryItemDetail';
-import OrderSuccess from '../screens/OrderSuccess';
-import { MasterCreationScreen } from '../screens/MasterCreation';
+import OrderEntry from '../screens/OrderEntry/OrderEntry';
+import OrderEntryItemDetail from '../screens/OrderEntry/OrderEntryItemDetail';
+import OrderSuccess from '../screens/OrderEntry/OrderSuccess';
+import { MasterCreationScreen } from '../screens/OrderEntry/MasterCreation';
 import ComingSoon from '../screens/ComingSoon';
 import { strings } from '../constants/strings';
 
