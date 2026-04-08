@@ -4,16 +4,16 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import type { LedgerStackParamList } from './types';
-import LedgerMain from '../screens/LedgerMain';
-import LedgerEntries from '../screens/LedgerEntries';
-import VoucherDetailView from '../screens/VoucherDetailView';
-import VoucherDetails from '../screens/VoucherDetails';
-import BillAllocations from '../screens/BillAllocations';
-import MoreDetails from '../screens/MoreDetails';
-import SalesOrderVoucherDetails from '../screens/SalesOrderVoucherDetails';
-import SalesOrderLineDetail from '../screens/SalesOrderLineDetail';
-import SalesOrderOrderDetails from '../screens/SalesOrderOrderDetails';
-import ClearedOrderDetails from '../screens/ClearedOrderDetails';
+import LedgerMain from '../screens/ledger/utils/LedgerMain';
+import LedgerEntries from '../screens/ledger/utils/LedgerEntries';
+import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
+import VoucherDetails from '../screens/VoucherDetails/VoucherDetails';
+import BillAllocations from '../screens/VoucherDetails/BillAllocations';
+import MoreDetails from '../screens/VoucherDetails/MoreDetails';
+import SalesOrderVoucherDetails from '../screens/ledger/soloutils/SalesOrderVoucherDetails';
+import SalesOrderLineDetail from '../screens/ledger/soloutils/SalesOrderLineDetail';
+import SalesOrderOrderDetails from '../screens/ledger/soloutils/SalesOrderOrderDetails';
+import ClearedOrderDetails from '../screens/ledger/clearedordutils/ClearedOrderDetails';
 
 const Stack = createNativeStackNavigator<LedgerStackParamList>();
 

@@ -40,12 +40,11 @@ import {
 } from '../store/storage';
 import { PeriodSelection } from '../components/PeriodSelection';
 import { syncVouchersToNativeDB } from '../services/SyncService';
-import { getDB } from '../database/SQLiteManager';
+import { getDB, getDashboardCacheDatabase, DASHBOARD_CACHE_TABLE } from '../database/SQLiteManager';
 import { getString, getField, normalizeDate } from '../utils/salesTransformer';
-import { AppSidebar } from '../components/AppSidebar';
-import type { AppSidebarMenuItem } from '../components/AppSidebar';
-import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
-import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
+import { StatusBarTopBar } from '../components/StatusBarTopBar';
+import { useGlobalSidebar } from '../store/GlobalSidebarContext';
+
 import { invalidateLedgerListCache } from '../cache';
 import { subscribeToDataManagementSync } from '../cache/dataManagementAutoSync';
 
@@ -535,8 +534,8 @@ async function loadStockItemsCacheEntries(): Promise<CacheEntry[]> {
       entries.push({
         id: STOCK_ITEMS_ID_OFFSET + i,
         key: row.cache_key,
-        from_date: '—',
-        to_date: '—',
+        from_date: 'â€”',
+        to_date: 'â€”',
         created_at: row.created_at,
         json_path: '',
         sizeBytes,
@@ -562,8 +561,8 @@ async function loadCustomersCacheEntries(): Promise<CacheEntry[]> {
       entries.push({
         id: CUSTOMERS_ID_OFFSET + i,
         key: row.cache_key,
-        from_date: '—',
-        to_date: '—',
+        from_date: 'â€”',
+        to_date: 'â€”',
         created_at: row.created_at,
         json_path: '',
         sizeBytes,
@@ -589,8 +588,8 @@ async function loadStockGroupsCacheEntries(): Promise<CacheEntry[]> {
       entries.push({
         id: STOCK_GROUPS_ID_OFFSET + i,
         key: row.cache_key,
-        from_date: '—',
-        to_date: '—',
+        from_date: 'â€”',
+        to_date: 'â€”',
         created_at: row.created_at,
         json_path: '',
         sizeBytes,
@@ -1055,7 +1054,7 @@ export default function DataManagement() {
 
   // Sidebar (hamburger menu) - uses shared AppSidebar
   const nav = useNavigation<NativeStackNavigationProp<MainStackParamList, 'DataManagement'>>();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { openSidebar } = useGlobalSidebar();
 
   // State for interrupted download resume
   const [interruptedDownload, setInterruptedDownload] = useState<InterruptedDownloadState | null>(null);
@@ -1066,87 +1065,6 @@ export default function DataManagement() {
   // State for global Data Management background sync
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const wasSyncingRef = useRef(false);
-
-  useEffect(() => {
-    return subscribeToDataManagementSync(setIsBackgroundSyncing);
-  }, []);
-
-  useEffect(() => {
-    // If it was syncing and now we're done, refresh the cache entries to update customer/item counts
-    if (wasSyncingRef.current && !isBackgroundSyncing) {
-      refreshEntries();
-    }
-    wasSyncingRef.current = isBackgroundSyncing;
-  }, [isBackgroundSyncing, refreshEntries]);
-
-  // Track InteractionManager tasks for cleanup
-  const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
-
-  // Load entries on mount
-  useEffect(() => {
-    refreshEntries();
-
-    // Cleanup InteractionManager task on unmount
-    return () => {
-      if (interactionTaskRef.current) {
-        interactionTaskRef.current.cancel();
-      }
-    };
-  }, []);
-
-  // Default time range from booksfrom (start) and lastvoucherdate (end)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [booksfrom, lastVoucher] = await Promise.all([getBooksfrom(), getLastVoucherDate()]);
-      if (cancelled) return;
-      const from = parseYyyyMmDdToDate(booksfrom);
-      const to = parseYyyyMmDdToDate(lastVoucher);
-      if (from) setFromDate(from);
-      if (to) setToDate(to);
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
-  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
-
-  const goToAdminDashboard = useCallback(() => {
-    closeSidebar();
-    if (navigationRef.isReady()) {
-      navigationRef.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'AdminDashboard' }] }));
-    }
-  }, [closeSidebar]);
-
-  const onSidebarItemPress = useCallback(
-    (item: AppSidebarMenuItem) => {
-      closeSidebar();
-      // DataManagement lives on MainStack; getParent() is MainStack — navigate to tabs via MainTabs
-      const root = nav.getParent() as { navigate?: (name: string, params?: object) => void } | undefined;
-      if (item.target === 'LedgerTab') {
-        const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
-        root?.navigate?.('MainTabs', p?.report_name ? { screen: 'LedgerTab', params: { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } } } : { screen: 'LedgerTab' });
-      } else if (item.target === 'OrderEntry') {
-        root?.navigate?.('MainTabs', { screen: 'OrdersTab', params: { screen: 'OrderEntry' } });
-      } else if (item.target === 'ApprovalsTab') {
-        root?.navigate?.('MainTabs', { screen: 'ApprovalsTab' });
-      } else if (item.target === 'DataManagement') {
-        // Already here
-      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
-        root?.navigate?.(item.target);
-      } else if (item.target === 'SalesDashboard') {
-        root?.navigate?.('MainTabs');
-      } else if (item.target === 'SummaryTab') {
-        root?.navigate?.('MainTabs', { screen: 'SummaryTab' });
-      } else if (item.params) {
-        root?.navigate?.('MainTabs');
-      } else {
-        root?.navigate?.('MainTabs');
-      }
-    },
-    [closeSidebar, nav],
-  );
 
   const refreshEntries = useCallback(async () => {
     try {
@@ -1220,6 +1138,48 @@ export default function DataManagement() {
       setErrorMessage('Failed to load cache entries');
     }
   }, []);
+
+  useEffect(() => {
+    return subscribeToDataManagementSync(setIsBackgroundSyncing);
+  }, []);
+
+  useEffect(() => {
+    // If it was syncing and now we're done, refresh the cache entries to update customer/item counts
+    if (wasSyncingRef.current && !isBackgroundSyncing) {
+      refreshEntries();
+    }
+    wasSyncingRef.current = isBackgroundSyncing;
+  }, [isBackgroundSyncing, refreshEntries]);
+
+  // Track InteractionManager tasks for cleanup
+  const interactionTaskRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+
+  // Load entries on mount
+  useEffect(() => {
+    refreshEntries();
+
+    // Cleanup InteractionManager task on unmount
+    return () => {
+      if (interactionTaskRef.current) {
+        interactionTaskRef.current.cancel();
+      }
+    };
+  }, []);
+
+  // Default time range from booksfrom (start) and lastvoucherdate (end)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [booksfrom, lastVoucher] = await Promise.all([getBooksfrom(), getLastVoucherDate()]);
+      if (cancelled) return;
+      const from = parseYyyyMmDdToDate(booksfrom);
+      const to = parseYyyyMmDdToDate(lastVoucher);
+      if (from) setFromDate(from);
+      if (to) setToDate(to);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
 
   // Validate date range
   const validateDateRange = (): boolean => {
@@ -1857,7 +1817,7 @@ export default function DataManagement() {
       // Generate cache key
       const cacheKey = generateCacheKey(email, guid, tallylocId);
 
-      // Refresh Stock Items, Customers, and Stock Groups on Update – call APIs and replace stored data
+      // Refresh Stock Items, Customers, and Stock Groups on Update â€“ call APIs and replace stored data
       try {
         setStatusMessage('Refreshing stock items, customers, and stock groups...');
         const ledgerListCacheKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
@@ -2281,11 +2241,11 @@ export default function DataManagement() {
     // For small files, use existing cache logic
     if (sessionCache.has(filePath)) {
       const cached = sessionCache.get(filePath)!;
-      console.log('[CacheManagement2] ✅ Using session cache! Instant load for', filePath.split('/').pop());
+      console.log('[CacheManagement2] âœ… Using session cache! Instant load for', filePath.split('/').pop());
       return cached;
     }
 
-    console.log('[CacheManagement2] ❌ Cache miss - reading file from disk:', filePath.split('/').pop());
+    console.log('[CacheManagement2] âŒ Cache miss - reading file from disk:', filePath.split('/').pop());
     const startTime = Date.now();
     const content = await RNFS.readFile(filePath, 'utf8');
     console.log('[CacheManagement2] File read took', Date.now() - startTime, 'ms, size:', content.length, 'chars');
@@ -2730,7 +2690,7 @@ export default function DataManagement() {
   const handleDeleteCacheEntry = (entry: CacheEntry) => {
     Alert.alert(
       'Delete cache?',
-      `Remove cache "${entry.key}" (${entry.from_date} → ${entry.to_date})? This will delete the entry and its file.`,
+      `Remove cache "${entry.key}" (${entry.from_date} â†’ ${entry.to_date})? This will delete the entry and its file.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -2777,7 +2737,7 @@ export default function DataManagement() {
           {item.key}
         </Text>
         <Text style={styles.entryDateRange}>
-          {item.from_date} → {item.to_date}
+          {item.from_date} â†’ {item.to_date}
         </Text>
         <Text style={styles.entryTimestamp}>
           Created: {new Date(item.created_at).toLocaleString()}
@@ -3231,27 +3191,10 @@ export default function DataManagement() {
       {/* Keep screen awake during downloads/updates */}
       {(isDownloading || isUpdating) && <KeepAwake />}
 
-      {/* Header */}
-      <SafeAreaView edges={['top']} style={styles.headerWrapper}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => nav.goBack()} style={styles.headerBackButton}>
-            <Icon name="chevron-left" size={28} color={colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Data Management</Text>
-        </View>
-      </SafeAreaView>
+      {/* Header (same pattern as Ledger Reports) */}
+      <StatusBarTopBar title="Data Management" onMenuPress={openSidebar} rightIcons="none" />
 
-      <AppSidebar
-        visible={sidebarOpen}
-        onClose={closeSidebar}
-        menuItems={SIDEBAR_MENU_SALES}
-        activeTarget="DataManagement"
-        companyName={infoCompany || undefined}
-        onItemPress={onSidebarItemPress}
-        onConnectionsPress={goToAdminDashboard}
-        onCompanyChange={() => resetNavigationOnCompanyChange()}
-      />
-      <EdgeSwipe />
+
 
       {/* Info Bar */}
       <View style={styles.infoBar}>
@@ -3606,7 +3549,7 @@ export default function DataManagement() {
           <View style={styles.modalContentLarge}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Data Contents</Text>
-              <TouchableOpacity onPress={() => setDataContentsModalVisible(false)} padding={8}>
+              <TouchableOpacity onPress={() => setDataContentsModalVisible(false)} style={{ padding: 8 }}>
                 <Icon name="close" size={24} color={colors.text_primary} />
               </TouchableOpacity>
             </View>
@@ -3665,7 +3608,7 @@ export default function DataManagement() {
                             {item.key}
                           </Text>
                           <Text style={[styles.tableCellText, { width: 120, color: '#5f6368' }]}>
-                            {(isDashboard || isStockItems || isCustomers || isStockGroups || isSales) ? '—' : `${item.from_date}\nto\n${item.to_date}`}
+                            {(isDashboard || isStockItems || isCustomers || isStockGroups || isSales) ? 'â€”' : `${item.from_date}\nto\n${item.to_date}`}
                           </Text>
                           <Text style={[styles.tableCellText, { width: 90, fontWeight: '600', color: '#202124' }]}>
                             {sizeFormatted}
@@ -3745,7 +3688,7 @@ export default function DataManagement() {
                                 <Text style={{ color: colors.white, fontSize: 13, fontWeight: '600' }}>View</Text>
                               </TouchableOpacity>
                             ) : (
-                              <Text style={[styles.tableCellText, { width: 80, color: '#9aa0a6' }]}>—</Text>
+                              <Text style={[styles.tableCellText, { width: 80, color: '#9aa0a6' }]}>â€”</Text>
                             )}
                           </View>
                         </View>
@@ -3769,8 +3712,8 @@ export default function DataManagement() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContentLarge, { maxHeight: '90%', minHeight: TABLE_MODAL_MIN_HEIGHT }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{viewTableTitle} — Data Lynkr</Text>
-              <TouchableOpacity onPress={() => setViewTableModalVisible(false)} padding={8}>
+              <Text style={styles.modalTitle}>{viewTableTitle} â€” Data Lynkr</Text>
+              <TouchableOpacity onPress={() => setViewTableModalVisible(false)} style={{ padding: 8 }}>
                 <Icon name="close" size={24} color={colors.text_primary} />
               </TouchableOpacity>
             </View>
@@ -3780,97 +3723,97 @@ export default function DataManagement() {
                 <Text style={{ marginTop: 12, fontSize: 14, color: colors.text_secondary }}>Loading table...</Text>
               </View>
             ) : (
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24, flexGrow: 1 }}>
-              {/* Index recommendations */}
-              <View style={{ borderWidth: 1, borderColor: '#1a73e8', borderRadius: 8, padding: 12, marginHorizontal: 16, marginBottom: 12, backgroundColor: '#f8fafc' }}>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: '#1a73e8', marginBottom: 6 }}>Indexes (recommended for SQL)</Text>
-                {viewTableType === 'items' ? (
-                  <>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_stockitem: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockitem_user_location_company_guid: (user_id, location_id, company, guid)</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_stockitem_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
-                  </>
-                ) : viewTableType === 'stockgroups' ? (
-                  <>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_stockgroup: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockgroups_user_location_company_guid: (user_id, location_id, company, guid)</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockgroups_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_stockgroups_user_location_company_guid_grouplist: (user_id, location_id, company, guid, grouplist)</Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_ledger: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_ledgers_user_location_company_guid: (user_id, location_id, company, guid)</Text>
-                    <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_ledgers_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
-                  </>
-                )}
-              </View>
-              {/* Pagination info */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 }}>
-                <Text style={{ fontSize: 13, color: '#5f6368' }}>{viewTableRows.length} row(s)</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <TouchableOpacity
-                    onPress={() => setViewTablePage((p) => Math.max(1, p - 1))}
-                    disabled={viewTablePage <= 1}
-                    style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: viewTablePage <= 1 ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}
-                  >
-                    <Text style={{ color: viewTablePage <= 1 ? '#9aa0a6' : colors.white, fontSize: 13 }}>Previous</Text>
-                  </TouchableOpacity>
-                  <Text style={{ fontSize: 13, color: '#202124' }}>
-                    Page {viewTablePage} of {Math.max(1, Math.ceil(viewTableRows.length / ROWS_PER_PAGE))}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => setViewTablePage((p) => Math.min(Math.ceil(viewTableRows.length / ROWS_PER_PAGE), p + 1))}
-                    disabled={viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE)}
-                    style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE) ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}
-                  >
-                    <Text style={{ color: viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE) ? '#9aa0a6' : colors.white, fontSize: 13 }}>Next</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              {/* Table */}
-              <ScrollView horizontal style={{ marginHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 16 }}>
-                <View>
-                  <View style={styles.tableHeaderRow}>
-                    <Text style={[styles.tableHeaderText, { width: 90 }]}>location_id</Text>
-                    <Text style={[styles.tableHeaderText, { width: 100 }]}>company</Text>
-                    <Text style={[styles.tableHeaderText, { width: 200 }]}>guid</Text>
-                    {viewTableType === 'ledgers' ? <Text style={[styles.tableHeaderText, { width: 70 }]}>alterid</Text> : null}
-                    <Text style={[styles.tableHeaderText, { width: 70 }]}>masterid</Text>
-                    <Text style={[styles.tableHeaderText, { width: 180 }]}>name</Text>
-                    {viewTableType === 'stockgroups' ? <Text style={[styles.tableHeaderText, { width: 220 }]}>grouplist</Text> : null}
-                    <Text style={[styles.tableHeaderText, { width: 280 }]}>Details (json)</Text>
-                  </View>
-                  {viewTableRows.length === 0 ? (
-                    <View style={{ padding: 24, alignItems: 'center' }}>
-                      <Text style={styles.noDataText}>No indexed data. Download or refresh items/customers/stock groups first.</Text>
-                    </View>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24, flexGrow: 1 }}>
+                {/* Index recommendations */}
+                <View style={{ borderWidth: 1, borderColor: '#1a73e8', borderRadius: 8, padding: 12, marginHorizontal: 16, marginBottom: 12, backgroundColor: '#f8fafc' }}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#1a73e8', marginBottom: 6 }}>Indexes (recommended for SQL)</Text>
+                  {viewTableType === 'items' ? (
+                    <>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_stockitem: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockitem_user_location_company_guid: (user_id, location_id, company, guid)</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_stockitem_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
+                    </>
+                  ) : viewTableType === 'stockgroups' ? (
+                    <>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_stockgroup: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockgroups_user_location_company_guid: (user_id, location_id, company, guid)</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_stockgroups_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_stockgroups_user_location_company_guid_grouplist: (user_id, location_id, company, guid, grouplist)</Text>
+                    </>
                   ) : (
-                    (viewTableType === 'items'
-                      ? (viewTableRows as StockItemIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
-                      : viewTableType === 'stockgroups'
-                        ? (viewTableRows as StockGroupIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
-                        : (viewTableRows as LedgerIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
-                    ).map((row, idx) => (
-                      <View key={idx} style={styles.tableRow}>
-                        <Text style={[styles.tableCellText, { width: 90, color: '#5f6368' }]}>{row.location_id}</Text>
-                        <Text style={[styles.tableCellText, { width: 100, color: '#5f6368' }]} numberOfLines={1}>{row.company}</Text>
-                        <Text style={[styles.tableCellText, { width: 200, color: '#5f6368', fontFamily: 'monospace', fontSize: 11 }]} numberOfLines={1}>{row.guid}</Text>
-                        {viewTableType === 'ledgers' ? (
-                          <Text style={[styles.tableCellText, { width: 70, color: '#5f6368' }]}>{(row as LedgerIndexRow).alterid ?? '—'}</Text>
-                        ) : null}
-                        <Text style={[styles.tableCellText, { width: 70, color: '#202124', fontWeight: '600' }]}>{row.masterid}</Text>
-                        <Text style={[styles.tableCellText, { width: 180, color: '#202124' }]} numberOfLines={2}>{row.name}</Text>
-                        {viewTableType === 'stockgroups' ? (
-                          <Text style={[styles.tableCellText, { width: 220, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{(row as StockGroupIndexRow).grouplist || '—'}</Text>
-                        ) : null}
-                        <Text style={[styles.tableCellText, { width: 280, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{row.details_json || '—'}</Text>
-                      </View>
-                    ))
+                    <>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>unique_ledger: (user_id, location_id, company, guid, masterid) UNIQUE</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124', marginBottom: 2 }}>ix_ledgers_user_location_company_guid: (user_id, location_id, company, guid)</Text>
+                      <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#202124' }}>ix_ledgers_user_location_company_guid_name: (user_id, location_id, company, guid, name)</Text>
+                    </>
                   )}
                 </View>
+                {/* Pagination info */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 13, color: '#5f6368' }}>{viewTableRows.length} row(s)</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => setViewTablePage((p) => Math.max(1, p - 1))}
+                      disabled={viewTablePage <= 1}
+                      style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: viewTablePage <= 1 ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}
+                    >
+                      <Text style={{ color: viewTablePage <= 1 ? '#9aa0a6' : colors.white, fontSize: 13 }}>Previous</Text>
+                    </TouchableOpacity>
+                    <Text style={{ fontSize: 13, color: '#202124' }}>
+                      Page {viewTablePage} of {Math.max(1, Math.ceil(viewTableRows.length / ROWS_PER_PAGE))}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => setViewTablePage((p) => Math.min(Math.ceil(viewTableRows.length / ROWS_PER_PAGE), p + 1))}
+                      disabled={viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE)}
+                      style={{ paddingVertical: 6, paddingHorizontal: 12, backgroundColor: viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE) ? '#e8eaed' : colors.primary_blue, borderRadius: 6 }}
+                    >
+                      <Text style={{ color: viewTablePage >= Math.ceil(viewTableRows.length / ROWS_PER_PAGE) ? '#9aa0a6' : colors.white, fontSize: 13 }}>Next</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {/* Table */}
+                <ScrollView horizontal style={{ marginHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 16 }}>
+                  <View>
+                    <View style={styles.tableHeaderRow}>
+                      <Text style={[styles.tableHeaderText, { width: 90 }]}>location_id</Text>
+                      <Text style={[styles.tableHeaderText, { width: 100 }]}>company</Text>
+                      <Text style={[styles.tableHeaderText, { width: 200 }]}>guid</Text>
+                      {viewTableType === 'ledgers' ? <Text style={[styles.tableHeaderText, { width: 70 }]}>alterid</Text> : null}
+                      <Text style={[styles.tableHeaderText, { width: 70 }]}>masterid</Text>
+                      <Text style={[styles.tableHeaderText, { width: 180 }]}>name</Text>
+                      {viewTableType === 'stockgroups' ? <Text style={[styles.tableHeaderText, { width: 220 }]}>grouplist</Text> : null}
+                      <Text style={[styles.tableHeaderText, { width: 280 }]}>Details (json)</Text>
+                    </View>
+                    {viewTableRows.length === 0 ? (
+                      <View style={{ padding: 24, alignItems: 'center' }}>
+                        <Text style={styles.noDataText}>No indexed data. Download or refresh items/customers/stock groups first.</Text>
+                      </View>
+                    ) : (
+                      (viewTableType === 'items'
+                        ? (viewTableRows as StockItemIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
+                        : viewTableType === 'stockgroups'
+                          ? (viewTableRows as StockGroupIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
+                          : (viewTableRows as LedgerIndexRow[]).slice((viewTablePage - 1) * ROWS_PER_PAGE, viewTablePage * ROWS_PER_PAGE)
+                      ).map((row, idx) => (
+                        <View key={idx} style={styles.tableRow}>
+                          <Text style={[styles.tableCellText, { width: 90, color: '#5f6368' }]}>{row.location_id}</Text>
+                          <Text style={[styles.tableCellText, { width: 100, color: '#5f6368' }]} numberOfLines={1}>{row.company}</Text>
+                          <Text style={[styles.tableCellText, { width: 200, color: '#5f6368', fontFamily: 'monospace', fontSize: 11 }]} numberOfLines={1}>{row.guid}</Text>
+                          {viewTableType === 'ledgers' ? (
+                            <Text style={[styles.tableCellText, { width: 70, color: '#5f6368' }]}>{(row as LedgerIndexRow).alterid ?? 'â€”'}</Text>
+                          ) : null}
+                          <Text style={[styles.tableCellText, { width: 70, color: '#202124', fontWeight: '600' }]}>{row.masterid}</Text>
+                          <Text style={[styles.tableCellText, { width: 180, color: '#202124' }]} numberOfLines={2}>{row.name}</Text>
+                          {viewTableType === 'stockgroups' ? (
+                            <Text style={[styles.tableCellText, { width: 220, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{(row as StockGroupIndexRow).grouplist || 'â€”'}</Text>
+                          ) : null}
+                          <Text style={[styles.tableCellText, { width: 280, color: '#5f6368', fontSize: 11 }]} numberOfLines={2}>{row.details_json || 'â€”'}</Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                </ScrollView>
               </ScrollView>
-            </ScrollView>
             )}
           </View>
         </View>
@@ -3886,8 +3829,8 @@ export default function DataManagement() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContentLarge, { maxHeight: '92%', minHeight: TABLE_MODAL_MIN_HEIGHT }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Transactions — Data Lynkr</Text>
-              <TouchableOpacity onPress={() => setTransactionsModalVisible(false)} padding={8}>
+              <Text style={styles.modalTitle}>Transactions â€” Data Lynkr</Text>
+              <TouchableOpacity onPress={() => setTransactionsModalVisible(false)} style={{ padding: 8 }}>
                 <Icon name="close" size={24} color={colors.text_primary} />
               </TouchableOpacity>
             </View>
@@ -4722,3 +4665,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+

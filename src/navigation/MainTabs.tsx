@@ -12,7 +12,7 @@ import SummaryStack from './SummaryStack';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 import FooterTabBar from '../components/FooterTabBar';
-import { ModuleAccessProvider, useModuleAccess } from '../store/ModuleAccessContext';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 // import HomeIcon from '../components/footer-icons/HomeIcon';
 import OrdersIcon from '../components/footer-icons/OrdersIcon';
 import LedgerIcon from '../components/footer-icons/LedgerIcon';
@@ -20,11 +20,15 @@ import ApprovalsIcon from '../components/footer-icons/ApprovalsIcon';
 import SummaryIcon from '../components/footer-icons/SummaryIcon';
 import StockFooterIcon from '../components/footer-icons/StockFooterIcon';
 import { StatusBarTopBar } from '../components/StatusBarTopBar';
-import { AppSidebar } from '../components/AppSidebar';
-import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
-import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { resetNavigationOnCompanyChange } from './companyChangeNavigation';
 import { navigationRef } from './navigationRef';
+import { useGlobalSidebar } from '../store/GlobalSidebarContext';
+import {
+  SIDEBAR_MENU_SALES,
+  SIDEBAR_MENU_ORDER_ENTRY,
+  SIDEBAR_MENU_LEDGER,
+  SIDEBAR_MENU_APPROVALS,
+} from '../components/appSidebarMenu';
 
 const Tab = createBottomTabNavigator<MainTabsParamList>();
 
@@ -69,22 +73,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
 /** Shown when both Orders and Ledger are disabled. */
 function NoAccessScreen() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
-  const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
-
-  const onSidebarItemPress = useCallback(
-    (item: { target: string; params?: object }) => {
-      closeSidebar();
-      if (item.target === 'DataManagement') {
-        if (navigationRef.isReady()) (navigationRef as any).navigate('DataManagement');
-      } else if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
-        if (navigationRef.isReady()) (navigationRef as any).navigate(item.target);
-      }
-    },
-    [closeSidebar],
-  );
+  const { openSidebar } = useGlobalSidebar();
 
   return (
     <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
@@ -101,15 +90,7 @@ function NoAccessScreen() {
           Ask your administrator to provide access.
         </Text>
       </View>
-      <AppSidebar
-        visible={sidebarOpen}
-        onClose={closeSidebar}
-        menuItems={SIDEBAR_MENU_SALES}
-        activeTarget=""
-        onItemPress={onSidebarItemPress}
-        onCompanyChange={() => resetNavigationOnCompanyChange()}
-      />
-      <EdgeSwipe />
+
     </View>
   );
 }
@@ -121,6 +102,7 @@ function NoAccessScreen() {
  */
 function MainTabsInner() {
   const { moduleAccess, loading } = useModuleAccess();
+  const { setSidebarConfig } = useGlobalSidebar();
 
   // Wait for module access to load from API before rendering tabs,
   // so initialRouteName is based on actual permissions.
@@ -159,6 +141,24 @@ function MainTabsInner() {
         headerShown: false,
         tabBarActiveTintColor: colors.footer_active,
         tabBarInactiveTintColor: colors.footer_text,
+      }}
+      screenListeners={{
+        focus: (e) => {
+          const routeKey = e.target;
+          if (!routeKey) return;
+          // Extract route name from key (key is usually "RouteName-uniqueId")
+          const routeName = routeKey.split('-')[0];
+
+          let menu = SIDEBAR_MENU_SALES;
+          if (routeName === 'OrdersTab') menu = SIDEBAR_MENU_ORDER_ENTRY;
+          else if (routeName === 'LedgerTab') menu = SIDEBAR_MENU_LEDGER;
+          else if (routeName === 'ApprovalsTab') menu = SIDEBAR_MENU_APPROVALS;
+
+          setSidebarConfig({
+            menuItems: menu,
+            restrictAccess: true,
+          });
+        },
       }}
     >
       {/* Home tab commented out for now
@@ -210,11 +210,7 @@ function MainTabsInner() {
 }
 
 export default function MainTabs() {
-  return (
-    <ModuleAccessProvider>
-      <MainTabsInner />
-    </ModuleAccessProvider>
-  );
+  return <MainTabsInner />;
 }
 
 const noAccessStyles = StyleSheet.create({

@@ -25,7 +25,7 @@ import {
   ledgerGrandTotalListPaddingBottom,
   ledgerGrandTotalScrollSlidePx,
   sharedStyles,
-} from './LedgerShared';
+} from './utils/LedgerShared';
 
 interface PastOrdersProps {
   ledger_name: string;

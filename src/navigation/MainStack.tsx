@@ -6,11 +6,13 @@ import SystemNavigationBar from 'react-native-system-navigation-bar';
 import type { MainStackParamList } from './types';
 import AdminDashboard from '../screens/AdminDashboard';
 import MainTabs from './MainTabs';
-import VoucherDetailView from '../screens/VoucherDetailView';
+import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
 import DataManagement from '../screens/CacheManagement2';
-import PaymentsScreen from '../screens/PaymentsScreen';
-import ExpenseClaimsScreen from '../screens/ExpenseClaimsScreen';
-import CollectionsScreen from '../screens/CollectionsScreen';
+import PaymentsScreen from '../screens/PayNExp/PaymentsScreen';
+import ExpenseClaimsScreen from '../screens/PayNExp/ExpenseClaimsScreen';
+import CollectionsScreen from '../screens/PayNExp/CollectionsScreen';
+import { GlobalSidebarProvider } from '../store/GlobalSidebarContext';
+import { ModuleAccessProvider } from '../store/ModuleAccessContext';
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
@@ -29,9 +31,12 @@ function DataManagementWithWhiteNavBar(props: any) {
   );
 }
 
-export default function MainStack() {
+function MainStackInner() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="AdminDashboard">
+    <Stack.Navigator
+      screenOptions={{ headerShown: false }}
+      initialRouteName="AdminDashboard"
+    >
       <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen
@@ -54,7 +59,21 @@ export default function MainStack() {
       <Stack.Screen name="Payments" component={PaymentsScreen} />
       <Stack.Screen name="ExpenseClaims" component={ExpenseClaimsScreen} />
       <Stack.Screen name="Collections" component={CollectionsScreen} />
-      <Stack.Screen name="VoucherDetailView" component={VoucherDetailView} />
+      <Stack.Screen
+        name="VoucherDetailView"
+        component={VoucherDetailView}
+        options={{ animation: 'slide_from_bottom' }}
+      />
     </Stack.Navigator>
+  );
+}
+
+export default function MainStack() {
+  return (
+    <ModuleAccessProvider>
+      <GlobalSidebarProvider>
+        <MainStackInner />
+      </GlobalSidebarProvider>
+    </ModuleAccessProvider>
   );
 }

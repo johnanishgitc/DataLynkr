@@ -4,8 +4,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import type { ApprovalsStackParamList } from './types';
-import ApprovalsScreen from '../screens/ApprovalsScreen';
-import VoucherDetailView from '../screens/VoucherDetailView';
+import ApprovalsScreen from '../screens/approvals/ApprovalsScreen';
+import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
 
 const Stack = createNativeStackNavigator<ApprovalsStackParamList>();
 

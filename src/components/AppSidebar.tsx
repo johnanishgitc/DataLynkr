@@ -40,7 +40,7 @@ import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { navigationRef } from '../navigation/navigationRef';
-import { REPORT_OPTIONS } from '../screens/ledger';
+import { REPORT_OPTIONS } from '../screens/ledger/utils';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
@@ -66,24 +66,27 @@ export interface AppSidebarProps {
   visible: boolean;
   onClose: () => void;
   menuItems: AppSidebarMenuItem[];
+  onItemPress: (item: AppSidebarMenuItem) => void;
   /** Target string of the current screen (item will be highlighted) */
   activeTarget?: string;
   companyName?: string;
-  onItemPress: (item: AppSidebarMenuItem) => void;
   onConnectionsPress?: () => void;
   /** Called when user selects a different company from the dropdown */
   onCompanyChange?: (companyName: string) => void;
+  /** When false, all module access checks are bypassed (items stay enabled) */
+  restrictAccess?: boolean;
 }
 
 export function AppSidebar({
   visible,
   onClose,
   menuItems,
+  onItemPress,
   activeTarget,
   companyName = 'DataLynkr',
-  onItemPress,
   onConnectionsPress,
   onCompanyChange,
+  restrictAccess = false,
 }: AppSidebarProps) {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
@@ -410,8 +413,9 @@ export function AppSidebar({
                 const isPaymentCollections = item.id === 'payment-collections';
                 const hasChevron = item.params && (item.params as any).hasChevron;
 
+                const isSelected = item.target === activeTarget;
                 const modKey = getModuleKey(item.target);
-                const isEnabled = modKey ? !!moduleAccess[modKey] : true;
+                const isEnabled = restrictAccess ? (modKey ? !!moduleAccess[modKey] : true) : true;
 
                 if (isDashboard) {
                   return (
