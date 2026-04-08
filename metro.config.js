@@ -16,6 +16,8 @@ const config = {
     sourceExts: [...defaultConfig.resolver.sourceExts, 'svg'],
     blockList: [
       /figma_codes\/.*/,
+      /node_modules[\\/]+@react-native[\\/]+gradle-plugin[\\/]+settings-plugin[\\/]+build[\\/]+.*/,
+      /node_modules[\\/]+@react-native[\\/]+gradle-plugin[\\/]+react-native-gradle-plugin[\\/]+build[\\/]+.*/,
     ],
   },
 };

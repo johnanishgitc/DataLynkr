@@ -43,7 +43,16 @@ export default function VoucherDetails() {
     ledgerName ||
     (v.PARTICULARS as string | undefined) ||
     '—';
-  const billRef = (v.REFNO ?? v.BILLNAME ?? '—') as string;
+  const isOnAccRow = String(v.REFNO ?? v.BILLNAME ?? '').trim().toLowerCase() === 'onacc';
+  const fallbackVoucherNo = (v.VOUCHERS ?? []).find((x) => {
+    const num = String(x.VOUCHERNUMBER ?? '').trim();
+    return num.length > 0;
+  })?.VOUCHERNUMBER;
+  const billRef = (
+    isOnAccRow
+      ? (v.VOUCHERNUMBER ?? fallbackVoucherNo ?? '—')
+      : (v.REFNO ?? v.BILLNAME ?? '—')
+  ) as string;
   const dueOn = (v.DUEON ?? '') as string;
 
   const vouchers = (v.VOUCHERS ?? []) as VoucherEntry[];
@@ -101,16 +110,19 @@ export default function VoucherDetails() {
           const isDebit = toNum(item.DEBITAMT) > 0;
           const amt = isDebit ? toNum(item.DEBITAMT) : toNum(item.CREDITAMT);
           const drCr = isDebit ? 'Dr.' : 'Cr.';
+          const itemMasterId = String(item.MASTERID ?? '').trim();
+          const canOpenVoucherDetails = itemMasterId.length > 0;
           return (
             <TouchableOpacity
               key={i}
               style={styles.voucherRow}
-              onPress={() =>
+              onPress={() => {
+                if (!canOpenVoucherDetails) return;
                 (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
                   voucher: item,
                   ledger_name: displayLedger,
-                })
-              }
+                });
+              }}
               activeOpacity={0.7}
             >
               <View style={styles.voucherRowInner}>

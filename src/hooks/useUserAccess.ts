@@ -127,7 +127,7 @@ const DEFAULT_MODULE_ACCESS: ModuleAccess = {
  */
 const MODULE_NAME_MAP: Record<string, string> = {
     place_order: 'place_order',
-    ledger_voucher: 'ledger_book',
+    ledger_book: 'ledger_book',
     voucher_authorization: 'approvals',
     sales_dashboard: 'sales_dashboard',
 };
@@ -270,9 +270,11 @@ export function useUserAccess(): UseUserAccessReturn {
                 const modAccess: ModuleAccess = { ...DEFAULT_MODULE_ACCESS };
                 let approvalsApproveReject = false;
                 let approvalsDateRangeValue: string | undefined;
+                const seenModuleNames = new Set<string>();
                 for (const mod of modules) {
                     const name = String(mod.module_name ?? mod.module_key ?? '').trim();
                     if (name) {
+                        seenModuleNames.add(name.toLowerCase());
                         const mappedKey = MODULE_NAME_MAP[name] ?? name;
                         const isEnabledRaw = mod.is_enabled ?? mod.enabled ?? mod.is_granted ?? mod.granted;
                         // If the API omits the enabled flag entirely, assume it's true because the module is listed.
@@ -300,6 +302,19 @@ export function useUserAccess(): UseUserAccessReturn {
                             }
                         }
                     }
+                }
+                // Ledger Reports screen should remain accessible if any core ledger report
+                // module is enabled, even when API does not send explicit `ledger_book`.
+                const hasAnyLedgerReportAccess =
+                    !!modAccess.ledger_voucher ||
+                    !!modAccess.bill_wise_report ||
+                    !!modAccess.salesorder_os_reports;
+                const hasLedgerReportModulesConfigured =
+                    seenModuleNames.has('ledger_voucher') ||
+                    seenModuleNames.has('bill_wise_report') ||
+                    seenModuleNames.has('salesorder_os_reports');
+                if (hasAnyLedgerReportAccess || hasLedgerReportModulesConfigured) {
+                    modAccess.ledger_book = true;
                 }
                 // Expose Approvals approve/reject option flag via moduleAccess
                 (modAccess as any).approvals_def_apprvrej = approvalsApproveReject;

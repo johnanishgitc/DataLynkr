@@ -24,6 +24,13 @@ export const REPORT_OPTIONS = [
   'Past Orders',
 ] as const;
 
+/** Per-report visibility control using module access flags from access-control API. */
+export const REPORT_MODULE_ACCESS_MAP: Partial<Record<(typeof REPORT_OPTIONS)[number], string>> = {
+  'Ledger Vouchers': 'ledger_voucher',
+  'Bill Wise Outstandings': 'bill_wise_report',
+  'Sales Order Ledger Outstandings': 'salesorder_os_reports',
+};
+
 export type ReportType = (typeof REPORT_OPTIONS)[number];
 
 export const DEFAULT_REPORT: ReportType = 'Ledger Vouchers';

@@ -18,6 +18,7 @@ import type { UserConnection } from '../api';
 import { apiService, isUnauthorizedError } from '../api';
 import { RefreshIcon } from '../assets/connections';
 import { useAuth } from '../store';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 import { saveCompanyInfo, getCompanyInfo, type CompanyInfo } from '../store/storage';
 import { refreshAllDataManagementData } from '../cache';
 import { strings, connections_available } from '../constants/strings';
@@ -53,6 +54,7 @@ export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
   const { logout } = useAuth();
+  const { refresh: refreshModuleAccess } = useModuleAccess();
   const [all, setAll] = useState<UserConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const autoNavDone = React.useRef(false);
@@ -109,6 +111,7 @@ export default function AdminDashboard() {
             if (match && (match.status ?? '').toLowerCase() === 'connected') {
               // Company is still online – go straight in
               await saveCompanyInfo(toCompanyInfo(match));
+              refreshModuleAccess();
               nav.navigate('MainTabs');
               refreshAllDataManagementData().catch(() => {});
               return;
@@ -143,6 +146,7 @@ export default function AdminDashboard() {
       return;
     }
     saveCompanyInfo(toCompanyInfo(c)).then(() => {
+      refreshModuleAccess();
       nav.navigate('MainTabs');
       // Sync stock items, customers, and stock groups in background
       refreshAllDataManagementData().catch(() => { });
