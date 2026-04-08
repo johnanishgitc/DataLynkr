@@ -198,7 +198,28 @@ export default function BillWiseOutstanding({
     });
   };
 
-  const rows = data?.data ?? [];
+  const rows = useMemo(() => {
+    const baseRows = (data?.data ?? []) as VoucherEntry[];
+    const onAcc = data?.onacc;
+    if (!onAcc) return baseRows;
+
+    const onAccOpenVouchers = (onAcc.ONACCVOUCHERSOPEN ?? []) as VoucherEntry[];
+    const onAccVouchers = (onAcc.ONACCVOUCHERS ?? []) as VoucherEntry[];
+    const onAccRow: VoucherEntry = {
+      REFNO: 'onacc',
+      BILLNAME: 'onacc',
+      DATE: onAccVouchers[0]?.DATE ?? onAccOpenVouchers[0]?.DATE ?? null,
+      DUEON: null,
+      OVERDUEDAYS: null,
+      DEBITOPENBAL: onAcc.DEBITOPENBAL,
+      CREDITOPENBAL: onAcc.CREDITOPENBAL,
+      DEBITCLSBAL: onAcc.DEBITCLSBAL,
+      CREDITCLSBAL: onAcc.CREDITCLSBAL,
+      VOUCHERS: [...onAccOpenVouchers, ...onAccVouchers],
+    };
+
+    return [...baseRows, onAccRow];
+  }, [data]);
 
   // BWO Figma: Total Pending Amount, Total Opening Amount for footer
   const billWiseTotals = useMemo(() => {
@@ -237,7 +258,22 @@ export default function BillWiseOutstanding({
   };
 
   const renderCardBillWise = (v: VoucherEntry, i: number) => {
-    const billRef = v.REFNO || v.BILLNAME || '—';
+    const isOnAccRow =
+      String(v.REFNO ?? v.BILLNAME ?? '').trim().toLowerCase() === 'onacc';
+    const vouchers = (v.VOUCHERS ?? []) as VoucherEntry[];
+    const fallbackVoucherNo = (v.VOUCHERS ?? []).find((x) => {
+      const num = String(x.VOUCHERNUMBER ?? '').trim();
+      return num.length > 0;
+    })?.VOUCHERNUMBER;
+    const billRef = isOnAccRow
+      ? (v.VOUCHERNUMBER || fallbackVoucherNo || '—')
+      : (v.REFNO || v.BILLNAME || '—');
+    const lastOnAccVoucher = vouchers.length > 0 ? vouchers[vouchers.length - 1] : undefined;
+    const lastOnAccDebit = toNum(lastOnAccVoucher?.DEBITAMT);
+    const lastOnAccCredit = toNum(lastOnAccVoucher?.CREDITAMT);
+    const lastOnAccIsDebit = lastOnAccDebit > 0;
+    const lastOnAccAmt = lastOnAccIsDebit ? lastOnAccDebit : lastOnAccCredit;
+    const lastOnAccAmtDisplay = `${fmtNum(lastOnAccAmt)} ${lastOnAccIsDebit ? 'Dr' : 'Cr'}`;
     const dueOn = sanitizeDueForDisplay(v.DUEON);
     const od = v.OVERDUEDAYS;
     const overdueStr = od != null ? `${od} Days` : '—';
@@ -247,36 +283,72 @@ export default function BillWiseOutstanding({
     const dateDueStr = `${dateStr} (Due Date: ${dueOn})`;
 
     return (
-      <TouchableOpacity key={i} style={sharedStyles.cardBillWise} onPress={() => onRow(v)} activeOpacity={0.7}>
+      <TouchableOpacity
+        key={i}
+        style={[
+          sharedStyles.cardBillWise,
+          isOnAccRow && { backgroundColor: '#f3f4f6', minHeight: 40, justifyContent: 'center' },
+        ]}
+        onPress={() => onRow(v)}
+        activeOpacity={0.7}
+      >
         <View style={sharedStyles.cardBillWiseContent}>
-          {/* Line 1: Overdue | Opening Amt | Pending Amt — responsive for narrow screens */}
-          <View style={sharedStyles.cardBillWiseMainRow}>
-            <Text style={[sharedStyles.cardBillWiseOverdue, isNarrowScreen && { maxWidth: '28%' }]} numberOfLines={1}>
-              {overdueStr}
-            </Text>
-            <View style={[sharedStyles.cardBillWiseAmounts, isNarrowScreen && sharedStyles.cardBillWiseAmountsNarrow]}>
+          {/* Line 1: Overdue | Opening Amt | Pending Amt; On Account custom row */}
+          {isOnAccRow ? (
+            <View style={sharedStyles.cardBillWiseMainRow}>
               <Text
-                style={[sharedStyles.cardBillWiseAmtOpening, isNarrowScreen && sharedStyles.cardBillWiseAmtOpeningNarrow]}
+                style={[
+                  sharedStyles.cardBillWiseOverdue,
+                  { color: colors.text_primary, fontWeight: '700' },
+                ]}
                 numberOfLines={1}
-                ellipsizeMode="clip"
               >
-                {openingBalance}
+                On Account
               </Text>
-              <Text
-                style={[sharedStyles.cardBillWiseAmt, isNarrowScreen && sharedStyles.cardBillWiseAmtNarrow]}
-                numberOfLines={1}
-                ellipsizeMode="clip"
-              >
-                {pendingBalance}
+              <View style={sharedStyles.cardBillWiseAmounts}>
+                <Text
+                  style={[
+                    sharedStyles.cardBillWiseAmt,
+                    { color: colors.text_primary, fontWeight: '700', textAlign: 'right' },
+                  ]}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                >
+                  {lastOnAccAmtDisplay}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={sharedStyles.cardBillWiseMainRow}>
+              <Text style={[sharedStyles.cardBillWiseOverdue, isNarrowScreen && { maxWidth: '28%' }]} numberOfLines={1}>
+                {overdueStr}
+              </Text>
+              <View style={[sharedStyles.cardBillWiseAmounts, isNarrowScreen && sharedStyles.cardBillWiseAmountsNarrow]}>
+                <Text
+                  style={[sharedStyles.cardBillWiseAmtOpening, isNarrowScreen && sharedStyles.cardBillWiseAmtOpeningNarrow]}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                >
+                  {openingBalance}
+                </Text>
+                <Text
+                  style={[sharedStyles.cardBillWiseAmt, isNarrowScreen && sharedStyles.cardBillWiseAmtNarrow]}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                >
+                  {pendingBalance}
+                </Text>
+              </View>
+            </View>
+          )}
+          {/* Line 2: continuous date | #ref (not for On Account) */}
+          {!isOnAccRow && (
+            <View style={sharedStyles.cardBillWiseSubRow}>
+              <Text style={[sharedStyles.cardBillWiseDateRefLine, isNarrowScreen && sharedStyles.cardBillWiseDateRefLineNarrow]} numberOfLines={1}>
+                {dateDueStr} | #{billRef}
               </Text>
             </View>
-          </View>
-          {/* Line 2: continuous date | #ref */}
-          <View style={sharedStyles.cardBillWiseSubRow}>
-            <Text style={[sharedStyles.cardBillWiseDateRefLine, isNarrowScreen && sharedStyles.cardBillWiseDateRefLineNarrow]} numberOfLines={1}>
-              {dateDueStr} | #{billRef}
-            </Text>
-          </View>
+          )}
         </View>
       </TouchableOpacity>
     );

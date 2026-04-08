@@ -26,6 +26,7 @@ import { apiService } from '../../../api';
 import type { LedgerReportData, BankUpiResponse } from '../../../api';
 import { ExportMenu, PeriodSelection } from '../../../components';
 import { useGlobalSidebar } from '../../../store/GlobalSidebarContext';
+import { useModuleAccess } from '../../../store/ModuleAccessContext';
 import { navigationRef } from '../../../navigation/navigationRef';
 import { strings } from '../../../constants/strings';
 import { colors } from '../../../constants/colors';
@@ -47,6 +48,7 @@ import {
   ClearedOrders,
   PastOrders,
   REPORT_OPTIONS,
+  REPORT_MODULE_ACCESS_MAP,
   DEFAULT_REPORT,
   defaultFromDate,
   defaultToDate,
@@ -360,6 +362,7 @@ export default function LedgerEntries() {
   const customerInputRef = useRef<TextInput>(null);
   const reportInputRef = useRef<TextInput>(null);
   const hasShownReportDropdownRef = useRef(false);
+  const { moduleAccess } = useModuleAccess();
 
   useEffect(() => {
     if (customerDropdownOpen) {
@@ -413,11 +416,42 @@ export default function LedgerEntries() {
     return ledgerNames.filter((n) => n.toLowerCase().includes(q));
   }, [ledgerNames, customerSearch]);
 
+  const reportEnabledMap = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    REPORT_OPTIONS.forEach((report) => {
+      const modKey = REPORT_MODULE_ACCESS_MAP[report];
+      map[report] = modKey ? !!moduleAccess[modKey] : true;
+    });
+    return map;
+  }, [moduleAccess]);
+
+  const availableReports = useMemo(() => {
+    return REPORT_OPTIONS.filter((report) => reportEnabledMap[report]);
+  }, [reportEnabledMap]);
+
+  const effectiveReportName = useMemo(() => {
+    if (availableReports.includes(report_name as (typeof REPORT_OPTIONS)[number])) {
+      return report_name;
+    }
+    return availableReports[0] ?? report_name;
+  }, [availableReports, report_name]);
+
   const filteredReports = useMemo(() => {
     if (!reportSearch.trim()) return REPORT_OPTIONS;
     const q = reportSearch.trim().toLowerCase();
     return REPORT_OPTIONS.filter((n) => n.toLowerCase().includes(q));
   }, [reportSearch]);
+
+  useEffect(() => {
+    if (!availableReports.length) return;
+    if (report_name === effectiveReportName) return;
+    (nav as unknown as { setParams: (p: object) => void }).setParams({
+      ledger_name,
+      report_name: effectiveReportName,
+      from_date,
+      to_date,
+    });
+  }, [availableReports, report_name, effectiveReportName, nav, ledger_name, from_date, to_date]);
 
   // Set status bar to blue when Ledger Reports screen is focused (e.g. after navigating from Order Success)
   useFocusEffect(
@@ -754,7 +788,7 @@ export default function LedgerEntries() {
   // Shared props for all report components
   const sharedProps = {
     ledger_name,
-    report_name,
+    report_name: effectiveReportName,
     from_date,
     to_date,
     dateRangeStr,
@@ -771,7 +805,7 @@ export default function LedgerEntries() {
 
   // Render the appropriate component based on report_name
   const renderReportComponent = () => {
-    switch (report_name) {
+    switch (effectiveReportName) {
       case 'Ledger Vouchers':
         return <LedgerVoucher {...sharedProps} />;
       case 'Bill Wise Outstandings':
@@ -854,7 +888,7 @@ export default function LedgerEntries() {
                   onPress={() => {
                     (nav as unknown as { setParams: (p: object) => void }).setParams({
                       ledger_name: item,
-                      report_name,
+                      report_name: effectiveReportName,
                       from_date,
                       to_date,
                     });
@@ -914,8 +948,12 @@ export default function LedgerEntries() {
               ListEmptyComponent={<Text style={sharedStyles.modalEmpty}>No reports found</Text>}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={sharedStyles.modalOpt}
+                  style={[
+                    sharedStyles.modalOpt,
+                    !reportEnabledMap[item] && { opacity: 0.45 },
+                  ]}
                   onPress={() => {
+                    if (!reportEnabledMap[item]) return;
                     (nav as unknown as { setParams: (p: object) => void }).setParams({
                       ledger_name,
                       report_name: item,
@@ -925,9 +963,17 @@ export default function LedgerEntries() {
                     setReportDropdownOpen(false);
                     setReportSearch('');
                   }}
-                  activeOpacity={0.7}
+                  activeOpacity={reportEnabledMap[item] ? 0.7 : 1}
                 >
-                  <Text style={sharedStyles.modalOptTxt} numberOfLines={1}>{item}</Text>
+                  <Text
+                    style={[
+                      sharedStyles.modalOptTxt,
+                      !reportEnabledMap[item] && { color: colors.text_secondary },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item}
+                  </Text>
                 </TouchableOpacity>
               )}
             />
@@ -943,7 +989,7 @@ export default function LedgerEntries() {
         onApply={(fromMs, toMs) => {
           (nav as unknown as { setParams: (p: object) => void }).setParams({
             ledger_name,
-            report_name,
+            report_name: effectiveReportName,
             from_date: fromMs,
             to_date: toMs,
           });

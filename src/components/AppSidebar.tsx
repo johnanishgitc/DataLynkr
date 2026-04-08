@@ -40,7 +40,7 @@ import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { navigationRef } from '../navigation/navigationRef';
-import { REPORT_OPTIONS } from '../screens/ledger/utils';
+import { REPORT_OPTIONS, REPORT_MODULE_ACCESS_MAP } from '../screens/ledger/utils';
 import { useModuleAccess } from '../store/ModuleAccessContext';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
@@ -117,6 +117,15 @@ export function AppSidebar({
       default: return null;
     }
   };
+
+  const ledgerReportEnabledMap = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    REPORT_OPTIONS.forEach((report) => {
+      const modKey = REPORT_MODULE_ACCESS_MAP[report];
+      map[report] = modKey ? !!moduleAccess[modKey] : true;
+    });
+    return map;
+  }, [moduleAccess]);
 
   /** Render same icons as footer bar for Orders, Ledger, Approvals, Stock; fallback to MaterialCommunityIcons. */
   const renderMenuItemIcon = (item: AppSidebarMenuItem, color: string, size: number) => {
@@ -489,11 +498,25 @@ export function AppSidebar({
                           {REPORT_OPTIONS.map(report => (
                             <TouchableOpacity
                               key={report}
-                              style={styles.subItemBox}
-                              onPress={() => onItemPress({ ...item, params: { ...item.params, auto_open_customer: true, report_name: report } })}
-                              activeOpacity={0.7}
+                              style={[
+                                styles.subItemBox,
+                                !ledgerReportEnabledMap[report] && { opacity: 0.45 },
+                              ]}
+                              onPress={
+                                ledgerReportEnabledMap[report]
+                                  ? () => onItemPress({ ...item, params: { ...item.params, auto_open_customer: true, report_name: report } })
+                                  : undefined
+                              }
+                              activeOpacity={ledgerReportEnabledMap[report] ? 0.7 : 1}
                             >
-                              <Text style={styles.subItemBoxText}>{report}</Text>
+                              <Text
+                                style={[
+                                  styles.subItemBoxText,
+                                  !ledgerReportEnabledMap[report] && { color: 'rgba(226,232,240,0.6)' },
+                                ]}
+                              >
+                                {report}
+                              </Text>
                             </TouchableOpacity>
                           ))}
                         </View>

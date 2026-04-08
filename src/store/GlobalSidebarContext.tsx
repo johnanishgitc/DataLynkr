@@ -88,22 +88,64 @@ function getActiveTargetFromNavigation(): string | undefined {
   }
 }
 
+function getDeepestActiveRouteName(state: any): string | undefined {
+  if (!state?.routes?.length) return undefined;
+  let route = state.routes[state.index ?? 0];
+  while (route?.state?.routes?.length) {
+    const nested = route.state;
+    route = nested.routes[nested.index ?? 0];
+  }
+  return route?.name;
+}
+
 // ── Universal onItemPress handler ──────────────────────────────────────
 
 function handleSidebarItemPress(item: AppSidebarMenuItem): void {
   if (!navigationRef.isReady()) return;
   const state = navigationRef.getState();
   const currentMainRoute = state?.routes?.[state.index];
+  const activeLeafRoute = getDeepestActiveRouteName(state as any);
+  const isOnOrderSuccess = activeLeafRoute === 'OrderSuccess';
+
+  const resetOrdersTabToCleanOrderEntry = () => {
+    const rootState = navigationRef.getState() as any;
+    const mainTabsRoute =
+      rootState?.routes?.[rootState?.index]?.name === 'MainTabs'
+        ? rootState.routes[rootState.index]
+        : rootState?.routes?.find((r: any) => r?.name === 'MainTabs');
+    const tabsState = mainTabsRoute?.state;
+    const ordersTabRoute = tabsState?.routes?.find((r: any) => r?.name === 'OrdersTab');
+    const ordersStackKey = ordersTabRoute?.state?.key;
+
+    if (ordersStackKey) {
+      navigationRef.dispatch({
+        ...CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'OrderEntry', params: { clearOrder: true } }],
+        }),
+        target: ordersStackKey,
+      } as any);
+      return;
+    }
+
+    // Fallback when Orders stack hasn't been initialized yet.
+    navigationRef.navigate('MainTabs' as never, {
+      screen: 'OrdersTab',
+      params: { screen: 'OrderEntry', params: { clearOrder: true } },
+    } as never);
+  };
 
   // Screens outside MainTabs (Payments, Collections, ExpenseClaims, DataManagement)
   const isOutsideTabs = currentMainRoute?.name !== 'MainTabs';
 
   if (item.target === 'DataManagement') {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     navigationRef.navigate('DataManagement' as never);
     return;
   }
 
   if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     (navigationRef as any).navigate(item.target);
     return;
   }
@@ -138,8 +180,13 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
   const tabNavKey = (currentMainRoute as any)?.state?.key;
 
   if (item.target === 'OrderEntry') {
-    navigationRef.navigate('MainTabs' as never, { screen: 'OrdersTab', params: { screen: 'OrderEntry' } } as never);
+    if (isOnOrderSuccess) {
+      resetOrdersTabToCleanOrderEntry();
+    } else {
+      navigationRef.navigate('MainTabs' as never, { screen: 'OrdersTab', params: { screen: 'OrderEntry' } } as never);
+    }
   } else if (item.target === 'LedgerTab') {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
     if (p?.report_name) {
       navigationRef.navigate('MainTabs' as never, { screen: 'LedgerTab', params: { screen: 'LedgerEntries', params: { report_name: p.report_name, auto_open_customer: p.auto_open_customer } } } as never);
@@ -147,12 +194,16 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
       navigationRef.navigate('MainTabs' as never, { screen: 'LedgerTab' } as never);
     }
   } else if (item.target === 'ApprovalsTab') {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     navigationRef.navigate('MainTabs' as never, { screen: 'ApprovalsTab' } as never);
   } else if (item.target === 'SummaryTab' || item.target === 'StockSummary') {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     navigationRef.navigate('MainTabs' as never, { screen: 'SummaryTab' } as never);
   } else if (item.target === 'SalesDashboard' || item.target === 'HomeTab') {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     navigationRef.navigate('MainTabs' as never, { screen: 'HomeTab' } as never);
   } else if (item.target === 'ComingSoon' && item.params) {
+    if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     navigationRef.navigate('MainTabs' as never, { screen: 'HomeTab', params: { screen: 'ComingSoon', params: item.params } } as never);
   }
 }
