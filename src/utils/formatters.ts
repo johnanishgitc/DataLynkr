@@ -172,78 +172,132 @@ export function formatDate(dateStr: string): string {
 }
 
 /**
- * Get current financial year start date (1st April) in YYYYMMDD format
+ * Get current financial year start date (1st April) in YYYY-MM-DD format (matches Data Management)
  */
 export function getCurrentFYStart(): string {
     const now = new Date();
     const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-    return `${year}0401`;
+    return `${year}-04-01`;
 }
 
 /**
- * Get current date in YYYYMMDD format (for cache keys)
+ * Get current date in YYYY-MM-DD format (matches Data Management from_date/to_date)
  */
 export function getCurrentDate(): string {
     const now = new Date();
     const y = now.getFullYear();
     const m = String(now.getMonth() + 1).padStart(2, '0');
     const d = String(now.getDate()).padStart(2, '0');
-    return `${y}${m}${d}`;
+    return `${y}-${m}-${d}`;
 }
 
 /**
- * Convert timestamp to YYYYMMDD format
+ * Convert timestamp to YYYY-MM-DD format (matches Data Management)
  */
 export function timestampToYYYYMMDD(timestamp: number): string {
     const d = new Date(timestamp);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${y}${m}${day}`;
+    return `${y}-${m}-${day}`;
 }
 
 /**
- * Format YYYYMMDD to display format (DD MMM YYYY)
+ * Format YYYY-MM-DD or YYYYMMDD to display format (DD MMM YYYY)
  */
 export function formatYYYYMMDDForDisplay(dateStr: string): string {
-    if (!dateStr || dateStr.length !== 8) return dateStr;
-    const year = dateStr.slice(0, 4);
-    const month = parseInt(dateStr.slice(4, 6), 10) - 1;
-    const day = dateStr.slice(6, 8);
+    if (!dateStr) return dateStr;
+    const iso = parseToISODate(dateStr);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return dateStr;
+    const parts = iso.split('-');
+    const [y, m, day] = parts;
+    const monthIndex = parseInt(m, 10) - 1;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${day} ${months[month]} ${year}`;
+    if (monthIndex < 0 || monthIndex > 11) return dateStr;
+    return `${day} ${months[monthIndex]} ${y}`;
+}
+
+/** Month names for DD-Mon-YYYY parsing (e.g. 01-Apr-2025) */
+const MONTH_NAMES: Record<string, number> = {
+    jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+    jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * Parse date in web/Tally format DD-Mon-YYYY or D-Mon-YY (e.g. 01-Apr-2025 or 4-Apr-25) to YYYY-MM-DD.
+ * Supports both 2-digit (YY) and 4-digit (YYYY) years.
+ */
+function parseDateFromNewFormat(dateStr: string): string {
+    // Match D(D)-Mon-YY(YY) - supports 1-2 digit day and 2-4 digit year
+    const match = dateStr.trim().match(/^(\d{1,2})[-/]([A-Za-z]{3})[-/](\d{2,4})$/);
+    if (!match) return '';
+    const [, d, mon, yearStr] = match;
+    const m = MONTH_NAMES[mon.toLowerCase()];
+    if (!m) return '';
+    // Convert 2-digit year to 4-digit (assume 2000s for YY format)
+    let year = parseInt(yearStr, 10);
+    if (yearStr.length === 2) {
+        // 00-99 -> 2000-2099
+        year = year + 2000;
+    }
+    return `${year}-${String(m).padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
 /**
  * Parse date string to YYYY-MM-DD format
+ * Handles: YYYY-MM-DD, YYYYMMDD, DD-MM-YYYY, DD/MM/YYYY, DD-Mon-YYYY (e.g. 01-Apr-2025)
  */
 export function parseToISODate(dateStr: string): string {
     try {
-        // Handle various date formats
-        // DD-MM-YYYY
-        if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
-            const [day, month, year] = dateStr.split('-');
+        if (!dateStr || typeof dateStr !== 'string') return dateStr;
+        const s = dateStr.trim();
+        if (!s) return dateStr;
+
+        // Already YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            return s;
+        }
+
+        // YYYYMMDD
+        if (/^\d{8}$/.test(s)) {
+            return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+        }
+
+        // DD-Mon-YYYY or DD/Mon/YYYY (e.g. 01-Apr-2025) - check this BEFORE DD-MM-YYYY
+        const newFormat = parseDateFromNewFormat(s);
+        if (newFormat) return newFormat;
+
+        // DD-MM-YYYY (must have exactly 2 digits for day and month)
+        if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
+            const [day, month, year] = s.split('-');
             return `${year}-${month}-${day}`;
         }
         // DD/MM/YYYY
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
-            const [day, month, year] = dateStr.split('/');
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+            const [day, month, year] = s.split('/');
             return `${year}-${month}-${day}`;
         }
-        // YYYYMMDD
-        if (/^\d{8}$/.test(dateStr)) {
-            return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-        }
-        // Already YYYY-MM-DD
-        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-            return dateStr;
+
+        // D-M-YYYY or D/M/YYYY (single digit day/month)
+        const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+        if (dmyMatch) {
+            const [, d, m, y] = dmyMatch;
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
         }
 
-        // Try parsing as date
-        const date = new Date(dateStr);
+        // YYYY-MM-DD with time component (ISO format)
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+            return s.slice(0, 10);
+        }
+
+        // Try parsing as date (fallback for other formats)
+        const date = new Date(s);
         if (!isNaN(date.getTime())) {
-            return date.toISOString().split('T')[0];
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
         }
 
         return dateStr;

@@ -32,13 +32,20 @@ local.properties
 *.hprof
 .cxx/
 *.keystore
+*.jks
 !debug.keystore
+
+# Environment (contains secrets)
+.env
+.env.local
+.env.*.local
 
 # node.js
 #
 node_modules/
 npm-debug.log
 yarn-error.log
+tsc_errors*.log
 
 # fastlane
 #
@@ -75,3 +82,9 @@ yarn-error.log
 
 # Figma codes
 figma_codes/
+PlaceOrder_FigmaScreens/
+ApprovalScreens_FigmaScreens/
+StockSummary_Figma/
+
+# API documentation
+api_docs/

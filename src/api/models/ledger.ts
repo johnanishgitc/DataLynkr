@@ -4,10 +4,12 @@ export interface LedgerListRequest {
   tallyloc_id: number;
   company: string;
   guid: string;
+  lastaltid?: number | null;
 }
 
 export interface LedgerItem {
   NAME?: string | null;
+  ALIAS?: string | null;
   [key: string]: unknown;
 }
 
@@ -16,6 +18,29 @@ export interface LedgerListResponse {
   ledgers?: LedgerItem[] | null;
   /** Legacy: { data: [...] } */
   data?: LedgerItem[] | null;
+  error?: string | null;
+  message?: string | null;
+  success?: boolean;
+}
+
+/** api/tally/masterdata/accountingledger-list request */
+export interface AccountingLedgerListRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** Single ledger from accountingledger-list (master data) */
+export interface AccountingLedgerItem {
+  NAME?: string | null;
+  TYPE?: string | null;
+  MASTERID?: string | null;
+  ALTERID?: string | null;
+  [key: string]: unknown;
+}
+
+export interface AccountingLedgerListResponse {
+  ledgers?: AccountingLedgerItem[] | null;
   error?: string | null;
   message?: string | null;
   success?: boolean;
@@ -31,6 +56,19 @@ export interface LedgerReportRequest {
   todate: number;
 }
 
+/** Sales Order Ledger Outstandings request (orders outstanding API) */
+export interface SalesOrderOutstandingRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  fromdate: string;
+  todate: string;
+  type: string;
+  ledger: string;
+  /** When "Yes", returns cleared orders only */
+  cleared?: string;
+}
+
 export interface Balance {
   DEBITAMT?: unknown;
   CREDITAMT?: unknown;
@@ -38,8 +76,17 @@ export interface Balance {
 
 export interface BillAllocation {
   BILLNAME?: string | null;
+  BILLTYPE?: string | null;
   DEBITAMT?: unknown;
   CREDITAMT?: unknown;
+  // New lowercase format fields
+  billname?: string | null;
+  billtype?: string | null;
+  amount?: string | null;
+  billcreditperiod?: string | null;
+  /** Bill/credit date (e.g. "20-Jan-26") */
+  date?: string | null;
+  billdate?: string | null;
 }
 
 export interface InventoryAllocation {
@@ -50,12 +97,53 @@ export interface InventoryAllocation {
   DISCOUNT?: unknown;
   AMOUNT?: unknown;
   VALUE?: unknown;
+  BILLEDAMOUNT?: unknown;
+  BILLEDVALUE?: unknown;
+  ACTUALAMOUNT?: unknown;
+  /** getvoucherdata API: allinventoryentries uses lowercase keys */
+  stockitemname?: string | null;
+  actualqty?: string | null;
+  billedqty?: string | null;
+  rate?: unknown;
+  discount?: unknown;
+  amount?: unknown;
+  value?: unknown;
+  /** Nested sub-allocations (batch/godown wise) */
+  INVENTORYALLOCATIONS?: InventoryAllocation[] | InventoryAllocation | null;
+  /** Batch allocations (Tally/sales API) */
+  BATCHALLOCATIONS?: BatchAllocationRow[] | BatchAllocationRow | null;
+  batchallocation?: BatchAllocationRow[] | BatchAllocationRow | null;
+  /** Godown name for batch/godown allocation */
+  GODOWNNAME?: string | null;
+  GODOWN?: string | null;
+  /** Batch name/number */
+  BATCHNAME?: string | null;
+  BATCH?: string | null;
+  BATCHNO?: string | null;
+  /** Pipe-separated attachment links (e.g. Google Drive); used for "ITEM TO BE ALLOCATED" */
+  ATTACHDESCRIPTION?: string | null;
+  attachdescription?: string | null;
+}
+
+export interface BatchAllocationRow {
+  BATCHNAME?: string | null;
+  BATCH?: string | null;
+  GODOWNNAME?: string | null;
+  GODOWN?: string | null;
+  ACTUALQTY?: string | number | null;
+  BILLEQTY?: string | number | null;
+  AMOUNT?: unknown;
+  VALUE?: unknown;
+  STOCKITEMNAME?: string | null;
 }
 
 export interface LedgerEntryDetail {
   LEDGERNAME?: string | null;
   DEBITAMT?: unknown;
   CREDITAMT?: unknown;
+  AMOUNT?: unknown;
+  RATE?: unknown;
+  PERCENTAGE?: unknown;
   BILLALLOCATIONS?: BillAllocation[] | BillAllocation | null;
   INVENTORYALLOCATIONS?: InventoryAllocation[] | InventoryAllocation | null;
 }
@@ -85,6 +173,38 @@ export interface VoucherEntry {
   VOUCHERS?: VoucherEntry[] | null;
 }
 
+/** Single voucher row inside a sales order outstanding entry */
+export interface SalesOrderOutstandingVoucher {
+  MASTERID?: string | null;
+  DATE?: string | null;
+  VOUCHERTYPE?: string | null;
+  VOUCHERNUMBER?: string | null;
+  QUANTITY?: string | null;
+  NARRATION?: string | null;
+}
+
+/** Row of DATA from sales order outstanding API */
+export interface SalesOrderOutstandingRow {
+  DATE?: string | null;
+  NAME?: string | null;
+  STOCKITEM?: string | null;
+  GODOWN?: string | null;
+  BATCHNAME?: string | null;
+  LEDGER?: string | null;
+  OPENINGBALANCE?: string | null;
+  CLOSINGBALANCE?: string | null;
+  PRECLOSEQTY?: string | null;
+  PRECLOSEREASON?: string | null;
+  DUEON?: string | null;
+  RATE?: string | null;
+  DISCOUNT?: string | null;
+  AMOUNT?: string | null;
+  STOCKGROUP?: string | null;
+  STOCKCATEGORY?: string | null;
+  LEDGERGROUP?: string | null;
+  VOUCHERS?: SalesOrderOutstandingVoucher[] | null;
+}
+
 export interface OnAccount {
   DEBITOPENBAL?: unknown;
   CREDITOPENBAL?: unknown;
@@ -103,6 +223,15 @@ export interface LedgerReportData {
   opening?: Balance | null;
   closing?: Balance | null;
   onacc?: OnAccount | null;
+}
+
+/** Sales Order Ledger Outstandings API response */
+export interface SalesOrderOutstandingResponse {
+  DATA?: SalesOrderOutstandingRow[] | null;
+  success?: boolean;
+  message?: string | null;
+  error?: string | null;
+  [key: string]: unknown;
 }
 
 export interface LedgerReportResponse {

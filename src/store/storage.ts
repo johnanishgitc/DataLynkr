@@ -27,8 +27,10 @@ const K = {
   gstinno: '@DataLynkr/gstinno',
   startingfrom: '@DataLynkr/startingfrom',
   booksfrom: '@DataLynkr/booksfrom',
+  lastvoucherdate: '@DataLynkr/lastvoucherdate',
   createdAt: '@DataLynkr/createdAt',
   cacheExpiryDays: '@DataLynkr/cacheExpiryDays',
+  user_access_permissions: '@DataLynkr/user_access_permissions',
 };
 
 export const storage = {
@@ -82,6 +84,10 @@ export async function getUserEmail(): Promise<string | null> {
 export async function logoutStorage(): Promise<void> {
   await storage.setItem(K.is_logged_in, 'false');
   await storage.removeItem(K.auth_token);
+  // Clear saved company so the connections screen always shows after a fresh login
+  await storage.removeItem(K.company);
+  await storage.removeItem(K.guid);
+  await storage.removeItem(K.tallyloc_id);
 }
 
 // Company (full)
@@ -104,6 +110,34 @@ export interface CompanyInfo {
   startingfrom: string;
   booksfrom: string;
   createdAt: string;
+}
+
+export async function getCompanyInfo(): Promise<CompanyInfo | null> {
+  const tallylocRaw = await storage.getItem(K.tallyloc_id);
+  const company = (await storage.getItem(K.company)) ?? '';
+  if (!tallylocRaw && !company) return null;
+  const tallyloc_id = tallylocRaw ? parseInt(tallylocRaw, 10) : 0;
+  if (isNaN(tallyloc_id) && !company) return null;
+  return {
+    tallyloc_id: isNaN(tallyloc_id) ? 0 : tallyloc_id,
+    company,
+    guid: (await storage.getItem(K.guid)) ?? '',
+    conn_name: (await storage.getItem(K.conn_name)) ?? '',
+    shared_email: (await storage.getItem(K.shared_email)) ?? '',
+    status: (await storage.getItem(K.status)) ?? '',
+    access_type: (await storage.getItem(K.access_type)) ?? '',
+    address: (await storage.getItem(K.address)) ?? '',
+    pincode: (await storage.getItem(K.pincode)) ?? '',
+    statename: (await storage.getItem(K.statename)) ?? '',
+    countryname: (await storage.getItem(K.countryname)) ?? '',
+    company_email: (await storage.getItem(K.company_email)) ?? '',
+    phonenumber: (await storage.getItem(K.phonenumber)) ?? '',
+    mobilenumbers: (await storage.getItem(K.mobilenumbers)) ?? '',
+    gstinno: (await storage.getItem(K.gstinno)) ?? '',
+    startingfrom: (await storage.getItem(K.startingfrom)) ?? '',
+    booksfrom: (await storage.getItem(K.booksfrom)) ?? '',
+    createdAt: (await storage.getItem(K.createdAt)) ?? '',
+  };
 }
 
 export async function saveCompanyInfo(info: CompanyInfo): Promise<void> {
@@ -142,9 +176,28 @@ export async function getGuid(): Promise<string> {
   return (await storage.getItem(K.guid)) ?? '';
 }
 
+export async function getStatename(): Promise<string> {
+  return (await storage.getItem(K.statename)) ?? '';
+}
+
 /** Books from date (YYYYMMDD) for cache date ranges. */
 export async function getBooksfrom(): Promise<string> {
   return (await storage.getItem(K.booksfrom)) ?? '';
+}
+
+/** Last voucher date (YYYYMMDD). Defaults to today if not set. */
+export async function getLastVoucherDate(): Promise<string> {
+  const stored = await storage.getItem(K.lastvoucherdate);
+  if (stored) return stored;
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+export async function setLastVoucherDate(value: string): Promise<void> {
+  await storage.setItem(K.lastvoucherdate, value);
 }
 
 // Cache config
@@ -155,4 +208,19 @@ export async function getCacheExpiryDays(): Promise<string> {
 export async function setCacheExpiryDays(days: string): Promise<void> {
   const v = days == null || days === '' || days === 'never' ? 'never' : String(days);
   await storage.setItem(K.cacheExpiryDays, v);
+}
+
+// User access permissions
+export async function saveUserAccessPermissions(permissions: Record<string, boolean>): Promise<void> {
+  await storage.setItem(K.user_access_permissions, JSON.stringify(permissions));
+}
+
+export async function getUserAccessPermissions(): Promise<Record<string, boolean>> {
+  const raw = await storage.getItem(K.user_access_permissions);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    return {};
+  }
 }

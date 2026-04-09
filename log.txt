@@ -1,0 +1,538 @@
+﻿commit 933d944258c41ae8cc6572445796b01735d1eb4b
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Fri Mar 27 14:24:33 2026 +0530
+
+    Updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 72259ce..81587af 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -11,7 +11,7 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+@@ -23,7 +23,7 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+- //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+@@ -35,7 +35,7 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+@@ -47,7 +47,7 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+- // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+
+commit 8add8bc88b5b45270bb3dbfd8b7f830373efc281
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Wed Mar 18 18:30:41 2026 +0530
+
+    Major updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 23c5492..72259ce 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -13,9 +13,7 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+   //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+@@ -27,9 +25,7 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+@@ -41,9 +37,7 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+   //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+@@ -55,8 +49,6 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'payment-collections', label: 'Payments & Collections', target: 'PaymentCollections', icon: 'cash-multiple', params: { hasChevron: true } },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+
+commit 82e8457b7c31dd6db373c3537115a846305917cd
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Tue Mar 17 18:40:39 2026 +0530
+
+    17/03 updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 4338a7e..23c5492 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -11,7 +11,7 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+@@ -25,7 +25,7 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++ //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+@@ -39,7 +39,7 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  //{ id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+@@ -53,7 +53,7 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++ // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+
+commit 1c8025237752cb950b38a09ce6189847ab584ad1
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Thu Mar 12 17:38:06 2026 +0530
+
+    Major updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 52a17ad..4338a7e 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -11,7 +11,7 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+@@ -25,7 +25,7 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+@@ -39,7 +39,7 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+@@ -53,7 +53,7 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+   // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+-  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  // { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+   // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+
+commit 91e45f929dae8732775a99086e477e1ad7f212b7
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Thu Mar 5 23:12:48 2026 +0530
+
+    updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 0a5858d..52a17ad 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -7,56 +7,56 @@ import type { AppSidebarMenuItem } from './AppSidebar';
+ 
+ /** Menu items for Sales Dashboard (active target: SalesDashboard) */
+ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: 'Dashboard', target: 'SalesDashboard', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  // { id: 'sales', label: 'Dashboard', target: 'SalesDashboard', icon: 'view-dashboard-outline', params: { hasChevron: true } },
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+   { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+ /** Menu items for Order Entry (active target: OrderEntry) */
+ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  // { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+   { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+ /** Menu items for Ledger Book (active target: LedgerTab) */
+ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  // { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+   { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+ /** Menu items for Approvals (active target: ApprovalsTab) */
+ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  // { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
+   { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  // { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
+   { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
+   { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+   { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
+-  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+-  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+-  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  // { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  // { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  // { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+   { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+
+commit f45629e960c382b2b4e4ab7e7491c8ac9b5a4717
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Wed Mar 4 13:07:01 2026 +0530
+
+    Updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 0ca8e34..0a5858d 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -16,6 +16,7 @@ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+ /** Menu items for Order Entry (active target: OrderEntry) */
+@@ -29,6 +30,7 @@ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+ /** Menu items for Ledger Book (active target: LedgerTab) */
+@@ -42,6 +44,7 @@ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+ 
+ /** Menu items for Approvals (active target: ApprovalsTab) */
+@@ -55,4 +58,5 @@ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+   { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
+   { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
+   { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
++  { id: 'data-management', label: 'Data Management', target: 'DataManagement', icon: 'database-outline' },
+ ];
+
+commit 95c9536cd7da2bd473e194d83eaa6fadc290662f
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Tue Mar 3 11:08:47 2026 +0530
+
+    Updates
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index d3b2345..0ca8e34 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -7,44 +7,52 @@ import type { AppSidebarMenuItem } from './AppSidebar';
+ 
+ /** Menu items for Sales Dashboard (active target: SalesDashboard) */
+ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard', icon: 'chart-line' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+-  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
++  { id: 'sales', label: 'Dashboard', target: 'SalesDashboard', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
++  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+ ];
+ 
+ /** Menu items for Order Entry (active target: OrderEntry) */
+ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab', icon: 'chart-line' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+-  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
++  { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
++  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+ ];
+ 
+ /** Menu items for Ledger Book (active target: LedgerTab) */
+ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab', icon: 'chart-line' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+-  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
++  { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
++  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+ ];
+ 
+ /** Menu items for Approvals (active target: ApprovalsTab) */
+ export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab', icon: 'chart-line' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
+-  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
++  { id: 'sales', label: 'Dashboard', target: 'HomeTab', icon: 'view-dashboard-outline', params: { hasChevron: true } },
++  { id: 'orders', label: 'Orders', target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: 'B-Commerce', target: 'ComingSoon', icon: 'web', params: { tab_name: 'B-Commerce' } },
++  { id: 'ledger', label: 'Ledger Reports', target: 'LedgerTab', icon: 'book-open-outline', params: { hasChevron: true } },
++  { id: 'approvals', label: 'Approvals', target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: 'Stock Check', target: 'SummaryTab', icon: 'package-variant-closed' },
++  { id: 'expense', label: 'Expense Claim', target: 'ComingSoon', icon: 'clipboard-text-outline' },
++  { id: 'invoice', label: 'Invoice', target: 'ComingSoon', icon: 'receipt' },
++  { id: 'collections', label: 'Collections', target: 'ComingSoon', icon: 'circle-multiple-outline' },
+ ];
+
+commit c56db03478b8177f04913d35951826f777f547e9
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Sat Feb 21 22:49:36 2026 +0530
+
+    Stock Summary screens
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+index 9e512b3..d3b2345 100644
+--- a/src/components/appSidebarMenu.ts
++++ b/src/components/appSidebarMenu.ts
+@@ -7,30 +7,44 @@ import type { AppSidebarMenuItem } from './AppSidebar';
+ 
+ /** Menu items for Sales Dashboard (active target: SalesDashboard) */
+ export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' },
++  { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard', icon: 'chart-line' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
+ ];
+ 
+ /** Menu items for Order Entry (active target: OrderEntry) */
+ export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' },
++  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab', icon: 'chart-line' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
+ ];
+ 
+ /** Menu items for Ledger Book (active target: LedgerTab) */
+ export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
+-  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab' },
+-  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' },
+-  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', params: { tab_name: strings.b_commerce_place_orders } },
+-  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' },
+-  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab' },
+-  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' },
++  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab', icon: 'chart-line' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
++];
++
++/** Menu items for Approvals (active target: ApprovalsTab) */
++export const SIDEBAR_MENU_APPROVALS: AppSidebarMenuItem[] = [
++  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab', icon: 'chart-line' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry', icon: 'cart-outline' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', icon: 'cart-arrow-down', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab', icon: 'book-open-variant' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab', icon: 'check-decagram-outline' },
++  { id: 'summary', label: strings.stock_summary, target: 'SummaryTab', icon: 'chart-pie' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement', icon: 'database-refresh' },
+ ];
+
+commit 1d0dc0db4da5b120b060e743a47a82fa1dc757c2
+Author: johnanishgitc <john@itcatalystindia.com>
+Date:   Sat Feb 21 17:13:02 2026 +0530
+
+    Approval Screens
+
+diff --git a/src/components/appSidebarMenu.ts b/src/components/appSidebarMenu.ts
+new file mode 100644
+index 0000000..9e512b3
+--- /dev/null
++++ b/src/components/appSidebarMenu.ts
+@@ -0,0 +1,36 @@
++/**
++ * Default sidebar menu item definitions.
++ * Each screen imports this and passes the list to AppSidebar; targets may differ per screen.
++ */
++import { strings } from '../constants/strings';
++import type { AppSidebarMenuItem } from './AppSidebar';
++
++/** Menu items for Sales Dashboard (active target: SalesDashboard) */
++export const SIDEBAR_MENU_SALES: AppSidebarMenuItem[] = [
++  { id: 'sales', label: strings.sales_dashboard, target: 'SalesDashboard' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' },
++];
++
++/** Menu items for Order Entry (active target: OrderEntry) */
++export const SIDEBAR_MENU_ORDER_ENTRY: AppSidebarMenuItem[] = [
++  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' },
++];
++
++/** Menu items for Ledger Book (active target: LedgerTab) */
++export const SIDEBAR_MENU_LEDGER: AppSidebarMenuItem[] = [
++  { id: 'sales', label: strings.sales_dashboard, target: 'HomeTab' },
++  { id: 'orders', label: strings.place_orders, target: 'OrderEntry' },
++  { id: 'bcom', label: strings.b_commerce_place_orders, target: 'ComingSoon', params: { tab_name: strings.b_commerce_place_orders } },
++  { id: 'ledger', label: strings.ledger_book, target: 'LedgerTab' },
++  { id: 'approvals', label: strings.approvals, target: 'ApprovalsTab' },
++  { id: 'data', label: strings.cache_management_2, target: 'DataManagement' },
++];

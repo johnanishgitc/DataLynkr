@@ -1,5 +1,7 @@
-import { Platform, Linking, Alert, PermissionsAndroid } from 'react-native';
+import { Platform, Linking, Alert, PermissionsAndroid, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { StoragePermissionModule } = NativeModules;
 
 const PERMISSION_PROMPTED_KEY = '@DataLynkr:background_permission_prompted';
 
@@ -31,7 +33,7 @@ export async function requestStoragePermission(): Promise<boolean> {
       const readGranted = await PermissionsAndroid.check(
         PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE
       );
-      
+
       if (readGranted) {
         console.log('[PERMISSIONS] READ_EXTERNAL_STORAGE already granted');
         return true;
@@ -83,6 +85,7 @@ export async function requestStoragePermission(): Promise<boolean> {
   }
 }
 
+
 /**
  * Check if storage permissions are granted without prompting.
  */
@@ -123,19 +126,57 @@ export async function requestBackgroundPermissions(): Promise<void> {
   try {
     // Check if we've already prompted the user (to avoid showing alert every time)
     const hasPrompted = await AsyncStorage.getItem(PERMISSION_PROMPTED_KEY);
-    
+
     if (Platform.OS === 'android') {
       await requestAndroidBackgroundPermissions(hasPrompted === null);
     } else if (Platform.OS === 'ios') {
       await requestIOSBackgroundPermissions(hasPrompted === null);
     }
-    
+
     // Mark that we've prompted the user
     if (hasPrompted === null) {
       await AsyncStorage.setItem(PERMISSION_PROMPTED_KEY, 'true');
     }
   } catch (error) {
     console.error('Error requesting background permissions:', error);
+  }
+}
+
+/**
+ * Opens the system screen where the user can enable background permission for this app.
+ * Android: direct screen to "Allow battery optimization" / "Allow background activity" for this app.
+ * iOS: tries to open Background App Refresh list, then falls back to app settings.
+ */
+async function openBackgroundPermissionSettings(): Promise<void> {
+  if (Platform.OS === 'android') {
+    try {
+      if (StoragePermissionModule?.openBatteryOptimizationSettings) {
+        await StoragePermissionModule.openBatteryOptimizationSettings();
+      } else {
+        await Linking.openSettings();
+      }
+    } catch {
+      await Linking.openSettings();
+    }
+  } else {
+    // iOS: try to open Background App Refresh list (private URL; may not work on all iOS versions)
+    const backgroundRefreshUrls = [
+      'App-prefs:root=General&path=Background_App_Refresh',
+      'prefs:root=General&path=Background_App_Refresh',
+    ];
+    let opened = false;
+    for (const url of backgroundRefreshUrls) {
+      try {
+        await Linking.openURL(url);
+        opened = true;
+        break;
+      } catch {
+        // try next URL or fall back to app settings
+      }
+    }
+    if (!opened) {
+      await Linking.openSettings();
+    }
   }
 }
 
@@ -147,8 +188,8 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
     // Note: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is not a standard runtime permission
     // that can be checked/requested through react-native-permissions. It requires
     // opening a system settings dialog, which must be handled through native code.
-    // For now, we'll guide the user to enable it manually in settings.
-    
+    // Open Settings uses native module to go directly to battery optimization screen for this app.
+
     if (showAlert) {
       Alert.alert(
         'Background Usage Permission',
@@ -158,7 +199,7 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
           {
             text: 'Open Settings',
             onPress: () => {
-              Linking.openSettings();
+              openBackgroundPermissionSettings();
             },
           },
         ]
@@ -169,9 +210,9 @@ async function requestAndroidBackgroundPermissions(showAlert: boolean = true): P
     // 1. Battery optimization settings (handled above)
     // 2. Data saver mode (can be checked but requires system-level access)
     // 3. Background app refresh (Android 12+)
-    
+
     // For Android 12+, we can also check background app refresh
-    if (Platform.Version >= 31) {
+    if (Number(Platform.Version) >= 31) {
       // Android 12+ has background app refresh permission
       // This is handled through system settings, but we can guide the user
       console.log('Android 12+ detected - background app refresh should be enabled in system settings');
@@ -190,11 +231,11 @@ async function requestIOSBackgroundPermissions(showAlert: boolean = true): Promi
     // We can't directly request it via permissions API, but we can:
     // 1. Check if it's enabled (requires native module or Settings API)
     // 2. Guide user to enable it in Settings
-    
+
     // iOS doesn't have a direct permission for background app refresh
     // It's controlled through Settings > General > Background App Refresh
     // We can open settings to guide the user
-    
+
     if (showAlert) {
       Alert.alert(
         'Background App Refresh',
@@ -204,7 +245,7 @@ async function requestIOSBackgroundPermissions(showAlert: boolean = true): Promi
           {
             text: 'Open Settings',
             onPress: () => {
-              Linking.openSettings();
+              openBackgroundPermissionSettings();
             },
           },
         ]

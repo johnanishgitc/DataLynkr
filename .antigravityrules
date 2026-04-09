@@ -1,0 +1,33 @@
+# DataLynkr Rules
+
+## Navigation & UI
+
+### Global Sidebar System
+Every screen that requires a hamburger menu button or allows opening the sidebar via edge swipe MUST use the global sidebar system. 
+
+1. **No Local Sidebars**: Do NOT instantiate a local `AppSidebar` or `EdgeSwipeToOpenSidebar` component inside a screen. 
+2. **Accessing Sidebar**: Use the `useGlobalSidebar()` hook from `src/store/GlobalSidebarContext.tsx` to call `openSidebar()`.
+3. **Edge Swipe**: The edge-to-open gesture is automatically provided at the root level by `GlobalSidebarProvider`. Do not re-implement it.
+4. **Context-Aware Configuration**:
+   - To change the menu list (e.g., from Sales to Ledger) or toggle module access enforcement, use `setSidebarConfig({ menuItems, restrictAccess })`.
+   - **Main Tabs**: Screens inside `MainTabs` should have `restrictAccess: true`.
+   - **Utility Screens**: Screens in the root stack (like Payments) should have `restrictAccess: false` (unrestricted).
+5. **Persistence Across Screens**:
+   - Sidebar configuration is global state and should persist when navigating between screens unless a deliberate reset is required.
+   - Do **not** auto-reset sidebar config on `DataManagement` focus; opening sidebar there must reflect current global config.
+
+---
+
+## Android Development
+
+### 16KB Page Alignment
+This project enforces 16KB ELF segment alignment for all native (`.so`) libraries targeting arm64-v8a. This is required for Android 15+ devices.
+
+- **React Native 0.77.3+** is mandatory (shipped with 16KB-aligned prebuilts).
+- **CMake Linker Flags**: The `-Wl,-z,max-page-size=16384` flag must be set in `android/build.gradle` for all subprojects.
+- **NDK 27.1** is the preferred version for compatibility.
+- **Verification**: After adding any new native module, verify alignment via `llvm-readelf -l <lib>.so | grep LOAD` (alignment must be >= 0x4000).
+
+### Kotlin and Compose
+- **Kotlin 1.9.24**: Do not upgrade to Kotlin 2.0 without extensive testing of all native modules.
+- **Compose Disabled**: Avoid adding Compose dependencies as they force Kotlin 2.0 compiler plugins.

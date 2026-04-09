@@ -2,7 +2,8 @@ const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
-const logoPath = path.join(__dirname, 'src', 'assets', 'logo.png');
+// Use app icon SVG (already includes background shape)
+const logoPath = path.join(__dirname, 'appicon.svg');
 
 // Android icon sizes (in pixels)
 const androidSizes = {
@@ -29,33 +30,31 @@ const iosSizes = {
 async function generateAndroidIcons() {
   console.log('Generating Android icons...');
   const androidBasePath = path.join(__dirname, 'android', 'app', 'src', 'main', 'res');
-  
+
   for (const [folder, size] of Object.entries(androidSizes)) {
     const folderPath = path.join(androidBasePath, folder);
-    
+
     // Ensure folder exists
     if (!fs.existsSync(folderPath)) {
       fs.mkdirSync(folderPath, { recursive: true });
     }
-    
+
     // Generate ic_launcher.png
     await sharp(logoPath)
       .resize(size, size, {
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
+        fit: 'cover'
       })
       .png()
       .toFile(path.join(folderPath, 'ic_launcher.png'));
-    
+
     // Generate ic_launcher_round.png (same as regular for now)
     await sharp(logoPath)
       .resize(size, size, {
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
+        fit: 'cover'
       })
       .png()
       .toFile(path.join(folderPath, 'ic_launcher_round.png'));
-    
+
     console.log(`  ✓ Generated ${folder}/ic_launcher.png (${size}x${size})`);
   }
 }
@@ -63,7 +62,7 @@ async function generateAndroidIcons() {
 async function generateIOSIcons() {
   console.log('Generating iOS icons...');
   const iosBasePath = path.join(__dirname, 'ios', 'DataLynkr', 'Images.xcassets', 'AppIcon.appiconset');
-  
+
   // iOS icon filename mapping
   const iosIconFiles = {
     '20x20@2x': 'icon-20@2x.png',
@@ -76,23 +75,22 @@ async function generateIOSIcons() {
     '60x60@3x': 'icon-60@3x.png',
     '1024x1024': 'icon-1024.png',
   };
-  
+
   // Generate icons
   for (const [key, size] of Object.entries(iosSizes)) {
     const filename = iosIconFiles[key];
     const filepath = path.join(iosBasePath, filename);
-    
+
     await sharp(logoPath)
       .resize(size, size, {
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
+        fit: 'cover'
       })
       .png()
       .toFile(filepath);
-    
+
     console.log(`  ✓ Generated ${filename} (${size}x${size})`);
   }
-  
+
   // Update Contents.json
   const contentsJson = {
     images: [
@@ -156,12 +154,12 @@ async function generateIOSIcons() {
       version: 1
     }
   };
-  
+
   fs.writeFileSync(
     path.join(iosBasePath, 'Contents.json'),
     JSON.stringify(contentsJson, null, 2)
   );
-  
+
   console.log('  ✓ Updated Contents.json');
 }
 
@@ -171,10 +169,10 @@ async function main() {
       console.error(`Error: Logo file not found at ${logoPath}`);
       process.exit(1);
     }
-    
+
     await generateAndroidIcons();
     await generateIOSIcons();
-    
+
     console.log('\n✓ All icons generated successfully!');
   } catch (error) {
     console.error('Error generating icons:', error);

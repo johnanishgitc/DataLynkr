@@ -4,14 +4,79 @@ export interface StockItemRequest {
   tallyloc_id: number;
   company: string;
   guid: string;
+  lastaltid?: number | null;
+  [key: string]: unknown;
+}
+
+/** Single item from api/tally/stockitem-loop response (stockItems array). All fields are preserved as returned, including ISBATCHWISEON. */
+export interface StockItem {
+  MASTERID?: string | null;
+  NAME?: string | null;
+  BASEUNITS?: string | null;
+  ADDITIONALUNITS?: string | null;
+  DENOMINATOR?: string | null;
+  CONVERSION?: string | null;
+  STDPRICEUNIT?: string | null;
+  LASTPRICEUNIT?: string | null;
+  CLOSINGSTOCK?: number | null;
+  HSNCODE?: string | null;
+  IGST?: number | null;
+  STDPRICE?: string | null;
+  LASTPRICE?: string | null;
+  PRICELEVELS?: unknown[] | null;
+  PARENT?: string | null;
+  GROUPLIST?: string | null;
+  /** From api/tally/stockitem-loop. When "Yes", show Godown and Batch on Order Entry Item Detail. */
+  ISBATCHWISEON?: string | null;
+  /** When "Yes" (and ISBATCHWISEON and HASEXPDATE are Yes), show Mfg Date field. */
+  HASMFGDATE?: string | null;
+  /** When "Yes" (and ISBATCHWISEON and HASMFGDATE are Yes), show Expiry date field. */
+  HASEXPDATE?: string | null;
+  ALIAS?: string | null;
+  PARTNO?: string | null;
+  [key: string]: unknown;
+}
+
+export interface StockItemUnit {
+  NAME?: string | null;
+  ISSIMPLEUNIT?: string | null;
+  DECIMALPLACES?: number | null;
+  BASEUNITS?: string | null;
+  ADDITIONALUNITS?: string | null;
+  CONVERSION?: string | null;
   [key: string]: unknown;
 }
 
 export interface StockItemResponse {
+  stockItems?: StockItem[] | null;
+  units?: StockItemUnit[] | null;
   data?: unknown[] | null;
   error?: string | null;
   message?: string | null;
   success?: boolean;
+  [key: string]: unknown;
+}
+
+/** Request for api/tally/stockgroups (same shape as ledger/stock: tallyloc_id, company, guid). */
+export interface StockGroupsRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** Single item from api/tally/stockgroups response (stockGroups array). */
+export interface StockGroupItem {
+  MASTERID?: string | null;
+  NAME?: string | null;
+  GROUPLIST?: string | null;
+  [key: string]: unknown;
+}
+
+export interface StockGroupsResponse {
+  stockGroups?: StockGroupItem[] | null;
+  count?: number | null;
+  error?: string | null;
+  message?: string | null;
   [key: string]: unknown;
 }
 
@@ -21,4 +86,435 @@ export interface ExternalUserCacheEnabledResponse {
   message?: string | null;
   success?: boolean;
   [key: string]: unknown;
+}
+
+/** Request for godown-wise stock breakdown */
+export interface GodownStockRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  item: string;
+}
+
+export interface GodownStockRow {
+  NAME?: string | null;
+  CLOSINGSTOCK?: number | null;
+}
+
+export interface GodownStockResponse {
+  item?: string | null;
+  godownStocks?: GodownStockRow[] | null;
+  totalGodowns?: number | null;
+  currentDate?: string | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+/** Request for company-wise stock breakdown */
+export interface CompanyStockRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  item: string;
+}
+
+export interface CompanyStockRow {
+  NAME?: string | null;
+  GUID?: string | null;
+  CLOSINGSTOCK?: number | null;
+  ACCESS_TYPE?: string | null;
+}
+
+export interface CompanyStockResponse {
+  item?: string | null;
+  companyStocks?: CompanyStockRow[] | null;
+  totalCompanies?: number | null;
+  ownedCount?: number | null;
+  sharedCount?: number | null;
+  currentDate?: string | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+/** api/tally/vouchertype request */
+export interface VoucherTypeRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** Single ledger entry in a voucher class (Transaction Summary / calculatedLedgerAmounts). See build_docs/TRANSACTION_SUMMARY_CALCULATION.md */
+export interface LedgerEntryConfig {
+  NAME?: string | null;
+  /** How amount is computed: As User Defined Value | As Flat Rate | Based on Quantity | On Total Sales | On Current SubTotal | GST | As Total Amount Rounding */
+  METHODTYPE?: string | null;
+  /** Rate/percentage/fixed value per METHODTYPE */
+  CLASSRATE?: number | string | null;
+  /** GST rate filter: 0 = all rates; non-zero = only items with that (split) rate. Used when METHODTYPE === 'GST'. */
+  RATEOFTAXCALCULATION?: number | string | null;
+  /** 'GST' = value apportioned to items for GST base */
+  APPROPRIATEFOR?: string | null;
+  /** 'Based on Value' = apportion by item value. With APPROPRIATEFOR = 'GST'. */
+  EXCISEALLOCTYPE?: string | null;
+  /** 'Yes' = apply GST on this ledger's value (GSTRATE) */
+  GSTAPPLICABLE?: string | null;
+  /** % applied to ledger value when GSTAPPLICABLE = Yes */
+  GSTRATE?: number | string | null;
+  /** 'Normal Rounding' | 'Upward Rounding' | 'Downward Rounding'. For As Total Amount Rounding. */
+  ROUNDTYPE?: string | null;
+  /** Rounding unit (e.g. 1 = rupee). For As Total Amount Rounding. */
+  ROUNDLIMIT?: number | string | null;
+  [key: string]: unknown;
+}
+
+/** Ledger used for inventory lines (e.g. "Sales"). When LEDGERFROMITEM is "Yes", item's SALESLEDGER overrides. */
+export interface LedgerForInventoryItem {
+  NAME?: string | null;
+  LEDGERFROMITEM?: string | null;
+  [key: string]: unknown;
+}
+
+/** Single class in a voucher type (CLASSNAME used for Class dropdown). LEDGERENTRIESLIST drives Transaction Summary; LEDGERFORINVENTORYLIST gives item ledgername. */
+export interface VoucherClassItem {
+  CLASSNAME?: string | null;
+  LEDGERENTRIESLIST?: LedgerEntryConfig[] | null;
+  LEDGERFORINVENTORYLIST?: LedgerForInventoryItem[] | null;
+  [key: string]: unknown;
+}
+
+/** Single voucher type (NAME used for Voucher Type dropdown) */
+export interface VoucherTypeItem {
+  NAME?: string | null;
+  PREFIX?: string | null;
+  SUFFIX?: string | null;
+  PARENT?: string | null;
+  VOUCHERCLASSLIST?: VoucherClassItem[] | null;
+  [key: string]: unknown;
+}
+
+/** api/tally/vouchertype response */
+export interface VoucherTypeResponse {
+  voucherTypes?: VoucherTypeItem[] | null;
+  totalVoucherTypes?: number | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+/** api/tally/creditdayslimit request */
+export interface CreditDaysLimitRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  ledgername: string;
+}
+
+export interface CreditLimitInfo {
+  CREDITLIMIT?: number | null;
+  CLOSINGBALANCE?: number | null;
+}
+
+export interface OverdueBillItem {
+  DATE?: string | null;
+  REFNO?: string | null;
+  OPENINGBALANCE?: number | null;
+  CLOSINGBALANCE?: number | null;
+  DUEON?: string | null;
+  OVERDUEDAYS?: number | null;
+}
+
+/** api/tally/creditdayslimit response */
+export interface CreditDaysLimitResponse {
+  ledgername?: string | null;
+  fromdate?: string | null;
+  todate?: string | null;
+  creditLimitInfo?: CreditLimitInfo | null;
+  overdueBills?: OverdueBillItem[] | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+/** api/tally/ledger-check request */
+export interface LedgerCheckRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  type: 'name';
+  value: string;
+}
+
+/** api/tally/ledger-check response */
+export interface LedgerCheckResponse {
+  canProceed?: boolean;
+  exists?: boolean;
+  count?: number;
+  searchType?: string;
+  searchValue?: string;
+  message?: string;
+}
+
+/** api/tally/masters request */
+export interface MastersRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+/** api/tally/masters response (subset used by Master Creation). */
+export interface MastersResponse {
+  GROUPLIST?: { GROUP?: Array<{ NAME?: string; ACTIONS?: Record<string, string> }> };
+  PRICELEVELLIST?: { PRICELEVEL?: Array<{ NAME?: string }> };
+  TDSDEDUCTEETYPELIST?: { TDSDEDUCTEETYPE?: Array<{ NAME?: string }> };
+  MSMEENTRPTYPELIST?: { MSMEENTRPTYPE?: Array<{ NAME?: string }> };
+  MSMEACTVTYPELIST?: { MSMEACTVTYPE?: Array<{ NAME?: string }> };
+  BANKLIST?: { BANK?: Array<{ NAME?: string }> };
+  [key: string]: unknown;
+}
+
+/** api/tally/ledger-create request */
+export interface LedgerCreateRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  ledgerData: {
+    name: string;
+    languageNames: string[];
+    group: string;
+    isBillWiseOn: 'Yes' | 'No';
+    billCreditPeriod: string;
+    isCreditDaysChkOn: 'Yes' | 'No';
+    creditLimit: string;
+    overrideCreditLimit: 'Yes' | 'No';
+    affectsStock: 'Yes' | 'No';
+    isCostCentresOn?: 'Yes' | 'No';
+    isTdsApplicable: 'Yes' | 'No';
+    tdsDeducteeType: string;
+    natureOfPayment: string;
+    address: string;
+    pincode: string;
+    priorStateName: string;
+    stateName: string;
+    countryOfResidence: string;
+    mailingName: string;
+    contactPerson: string;
+    phoneNo: string;
+    countryISDCode?: string;
+    mobileNo: string;
+    email: string;
+    emailCC: string;
+    panNo: string;
+    nameOnPan: string;
+    gstinNo: string;
+    priceLevel: string;
+    narration: string;
+    description: string;
+    doclist: { documents: string[] };
+    paymentDetails: Array<{
+      ifscCode: string;
+      swiftCode: string;
+      accountNumber: string;
+      paymentFavouring: string;
+      transactionName: string;
+      bankname: string;
+      defaultTransactionType: string;
+    }>;
+    msmeDetails: Array<{
+      enterpriseType: string;
+      udyamRegNumber: string;
+      msmeActivityType: string;
+    }>;
+    gstRegDetails: Array<{
+      gstRegistrationType: string;
+      gstin: string;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+/** api/tally/ledger-create response */
+export interface LedgerCreateResponse {
+  success?: boolean;
+  message?: string;
+  [key: string]: unknown;
+}
+
+/** api/tally/godown-list request */
+export interface GodownListRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+}
+
+export interface GodownListItem {
+  GodownName?: string | null;
+}
+
+/** api/tally/godown-list response */
+export interface GodownListResponse {
+  company?: string | null;
+  godownData?: GodownListItem[] | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+/** api/tally/itemwise-batchwise-bal request */
+export interface ItemwiseBatchwiseBalRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  stockitemname: string;
+  date: number; // YYYYMMDD e.g. 20260220
+}
+
+export interface BatchDataItem {
+  Stockitem?: string | null;
+  godown?: string | null;
+  Batchname?: string | null;
+  MfdOn?: string | null;
+  ExpiryPeriod?: string | null;
+  ExpiryDate?: string | null;
+  CLOSINGBALANCE?: string | null;
+  CLOSINGVALUE?: string | null;
+  [key: string]: unknown;
+}
+
+/** api/tally/itemwise-batchwise-bal response */
+export interface ItemwiseBatchwiseBalResponse {
+  stockitemname?: string | null;
+  fromdate?: number | null;
+  todate?: number | null;
+  batchData?: BatchDataItem[] | null;
+  error?: string | null;
+  message?: string | null;
+}
+
+/** api/tally/place_order – single line item. qty omitted for "ITEM TO BE ALLOCATED". */
+export interface PlaceOrderItemPayload {
+  item: string;
+  qty?: string;
+  rate: string;
+  discount: number;
+  gst: number;
+  amount: number;
+  description?: string;
+  attachdescription?: string;
+  aqty?: string;
+  godownname?: string;
+  batchname?: string;
+  trackingnumber?: string;
+  mfdon?: string;
+  expiryperiod?: string;
+  orderno?: string;
+  orderduedate?: string;
+  ledgername?: string;
+}
+
+/** api/tally/place_order request (matches Add Details sections: buyer, consignee, order) */
+export interface PlaceOrderRequest {
+  tallyloc_id: number;
+  company: string;
+  guid: string;
+  masterid: number;
+  voucherdate: number;
+  date: string;
+  effectivedate: string;
+  vouchertype: string;
+  classname: string;
+  vouchernumber: string;
+  customer: string;
+  address: string;
+  pincode: string;
+  state: string;
+  country: string;
+  gstno: string;
+  gstregistrationtype: string;
+  placeofsupply: string;
+  basicbuyername: string;
+  basicbuyeraddress: string;
+  partymailingname: string;
+  consigneestate: string;
+  consigneecountry: string;
+  consigneegstin: string;
+  consigneepincode: string;
+  consigneemailingname: string;
+  pricelevel: string;
+  narration: string;
+  reference: string;
+  referencedate: string;
+  basicorderterms: string;
+  basicduedateofpymt: string;
+  basicorderref: string;
+  basicshipdocumentno?: string;
+  basicshippedby?: string;
+  basicfinaldestination?: string;
+  eicheckpost?: string;
+  billofladingno?: string;
+  billofladingdate?: string;
+  basicshipvesselno?: string;
+  basicplaceofreceipt?: string;
+  basicportofloading?: string;
+  basicportofdischarge?: string;
+  basicdestinationcountry?: string;
+  shippingbillno?: string;
+  shippingbilldate?: string;
+  portcode?: string;
+  isoptional: string;
+  items: PlaceOrderItemPayload[];
+  ledgers: { ledgername: string; amount: number }[];
+}
+
+/** api/tally/place_order success response */
+export interface PlaceOrderResponse {
+  success: boolean;
+  message?: string | null;
+  data?: {
+    voucherNumber?: string | null;
+    reference?: string | null;
+    lastVchId?: string | null;
+    tallyResponse?: unknown;
+  } | null;
+  tallyResponse?: unknown;
+}
+
+/** api/upload-doc response */
+export interface UploadDocResponse {
+  status?: string;
+  google_file_id?: string;
+  file_view_link?: string;
+  message?: string;
+}
+
+/** api/images/upload-url request – step 1 of S3 attachment flow */
+export interface ImageUploadUrlRequest {
+  fileName: string;
+  fileType: string;
+  tallyloc_id: number;
+  guid: string;
+  type: 'others' | 'BCommerce' | 'master' | 'transaction';
+}
+
+/** api/images/upload-url response */
+export interface ImageUploadUrlResponse {
+  uploadUrl: string;
+  key: string;
+}
+
+/** api/images/confirm request – step 3 of S3 attachment flow */
+export interface ImageConfirmRequest {
+  s3Key: string;
+  tallyloc_id: number;
+  guid: string;
+  type: 'others' | 'BCommerce' | 'master' | 'transaction';
+  masterid?: number;
+  tally_refno?: string;
+  fileType: string;
+}
+
+/** api/images/confirm response */
+export interface ImageConfirmResponse {
+  status?: string;
+  id?: number;
+  s3Key?: string;
+  viewUrl?: string;
+  createdAt?: string;
+  message?: string;
 }

@@ -7,17 +7,23 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  StatusBar,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { MainStackParamList } from '../navigation/types';
 import type { UserConnection } from '../api';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { apiService } from '../api';
+import { apiService, isUnauthorizedError } from '../api';
+import { RefreshIcon } from '../assets/connections';
 import { useAuth } from '../store';
-import { saveCompanyInfo, type CompanyInfo } from '../store/storage';
+import { useModuleAccess } from '../store/ModuleAccessContext';
+import { saveCompanyInfo, getCompanyInfo, type CompanyInfo } from '../store/storage';
+import { refreshAllDataManagementData } from '../cache';
 import { strings, connections_available } from '../constants/strings';
+const CONNECTIONS_TITLE = strings.connections;
+import { colors } from '../constants/colors';
 
 type Nav = NativeStackNavigationProp<MainStackParamList, 'AdminDashboard'>;
 
@@ -48,8 +54,25 @@ export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
   const { logout } = useAuth();
+  const { refresh: refreshModuleAccess } = useModuleAccess();
   const [all, setAll] = useState<UserConnection[]>([]);
   const [loading, setLoading] = useState(true);
+  const autoNavDone = React.useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        Alert.alert('Exit App', 'Are you sure you want to exit?', [
+          { text: strings.cancel || 'Cancel', style: 'cancel' },
+          { text: 'Exit', style: 'destructive', onPress: () => BackHandler.exitApp() },
+        ]);
+        return true;
+      };
+
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [])
+  );
 
   const fetchConn = useCallback(async () => {
     setLoading(true);
@@ -73,7 +96,36 @@ export default function AdminDashboard() {
         }
       }
       setAll(list);
+
+      // Auto-navigate to the last selected company if it is still connected
+      if (!autoNavDone.current && list.length > 0) {
+        autoNavDone.current = true;
+        try {
+          const saved = await getCompanyInfo();
+          if (saved && saved.guid) {
+            const match = list.find(
+              (c) =>
+                (c.guid ?? '') === saved.guid &&
+                (c.tallyloc_id ?? 0) === saved.tallyloc_id
+            );
+            if (match && (match.status ?? '').toLowerCase() === 'connected') {
+              // Company is still online – go straight in
+              await saveCompanyInfo(toCompanyInfo(match));
+              refreshModuleAccess();
+              nav.navigate('MainTabs');
+              refreshAllDataManagementData().catch(() => {});
+              return;
+            }
+          }
+        } catch (_) {
+          // Ignore – just show connections screen
+        }
+      }
     } catch (e: unknown) {
+      if (isUnauthorizedError(e)) {
+        setAll([]);
+        return;
+      }
       const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : strings.network_error;
       Alert.alert(strings.error, msg);
       setAll([]);
@@ -94,7 +146,10 @@ export default function AdminDashboard() {
       return;
     }
     saveCompanyInfo(toCompanyInfo(c)).then(() => {
-      nav.replace('MainTabs');
+      refreshModuleAccess();
+      nav.navigate('MainTabs');
+      // Sync stock items, customers, and stock groups in background
+      refreshAllDataManagementData().catch(() => { });
     });
   };
 
@@ -109,62 +164,32 @@ export default function AdminDashboard() {
 
   const renderItem = ({ item }: { item: UserConnection }) => {
     const isConnected = (item.status ?? '').toLowerCase() === 'connected';
-    const siteId = item.conn_name || item.guid || '—';
-    const accessType = item.access_type || '—';
-    const sharedBy = item.shared_email || item.email || '—';
+    const displayName = item.company || '—';
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => onSelect(item)} activeOpacity={0.7}>
-        <View style={styles.cardHeader}>
-          <View style={styles.iconWrap}>
-            <Icon name="domain" size={18} color="#ffffff" />
-          </View>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.company} numberOfLines={1}>{item.company || '—'}</Text>
-            {isConnected && (
-              <View style={styles.connectedBadge}>
-                <View style={styles.connectedDot} />
-                <Text style={styles.connectedText}>{strings.connected}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.cardMeta}>
-          <View style={styles.metaBlock}>
-            <Text style={styles.metaLabel}>{strings.site_id}</Text>
-            <View style={styles.pillBlue}>
-              <Text style={styles.pillBlueText} numberOfLines={1}>{siteId}</Text>
+        <View style={styles.cardContent}>
+          <Text style={styles.company} numberOfLines={1}>{displayName}</Text>
+          {isConnected && (
+            <View style={styles.connectedBadge}>
+              <View style={styles.connectedDot} />
+              <Text style={styles.connectedText}>{strings.connected}</Text>
             </View>
-          </View>
-          <View style={styles.metaBlock}>
-            <Text style={styles.metaLabel}>{strings.access_type}</Text>
-            <View style={styles.pillTeal}>
-              <Text style={styles.pillTealText} numberOfLines={1}>{accessType}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.sharedBlock}>
-          <Text style={styles.metaLabel}>{strings.shared_by_owner}</Text>
-          <Text style={styles.sharedValue} numberOfLines={1}>{sharedBy}</Text>
+          )}
         </View>
       </TouchableOpacity>
     );
   };
 
-  const ListFooter = () => (
-    <TouchableOpacity style={styles.logoutBtn} onPress={doLogout} activeOpacity={0.8}>
-      <Text style={styles.logoutBtnText}>{strings.logout}</Text>
-    </TouchableOpacity>
-  );
-
   return (
     <View style={styles.root}>
+      <StatusBar backgroundColor={colors.primary_blue} barStyle="light-content" />
       <View style={[styles.header, { paddingTop: insets.top || 12 }]}>
-        <Text style={styles.title}>{strings.select_connection}</Text>
-        <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12}>
-          <Icon name="refresh" size={24} color="#ffffff" />
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>{CONNECTIONS_TITLE}</Text>
+        </View>
+        <TouchableOpacity onPress={onRefresh} disabled={loading} hitSlop={12} style={styles.headerIconBtn}>
+          <RefreshIcon width={24} height={24} color="#ffffff" />
         </TouchableOpacity>
       </View>
 
@@ -174,26 +199,31 @@ export default function AdminDashboard() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#1e488f" />
+        <View style={styles.contentArea}>
+          <ActivityIndicator size="large" color={colors.primary_blue} />
         </View>
       ) : all.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <View style={styles.centered}>
-            <Text style={styles.empty}>{strings.no_connections_found}</Text>
-          </View>
-          <ListFooter />
+        <View style={styles.contentArea}>
+          <Text style={styles.empty}>{strings.no_connections_found}</Text>
         </View>
       ) : (
         <FlatList
           data={all}
-          keyExtractor={(i) => String(i.tallyloc_id ?? '') + (i.company ?? '')}
+          keyExtractor={(item, index) =>
+            `${item.guid ?? item.tallyloc_id ?? item.conn_name ?? 'item'}-${index}`
+          }
           renderItem={renderItem}
-          ListFooterComponent={ListFooter}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: 80 }]}
           showsVerticalScrollIndicator={false}
+          style={styles.listContainer}
         />
       )}
+
+      <View style={[styles.logoutFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <TouchableOpacity style={styles.logoutBtn} onPress={doLogout} activeOpacity={0.8}>
+          <Text style={styles.logoutBtnText}>{strings.logout}</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -201,7 +231,7 @@ export default function AdminDashboard() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fdfdfe',
   },
   header: {
     flexDirection: 'row',
@@ -209,7 +239,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingBottom: 12,
-    backgroundColor: '#1e488f',
+    backgroundColor: colors.primary_blue,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerIconBtn: {
+    padding: 4,
   },
   title: {
     fontSize: 17,
@@ -222,12 +260,8 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginHorizontal: 16,
-    marginTop: 12,
-    backgroundColor: '#e6ecfd',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#e6ecfd',
+    marginTop: 0,
+    backgroundColor: '#fdfdfe',
   },
   countDot: {
     width: 8,
@@ -239,54 +273,51 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#495565',
   },
+  contentArea: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listContainer: {
+    flex: 1,
+    backgroundColor: '#fdfdfe',
+  },
   list: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 24,
+  },
+  logoutFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    backgroundColor: '#fdfdfe',
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: 4,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e6ecfd',
-    padding: 16,
-    marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1e488f',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardTitleRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+  cardContent: {
+    flexDirection: 'column',
+    gap: 6,
   },
   company: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '400',
     color: '#101727',
-    flex: 1,
   },
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
     backgroundColor: '#dcfce7',
     borderRadius: 9999,
+    alignSelf: 'flex-start',
   },
   connectedDot: {
     width: 6,
@@ -295,72 +326,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#00c950',
   },
   connectedText: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#008235',
   },
-  cardMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 12,
-  },
-  metaBlock: {
-    gap: 4,
-  },
-  metaLabel: {
-    fontSize: 12,
-    color: '#697282',
-  },
-  pillBlue: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#dbeafe',
-    borderRadius: 9999,
-  },
-  pillBlueText: {
-    fontSize: 12,
-    color: '#1347e5',
-  },
-  pillTeal: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#cefafe',
-    borderRadius: 9999,
-  },
-  pillTealText: {
-    fontSize: 12,
-    color: '#007594',
-  },
-  sharedBlock: {
-    gap: 4,
-  },
-  sharedValue: {
-    fontSize: 13,
-    color: '#354152',
-  },
   logoutBtn: {
-    marginTop: 16,
     paddingVertical: 10,
     backgroundColor: '#ffffff',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#1e488f',
+    borderColor: '#ff383c',
     alignItems: 'center',
   },
   logoutBtnText: {
     fontSize: 16,
-    color: '#1e488f',
-  },
-  emptyWrap: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    color: '#ff383c',
   },
   empty: {
     color: '#697282',

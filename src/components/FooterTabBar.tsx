@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { CommonActions } from '@react-navigation/native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { View, Pressable, Text, StyleSheet, Platform, Animated } from 'react-native';
+import { View, Pressable, Text, StyleSheet, Platform, Animated, Keyboard } from 'react-native';
 
 import { colors } from '../constants/colors';
 import { useScroll } from '../store/ScrollContext';
+import { useModuleAccess } from '../store/ModuleAccessContext';
 
 /**
  * Footer implementation matching Figma design exactly:
@@ -12,7 +13,7 @@ import { useScroll } from '../store/ScrollContext';
  * - inline-flex items-start gap-[42px]
  * - Tab widths: Home 41px, Orders 51px, Ledger 41px, Approvals 64px
  * - Icons: 24x24 (w-6 h-6)
- * - Text: 10px, Roboto, active=medium #1e488f, inactive=light #6a7282
+ * - Text: 10px, Roboto, active=medium #1f3a89, inactive=light #6a7282
  */
 export default function FooterTabBar({
   state,
@@ -20,49 +21,121 @@ export default function FooterTabBar({
   descriptors,
   insets,
 }: BottomTabBarProps) {
+  // Respect tabBarStyle.display: 'none' from screen options (e.g. OrderEntry, OrderEntryItemDetail)
+  const focusedRoute = state.routes[state.index];
+  const focusedDescriptor = descriptors[focusedRoute.key];
+  const tabBarStyle = focusedDescriptor?.options?.tabBarStyle as { display?: 'none' } | undefined;
+  const isHidden = tabBarStyle?.display === 'none';
+  const footerHeight = 100; // Full hide off-screen; stock closing bars use a smaller slide (see StockItemVouchers)
+
+  // When VoucherDetailView is opened from Order Success "View Order" (on Ledger tab), show Orders as active in footer
+  const displayTabIndex = (() => {
+    if (focusedRoute.name !== 'LedgerTab') return state.index;
+    const ledgerState = focusedRoute.state as {
+      routes?: { name: string; params?: { returnToOrderEntryClear?: boolean } }[];
+      index?: number;
+    } | undefined;
+    const currentLedgerRoute = ledgerState?.routes?.[ledgerState.index ?? 0];
+    const isOrderSuccessViewOrder =
+      currentLedgerRoute?.name === 'VoucherDetailView' &&
+      Boolean(currentLedgerRoute?.params?.returnToOrderEntryClear);
+    if (isOrderSuccessViewOrder) {
+      const ordersTabIdx = state.routes.findIndex((r) => r.name === 'OrdersTab');
+      return ordersTabIdx >= 0 ? ordersTabIdx : state.index;
+    }
+    return state.index;
+  })();
+
+  // Hide footer when keyboard is open (e.g. dropdown search in Ledger) so it doesn't slide up
+  const keyboardOffsetY = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(show, () => {
+      Animated.timing(keyboardOffsetY, {
+        toValue: footerHeight,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    });
+    const subHide = Keyboard.addListener(hide, () => {
+      Animated.timing(keyboardOffsetY, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  // On Android with gesture navigation, insets.bottom is small (~20-34px for the
+  // thin gesture indicator bar). Add extra padding so the footer doesn't sit flush
+  // against the bottom edge. With button navigation insets.bottom is 0 or >= 40,
+  // so no extra padding is needed there.
+  const isAndroidGestureNav =
+    Platform.OS === 'android' && insets.bottom > 0 && insets.bottom < 40;
+  const gestureNavPadding = isAndroidGestureNav ? 10 : 0;
+
   const paddingBottom = Math.max(
     insets.bottom - Platform.select({ ios: 4, default: 0 }),
     0
-  );
+  ) + gestureNavPadding;
 
-  // Scroll-based collapse animation
-  const { scrollDirection } = useScroll();
+  const { moduleAccess } = useModuleAccess();
+
+  const getModuleKey = (routeName: string) => {
+    switch (routeName) {
+      case 'SalesTab': return 'sales_dashboard';
+      case 'OrdersTab': return 'place_order';
+      case 'LedgerTab': return 'ledger_book';
+      case 'ApprovalsTab': return 'approvals';
+      case 'StockSummaryTab':
+      case 'SummaryTab':
+        return 'stock_summary';
+      default: return null;
+    }
+  };
+
+  // Scroll-based collapse: use scrollDirection (set by ledger/approvals screens during scroll)
+  // to drive a local translateY animation. footerCollapseValue is a legacy mechanism kept for
+  // screens like VoucherDetailView that share an Animated.Value directly.
+  const { scrollDirection, footerCollapseValue } = useScroll();
   const translateY = useRef(new Animated.Value(0)).current;
-  const footerHeight = 100; // Height to hide footer completely (including safe area)
 
-  useEffect(() => {
+  // Always respond to scrollDirection changes with our own local animation.
+  // This ensures the footer collapses regardless of what footerCollapseValue is set to.
+  const prevDirection = useRef(scrollDirection);
+  if (prevDirection.current !== scrollDirection) {
+    prevDirection.current = scrollDirection;
     if (scrollDirection === 'down') {
-      // Scrolling down - hide footer
       Animated.timing(translateY, {
         toValue: footerHeight,
         duration: 300,
         useNativeDriver: true,
       }).start();
     } else if (scrollDirection === 'up' || scrollDirection === null) {
-      // Scrolling up or no scroll - show footer
       Animated.timing(translateY, {
         toValue: 0,
         duration: 300,
         useNativeDriver: true,
       }).start();
     }
-  }, [scrollDirection, translateY, footerHeight]);
+  }
 
-  // Tab width and padding mapping from Figma
-  const getTabStyle = (routeName: string) => {
-    switch (routeName) {
-      case 'HomeTab':
-        return { width: 41, paddingHorizontal: 5 };
-      case 'OrdersTab':
-        return { width: 51, paddingHorizontal: 9 };
-      case 'LedgerTab':
-        return { width: 41, paddingHorizontal: 5 };
-      case 'ApprovalsTab':
-        return { width: 64, paddingHorizontal: 9 };
-      default:
-        return { width: 41, paddingHorizontal: 5 };
-    }
-  };
+  // When keyboard is open (e.g. dropdown in Ledger), hide footer so it doesn't come up
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tabBarTranslateY = useMemo(() => {
+    return Animated.add(translateY, keyboardOffsetY);
+  }, [translateY]);
+
+  // Equal flex for all tabs; padding for tap target (gaps handled by tabsRow gap)
+  const getTabStyle = (_routeName: string) => ({
+    flex: 1,
+    paddingHorizontal: 4,
+  });
 
   // Font weight mapping from Figma: Orders uses font-normal (400) when inactive, others use font-light (300)
   const getFontWeight = (routeName: string, focused: boolean) => {
@@ -70,8 +143,12 @@ export default function FooterTabBar({
       return '500'; // font-medium for active
     }
     // Inactive state: Orders uses font-normal (400), others use font-light (300)
-    return routeName === 'OrdersTab' ? '400' : '300';
+    return routeName === 'OrdersTab' || routeName === 'SummaryTab' ? '400' : '300';
   };
+
+  if (isHidden) {
+    return <View style={{ height: 0 }} />;
+  }
 
   return (
     <Animated.View
@@ -79,27 +156,83 @@ export default function FooterTabBar({
         styles.container,
         {
           paddingBottom,
-          transform: [{ translateY }],
+          transform: [{ translateY: tabBarTranslateY }],
         },
       ]}
     >
       <View style={styles.tabsRow} accessibilityRole="tablist">
         {state.routes.map((route, index) => {
-          const focused = index === state.index;
+          const focused = index === displayTabIndex;
           const { options } = descriptors[route.key];
           const tabStyle = getTabStyle(route.name);
 
+          const modKey = getModuleKey(route.name);
+          const isEnabled = modKey ? !!moduleAccess[modKey] : true;
+
           const onPress = () => {
+            if (!isEnabled) {
+              // Module disabled by API
+              return;
+            }
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
-              navigation.dispatch({
-                ...CommonActions.navigate({ name: route.name, merge: true }),
-                target: state.key,
-              });
+              // When switching to Orders from Voucher Details (opened via Order Success "View Order"),
+              // show a cleared Order Entry instead of the previous order state.
+              const currentTab = state.routes[state.index];
+              const ledgerState = currentTab?.state as {
+                routes?: { name: string; params?: { returnToOrderEntryClear?: boolean; returnToOrderEntryDraftMode?: boolean } }[];
+                index?: number;
+              } | undefined;
+              const currentLedgerRoute = ledgerState?.routes?.[ledgerState.index ?? 0];
+              const shouldClearOrder =
+                route.name === 'OrdersTab' &&
+                currentTab?.name === 'LedgerTab' &&
+                currentLedgerRoute?.name === 'VoucherDetailView' &&
+                Boolean(currentLedgerRoute?.params?.returnToOrderEntryClear);
+
+              if (shouldClearOrder) {
+                const openInDraftMode = Boolean(currentLedgerRoute?.params?.returnToOrderEntryDraftMode);
+                navigation.navigate('OrdersTab', {
+                  state: {
+                    routes: [{ name: 'OrderEntry', params: { clearOrder: true, openInDraftMode } }],
+                    index: 0,
+                  },
+                });
+              } else if (route.name === 'LedgerTab') {
+                // When navigating TO LedgerTab, check if it has an order-flow VoucherDetailView and reset
+                const ledgerRoute = state.routes.find(r => r.name === 'LedgerTab');
+                const ledgerTabState = ledgerRoute?.state as {
+                  routes?: { name: string; params?: { returnToOrderEntryClear?: boolean } }[];
+                  index?: number;
+                } | undefined;
+                const topLedgerRoute = ledgerTabState?.routes?.[ledgerTabState.index ?? 0];
+                if (
+                  topLedgerRoute?.name === 'VoucherDetailView' &&
+                  Boolean(topLedgerRoute?.params?.returnToOrderEntryClear)
+                ) {
+                  // Reset LedgerTab to clean initial state
+                  navigation.navigate('LedgerTab', {
+                    state: {
+                      routes: [{ name: 'LedgerEntries' }],
+                      index: 0,
+                    },
+                  });
+                } else {
+                  navigation.dispatch({
+                    ...CommonActions.navigate({ name: route.name, merge: true }),
+                    target: state.key,
+                  });
+                }
+              } else {
+                navigation.dispatch({
+                  ...CommonActions.navigate({ name: route.name, merge: true }),
+                  target: state.key,
+                });
+              }
             }
           };
 
@@ -129,7 +262,11 @@ export default function FooterTabBar({
               key={route.key}
               onPress={onPress}
               onLongPress={onLongPress}
-              style={[styles.tab, { width: tabStyle.width, paddingHorizontal: tabStyle.paddingHorizontal }]}
+              style={[
+                styles.tab,
+                { flex: tabStyle.flex, paddingHorizontal: tabStyle.paddingHorizontal },
+                !isEnabled && { opacity: 0.4 }
+              ]}
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               accessibilityLabel={
@@ -178,7 +315,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.white,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(211, 211, 211, 0.4)', // #d3d3d366
+    borderTopColor: '#d1d5db',
     paddingVertical: 8, // py-2 = 2 * 4 = 8px
     paddingHorizontal: 20, // px-5 = 5 * 4 = 20px
     ...Platform.select({
@@ -188,37 +325,34 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.06,
         shadowRadius: 6,
       },
-      android: {
-        elevation: 8,
-      },
     }),
   },
   tabsRow: {
-    // inline-flex items-start gap-[42px]
     flexDirection: 'row',
-    alignItems: 'flex-start', // items-start
-    gap: 42, // gap-[42px]
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 8, // uniform gap between all tab icons
   },
   tab: {
-    // flex flex-col items-center
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'flex-start',
+    minWidth: 0, // allow flex shrink so gap is preserved
   },
   iconWrap: {
-    // w-6 h-6 (24x24)
     width: 24,
     height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   label: {
-    // [font-family:'Roboto',Helvetica] text-[10px] text-center tracking-[0] leading-[14px]
-    fontSize: 10, // text-[10px]
-    lineHeight: 14, // leading-[14px]
+    fontSize: 10,
+    lineHeight: 14,
     textAlign: 'center',
     fontFamily: Platform.select({ ios: 'Roboto', android: 'Roboto' }),
-    letterSpacing: 0, // tracking-[0]
-    marginTop: 10, // gap-2.5 = 2.5 * 4 = 10px (gap between icon and label)
+    letterSpacing: 0,
+    marginTop: 2,
+    paddingBottom: 0,
   },
 });

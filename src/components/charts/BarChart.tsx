@@ -70,7 +70,8 @@ const BarChart: React.FC<BarChartProps> = ({
 
     // Limit data and prepare for chart
     const displayData = data.slice(0, maxBars);
-    const maxValue = Math.max(...displayData.map(d => d.value || 0), 0);
+    // Use magnitude for bar length so negative values (e.g. Top Loss) display correctly
+    const maxValue = Math.max(...displayData.map(d => Math.abs(d.value ?? 0)), 0);
 
     // Color palette
     const colors = [
@@ -100,7 +101,7 @@ const BarChart: React.FC<BarChartProps> = ({
                 </View>
                 <ScrollView style={styles.scrollContent} nestedScrollEnabled>
                     {displayData.map((item, index) => {
-                        const barWidth = maxValue > 0 ? ((item.value || 0) / maxValue) * 100 : 0;
+                        const barWidth = maxValue > 0 ? (Math.abs(item.value ?? 0) / maxValue) * 100 : 0;
                         const barColor = item.color || colors[index % colors.length];
 
                         return (
