@@ -73,6 +73,23 @@ def enableProguardInReleaseBuilds = true
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
+def uploadStorePath = project.findProperty('MYAPP_UPLOAD_STORE_FILE')
+def uploadStoreFile = null
+if (uploadStorePath) {
+    // Resolve relative paths from app/, then from project root.
+    uploadStoreFile = file(uploadStorePath)
+    if (!uploadStoreFile.exists()) {
+        uploadStoreFile = rootProject.file(uploadStorePath)
+    }
+}
+def releaseKeystoreConfigured = uploadStoreFile != null && uploadStoreFile.exists()
+def isReleaseLikeTask = gradle.startParameter.taskNames.any { taskName ->
+    def normalized = taskName.toLowerCase()
+    normalized.contains("release") || normalized.contains("bundle")
+}
+if (isReleaseLikeTask && !releaseKeystoreConfigured) {
+    logger.lifecycle("Release signing keystore not found. Falling back to debug signing for local release tasks.")
+}
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -108,11 +125,11 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        // Release: use the keystore that matches the cert Google Play expects (SHA1: 7F:2A:D3:...).
-        // Set MYAPP_UPLOAD_* in android/gradle.properties (do not commit passwords).
-        if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-            release {
-                storeFile file(project.property('MYAPP_UPLOAD_STORE_FILE'))
+        // Release signing values come from MYAPP_UPLOAD_* in gradle.properties.
+        // Keep this config declared so Gradle tasks can evaluate even when the keystore is missing.
+        release {
+            if (releaseKeystoreConfigured) {
+                storeFile uploadStoreFile
                 storePassword project.property('MYAPP_UPLOAD_STORE_PASSWORD')
                 keyAlias project.property('MYAPP_UPLOAD_KEY_ALIAS')
                 keyPassword project.property('MYAPP_UPLOAD_KEY_PASSWORD')
@@ -124,7 +141,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig project.hasProperty('MYAPP_UPLOAD_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
+            signingConfig releaseKeystoreConfigured ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

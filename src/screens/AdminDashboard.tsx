@@ -54,7 +54,7 @@ export default function AdminDashboard() {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<Nav>();
   const { logout } = useAuth();
-  const { refresh: refreshModuleAccess } = useModuleAccess();
+  const { refreshAndWait: refreshModuleAccessAndWait } = useModuleAccess();
   const [all, setAll] = useState<UserConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const autoNavDone = React.useRef(false);
@@ -111,7 +111,7 @@ export default function AdminDashboard() {
             if (match && (match.status ?? '').toLowerCase() === 'connected') {
               // Company is still online – go straight in
               await saveCompanyInfo(toCompanyInfo(match));
-              refreshModuleAccess();
+              await refreshModuleAccessAndWait(true);
               nav.navigate('MainTabs');
               refreshAllDataManagementData().catch(() => {});
               return;
@@ -132,7 +132,7 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [nav, refreshModuleAccessAndWait]);
 
   React.useEffect(() => {
     fetchConn();
@@ -140,17 +140,16 @@ export default function AdminDashboard() {
 
   const onRefresh = () => fetchConn();
 
-  const onSelect = (c: UserConnection) => {
+  const onSelect = async (c: UserConnection) => {
     if ((c.status ?? '').toLowerCase() !== 'connected') {
       Alert.alert('', 'This company is not connected');
       return;
     }
-    saveCompanyInfo(toCompanyInfo(c)).then(() => {
-      refreshModuleAccess();
-      nav.navigate('MainTabs');
-      // Sync stock items, customers, and stock groups in background
-      refreshAllDataManagementData().catch(() => { });
-    });
+    await saveCompanyInfo(toCompanyInfo(c));
+    await refreshModuleAccessAndWait(true);
+    nav.navigate('MainTabs');
+    // Sync stock items, customers, and stock groups in background
+    refreshAllDataManagementData().catch(() => { });
   };
 
   const doLogout = () => {

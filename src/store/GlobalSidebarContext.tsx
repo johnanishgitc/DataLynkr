@@ -125,6 +125,8 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
         }),
         target: ordersStackKey,
       } as any);
+      // Also switch visible tab to Orders; reset alone updates hidden stack state only.
+      navigationRef.navigate('MainTabs' as never, { screen: 'OrdersTab' } as never);
       return;
     }
 
@@ -154,7 +156,8 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
   if (isOutsideTabs) {
     // From Payments/Collections/ExpenseClaims → navigate to MainTabs first
     if (item.target === 'OrderEntry') {
-      navigationRef.navigate('MainTabs' as never, { screen: 'OrdersTab', params: { screen: 'OrderEntry' } } as never);
+      // Always open Orders as a fresh, cleared OrderEntry.
+      resetOrdersTabToCleanOrderEntry();
     } else if (item.target === 'LedgerTab') {
       const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
       if (p?.report_name) {
@@ -172,19 +175,9 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
     return;
   }
 
-  // Inside MainTabs: use the tab navigator
-  const tabState = (currentMainRoute as any)?.state;
-  const activeTab = tabState?.routes?.[tabState?.index];
-  // Get the tab navigator by finding the appropriate navigator
-  // We use the navigationRef to dispatch tab navigation
-  const tabNavKey = (currentMainRoute as any)?.state?.key;
-
   if (item.target === 'OrderEntry') {
-    if (isOnOrderSuccess) {
-      resetOrdersTabToCleanOrderEntry();
-    } else {
-      navigationRef.navigate('MainTabs' as never, { screen: 'OrdersTab', params: { screen: 'OrderEntry' } } as never);
-    }
+    // Always open Orders as a fresh, cleared OrderEntry.
+    resetOrdersTabToCleanOrderEntry();
   } else if (item.target === 'LedgerTab') {
     if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     const p = item.params as { report_name?: string; auto_open_customer?: boolean } | undefined;
@@ -251,8 +244,8 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
 
   const onItemPress = useCallback((item: AppSidebarMenuItem) => {
     const activeTarget = getActiveTargetFromNavigation();
-    // If we're already on the target, just close
-    if (item.target === activeTarget) {
+    // If already on target, just close — except Orders, which must always open a fresh cleared screen.
+    if (item.target === activeTarget && item.target !== 'OrderEntry') {
       setSidebarOpen(false);
       return;
     }
@@ -272,7 +265,9 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
 
   const onCompanyChange = useCallback(() => {
     // Fetch latest module/permission configurations for the newly selected company.
-    refreshModuleAccess();
+    // Pass `true` to immediately reset moduleAccess to defaults so sidebar tabs
+    // update right away instead of showing the old company's access until the API responds.
+    refreshModuleAccess(true);
     resetNavigationOnCompanyChange();
   }, [refreshModuleAccess]);
 

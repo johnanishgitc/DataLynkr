@@ -18,6 +18,8 @@ const config = {
       /figma_codes\/.*/,
       /node_modules[\\/]+@react-native[\\/]+gradle-plugin[\\/]+settings-plugin[\\/]+build[\\/]+.*/,
       /node_modules[\\/]+@react-native[\\/]+gradle-plugin[\\/]+react-native-gradle-plugin[\\/]+build[\\/]+.*/,
+      // Ignore transient Android/Gradle outputs under node_modules (can appear/disappear during builds).
+      /node_modules[\\/]+(?:@[^\\/]+[\\/]+)?[^\\/]+[\\/]+android[\\/]+build[\\/]+.*/,
     ],
   },
 };
