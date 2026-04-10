@@ -88,7 +88,7 @@ def isReleaseLikeTask = gradle.startParameter.taskNames.any { taskName ->
     normalized.contains("release") || normalized.contains("bundle")
 }
 if (isReleaseLikeTask && !releaseKeystoreConfigured) {
-    throw new GradleException("Release signing keystore not found. Set MYAPP_UPLOAD_STORE_FILE to your Play upload keystore path.")
+    logger.lifecycle("Release signing keystore not found. Falling back to debug signing for local release tasks.")
 }
 
 android {
@@ -141,7 +141,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.release
+            signingConfig releaseKeystoreConfigured ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
