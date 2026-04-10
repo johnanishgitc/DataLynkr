@@ -30,43 +30,41 @@ export default function BCommerceItemDetailScreen() {
   const { cartItems, updateQty, addToCart } = useBCommerceCart();
   const cartItem = cartItems.find(i => i.name === name);
 
-  // Local quantity for when item is not yet in cart
-  const [localQty, setLocalQty] = useState(1);
+  // Local quantity for selection
+  const [localQty, setLocalQty] = useState(cartItem ? cartItem.qty : 1);
 
-  const displayQty = cartItem ? cartItem.qty : localQty;
+  React.useEffect(() => {
+    if (cartItem) {
+      setLocalQty(cartItem.qty);
+    }
+  }, [cartItem?.qty]);
 
   const handleDecrement = () => {
-    if (cartItem) {
-      updateQty(name, cartItem.qty - 1);
-    } else {
-      setLocalQty(prev => Math.max(1, prev - 1));
-    }
+    setLocalQty(prev => Math.max(1, prev - 1));
   };
 
   const handleIncrement = () => {
-    if (cartItem) {
-      updateQty(name, cartItem.qty + 1);
-    } else {
-      setLocalQty(prev => prev + 1);
-    }
+    setLocalQty(prev => prev + 1);
   };
 
+  const isQtyChanged = cartItem ? cartItem.qty !== localQty : true;
+
   const handleCartAction = () => {
-    if (cartItem) {
+    if (!isQtyChanged && cartItem) {
       navigation.navigate('BCommerceCart' as never);
     } else {
-      addToCart({
-        stockItem,
-        name,
-        price,
-        basePrice,
-        qty: 1, // Add first
-        taxPercent: igst,
-        imagePath
-      });
-      // Immediately update to desired localQty if > 1
-      if (localQty > 1) {
+      if (cartItem) {
         updateQty(name, localQty);
+      } else {
+        addToCart({
+          stockItem,
+          name,
+          price,
+          basePrice,
+          qty: localQty,
+          taxPercent: igst,
+          imagePath
+        });
       }
     }
   };
@@ -141,37 +139,34 @@ export default function BCommerceItemDetailScreen() {
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <View style={styles.footerInner}>
-           {cartItem ? (
-             <TouchableOpacity 
-                style={styles.goToCartBtnFull} 
-                onPress={handleCartAction}
-             >
-                <Icon name="cart-outline" size={20} color="#fff" />
-                <Text style={styles.addToCartText}>Go to Cart</Text>
-             </TouchableOpacity>
-           ) : (
-             <>
-               <View style={styles.qtyContainer}>
-                  <TouchableOpacity style={styles.qtyBtn} onPress={handleDecrement}>
-                     <Icon name="minus" size={20} color="#121111" />
-                  </TouchableOpacity>
-                  <View style={styles.qtyTextWrap}>
-                     <Text style={styles.qtyText}>{displayQty}</Text>
-                  </View>
-                  <TouchableOpacity style={styles.qtyBtn} onPress={handleIncrement}>
-                     <Icon name="plus" size={20} color="#121111" />
-                  </TouchableOpacity>
-               </View>
+           <View style={styles.qtyContainer}>
+              <TouchableOpacity style={styles.qtyBtn} onPress={handleDecrement}>
+                 <Icon name="minus" size={20} color="#121111" />
+              </TouchableOpacity>
+              <View style={styles.qtyTextWrap}>
+                 <Text style={styles.qtyText}>{localQty}</Text>
+              </View>
+              <TouchableOpacity style={styles.qtyBtn} onPress={handleIncrement}>
+                 <Icon name="plus" size={20} color="#121111" />
+              </TouchableOpacity>
+           </View>
 
-               <TouchableOpacity 
-                  style={styles.addToCartBtn} 
-                  onPress={handleCartAction}
-               >
-                  <Icon name="cart-outline" size={20} color="#fff" />
-                  <Text style={styles.addToCartText}>Add to Cart</Text>
-               </TouchableOpacity>
-             </>
-           )}
+           <TouchableOpacity 
+              style={isQtyChanged ? styles.addToCartBtn : styles.goToCartBtnFull} 
+              onPress={handleCartAction}
+           >
+              {isQtyChanged ? (
+                 <>
+                   <Icon name="cart-outline" size={20} color="#fff" />
+                   <Text style={styles.addToCartText}>Add to Cart</Text>
+                 </>
+              ) : (
+                 <>
+                   <Icon name="cart-outline" size={20} color="#fff" />
+                   <Text style={styles.addToCartText}>Go to Cart</Text>
+                 </>
+              )}
+           </TouchableOpacity>
         </View>
       </View>
     </View>
