@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiService } from '../api';
 import { getTallylocId, getGuid } from '../store/storage';
 
@@ -137,7 +137,10 @@ type UseUserAccessReturn = {
     moduleAccess: ModuleAccess;
     transConfig: PlaceOrderTransConfig;
     loading: boolean;
-    refresh: () => void;
+    /** Call refresh() to re-fetch. Pass true to immediately reset moduleAccess to defaults (e.g. on company change). */
+    refresh: (resetAccess?: boolean) => void;
+    /** Re-fetch and resolve when the latest request completes. */
+    refreshAndWait: (resetAccess?: boolean) => Promise<void>;
 };
 
 /**
@@ -150,20 +153,48 @@ export function useUserAccess(): UseUserAccessReturn {
     const [transConfig, setTransConfig] = useState<PlaceOrderTransConfig>({});
     const [loading, setLoading] = useState(true);
     const [refreshKey, setRefreshKey] = useState(0);
+    const latestRequestIdRef = useRef(0);
+    const refreshWaitersRef = useRef<Array<() => void>>([]);
+    /** When true, the next useEffect run will reset moduleAccess to defaults immediately. */
+    const resetAccessOnNextRefreshRef = useRef(false);
 
-    const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+    const refresh = useCallback((resetAccess?: boolean) => {
+        if (resetAccess) {
+            resetAccessOnNextRefreshRef.current = true;
+        }
+        setRefreshKey((k) => k + 1);
+    }, []);
+    const refreshAndWait = useCallback((resetAccess?: boolean) => {
+        if (resetAccess) {
+            resetAccessOnNextRefreshRef.current = true;
+        }
+        return new Promise<void>((resolve) => {
+            refreshWaitersRef.current.push(resolve);
+            setRefreshKey((k) => k + 1);
+        });
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
+        const requestId = ++latestRequestIdRef.current;
 
-        // Reset to loading state at the start of each fetch.
-        setPermissions(LOADING_PERMISSIONS);
+        // If the caller requested a hard reset (e.g. company change), wipe the
+        // old module access immediately so the sidebar tabs reflect the change.
+        if (resetAccessOnNextRefreshRef.current) {
+            resetAccessOnNextRefreshRef.current = false;
+            setModuleAccess({ ...DEFAULT_MODULE_ACCESS });
+        }
+
         setLoading(true);
 
         (async () => {
             const [tallylocId, co_guid] = await Promise.all([getTallylocId(), getGuid()]);
             if (!tallylocId || !co_guid || cancelled) {
-                setLoading(false);
+                if (!cancelled && requestId === latestRequestIdRef.current) {
+                    setLoading(false);
+                    const waiters = refreshWaitersRef.current.splice(0);
+                    waiters.forEach((w) => w());
+                }
                 return;
             }
 
@@ -320,7 +351,7 @@ export function useUserAccess(): UseUserAccessReturn {
                 (modAccess as any).approvals_def_apprvrej = approvalsApproveReject;
                 // Expose Approvals default period value via moduleAccess
                 (modAccess as any).approvals_def_daterange = approvalsDateRangeValue;
-                if (!cancelled) setModuleAccess(modAccess);
+                if (!cancelled && requestId === latestRequestIdRef.current) setModuleAccess(modAccess);
 
                 // --- Place-order field permissions ---
                 const placeOrderModule = modules.find((m) => {
@@ -395,14 +426,14 @@ export function useUserAccess(): UseUserAccessReturn {
                         enable_batchGodown: toBool(permMap.enbale_batchGodown),
                     };
 
-                    if (!cancelled) setPermissions(resolved);
+                    if (!cancelled && requestId === latestRequestIdRef.current) setPermissions(resolved);
                 } else {
                     // place_order module not found in response: lock everything down.
-                    if (!cancelled) setPermissions({ ...LOADING_PERMISSIONS, show_ClsStck_yesno: false, show_itemdesc: false, show_itemshasqty: false });
+                    if (!cancelled && requestId === latestRequestIdRef.current) setPermissions(DEFAULT_PLACE_ORDER_PERMISSIONS);
                 }
 
                 // Finally, publish transaction configuration including default quantity (if any).
-                if (!cancelled) {
+                if (!cancelled && requestId === latestRequestIdRef.current) {
                     setTransConfig({
                         ...pOrderTransConfig,
                         defaultQty,
@@ -413,7 +444,11 @@ export function useUserAccess(): UseUserAccessReturn {
             } catch (err) {
                 console.warn('[useUserAccess] Failed to fetch permissions', err);
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!cancelled && requestId === latestRequestIdRef.current) {
+                    setLoading(false);
+                    const waiters = refreshWaitersRef.current.splice(0);
+                    waiters.forEach((w) => w());
+                }
             }
         })();
 
@@ -422,5 +457,5 @@ export function useUserAccess(): UseUserAccessReturn {
         };
     }, [refreshKey]);
 
-    return { permissions, moduleAccess, transConfig, loading, refresh };
+    return { permissions, moduleAccess, transConfig, loading, refresh, refreshAndWait };
 }

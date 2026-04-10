@@ -1337,25 +1337,28 @@ export default function OrderEntry() {
 
   const hasUnsavedOrderChanges = (!isDraftMode && orderItems.length > 0) || (isDraftMode && (orderItems.length > 0 || draftDescription.trim().length > 0));
 
-  // Register interceptor for unsaved changes on sidebar navigation
-  useEffect(() => {
-    const interceptor = (item: any, defaultHandler: () => void) => {
-      if (item.target === 'OrderEntry') {
-        closeSidebar();
-        return;
-      }
-      if (hasUnsavedOrderChanges) {
-        pendingLeaveActionRef.current = () => {
-          defaultHandler();
-        };
-        setLeaveConfirmVisible(true);
-        return;
-      }
-      defaultHandler();
-    };
-    setOnItemPressInterceptor(interceptor);
-    return () => setOnItemPressInterceptor(null);
-  }, [hasUnsavedOrderChanges, closeSidebar, setOnItemPressInterceptor]);
+  // Register interceptor for unsaved changes only while OrderEntry is focused.
+  // If kept globally while tab is unfocused, it swallows sidebar clicks from other screens.
+  useFocusEffect(
+    useCallback(() => {
+      const interceptor = (item: any, defaultHandler: () => void) => {
+        if (item.target === 'OrderEntry') {
+          closeSidebar();
+          return;
+        }
+        if (hasUnsavedOrderChanges) {
+          pendingLeaveActionRef.current = () => {
+            defaultHandler();
+          };
+          setLeaveConfirmVisible(true);
+          return;
+        }
+        defaultHandler();
+      };
+      setOnItemPressInterceptor(interceptor);
+      return () => setOnItemPressInterceptor(null);
+    }, [hasUnsavedOrderChanges, closeSidebar, setOnItemPressInterceptor]),
+  );
 
   const handleCustomerClick = () => setCustomerDropdownOpen(true);
 

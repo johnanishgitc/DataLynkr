@@ -287,7 +287,13 @@ export default function BillWiseOutstanding({
         key={i}
         style={[
           sharedStyles.cardBillWise,
-          isOnAccRow && { backgroundColor: '#f3f4f6', minHeight: 40, justifyContent: 'center' },
+          isOnAccRow && {
+            backgroundColor: '#f3f4f6',
+            minHeight: 40,
+            justifyContent: 'center',
+            marginHorizontal: -16,
+            paddingHorizontal: 16,
+          },
         ]}
         onPress={() => onRow(v)}
         activeOpacity={0.7}
@@ -472,12 +478,12 @@ export default function BillWiseOutstanding({
             {footerExpanded && (
               <View style={sharedStyles.footerExpand}>
                 <View style={sharedStyles.footerRow}>
-                  <Text style={sharedStyles.footerLabel}>Total Pending Amount</Text>
-                  <Text style={sharedStyles.footerVal}>{billWiseTotals.pendingFormatted}</Text>
-                </View>
-                <View style={sharedStyles.footerRow}>
                   <Text style={sharedStyles.footerLabel}>Total Opening Amount</Text>
                   <Text style={sharedStyles.footerVal}>{billWiseTotals.openingFormatted}</Text>
+                </View>
+                <View style={sharedStyles.footerRow}>
+                  <Text style={sharedStyles.footerLabel}>Total Pending Amount</Text>
+                  <Text style={sharedStyles.footerVal}>{billWiseTotals.pendingFormatted}</Text>
                 </View>
               </View>
             )}

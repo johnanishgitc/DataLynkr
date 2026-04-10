@@ -6,16 +6,17 @@ type ModuleAccessContextValue = {
     permissions: PlaceOrderPermissions;
     transConfig: PlaceOrderTransConfig;
     loading: boolean;
-    refresh: () => void;
+    refresh: (resetAccess?: boolean) => void;
+    refreshAndWait: (resetAccess?: boolean) => Promise<void>;
 };
 
 const ModuleAccessContext = createContext<ModuleAccessContextValue | null>(null);
 
 /** Provides module-level access flags and place-order permissions to the whole tab tree. */
 export function ModuleAccessProvider({ children }: { children: ReactNode }) {
-    const { moduleAccess, permissions, transConfig, loading, refresh } = useUserAccess();
+    const { moduleAccess, permissions, transConfig, loading, refresh, refreshAndWait } = useUserAccess();
     return (
-        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, transConfig, loading, refresh }}>
+        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, transConfig, loading, refresh, refreshAndWait }}>
             {children}
         </ModuleAccessContext.Provider>
     );
@@ -44,6 +45,7 @@ export function useModuleAccess(): ModuleAccessContextValue {
             transConfig: {},
             loading: false,
             refresh: () => { },
+            refreshAndWait: async () => { },
         };
     }
     return ctx;
