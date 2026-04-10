@@ -31,76 +31,79 @@ function base64Decode(base64: string): string {
   }
 }
 
-/**
- * XOR decrypt with key (repeating key). Used when backend encrypts price with the app encryption key.
- */
-function xorDecrypt(encrypted: string, key: string): string {
-  if (!key || !encrypted) return '';
-  let result = '';
-  for (let i = 0; i < encrypted.length; i++) {
-    result += String.fromCharCode(
-      encrypted.charCodeAt(i) ^ key.charCodeAt(i % key.length)
-    );
+/** Normalize wrappers around encoded values (quotes/whitespace). */
+function normalizeInput(raw: string): string {
+  const t = raw.trim();
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1).trim();
   }
-  return result;
+  return t;
+}
+
+/**
+ * XOR decrypt base64 strings with key (repeating key).
+ * Handles byte-level XOR to match Python reference precisely.
+ */
+function xorDecryptBase64(base64Str: string, key: string): string {
+  if (!key || !base64Str) return '';
+  try {
+    const ciphertext = Buffer.from(base64Str, 'base64');
+    const decryptedBytes = Buffer.alloc(ciphertext.length);
+    for (let i = 0; i < ciphertext.length; i++) {
+        decryptedBytes[i] = ciphertext[i] ^ key.charCodeAt(i % key.length);
+    }
+    return decryptedBytes.toString('utf8');
+  } catch {
+    return '';
+  }
 }
 
 /**
  * Deobfuscate a price (string or number).
- * Tries in order: plain number → base64 decode (plain) → base64 decode + XOR decrypt → raw XOR decrypt.
- * Uses strict VALID_PRICE regex for XOR-decrypted results to avoid false positives from
- * parseFloat matching leading digits in garbage output.
- * Returns '0' when value is empty or cannot be decoded to a valid number.
+ * Tries in order: plain number → base64 decode (plain) → base64 XOR decode.
  */
 export function deobfuscatePrice(value: string | number | null | undefined): string {
   if (value == null) return '0';
   if (typeof value === 'number') return Number.isNaN(value) ? '0' : String(value);
-  const s = String(value).trim();
+  const s = normalizeInput(String(value));
   if (!s) return '0';
 
   // 1. Plain number
   const parsed = parsePriceOrEmpty(s);
   if (parsed) return parsed;
 
-  // 2. Pure base64 → decode to plain number (no XOR)
-  if (STRICT_BASE64.test(s)) {
-    const decoded = base64Decode(s);
-    const t = parsePriceOrEmpty(decoded);
-    if (t) return t;
-  }
-
   const key = getPriceEncryptionKey();
-  if (key) {
-    // 3. Base64 decode → XOR decrypt (correct path for base64-encoded XOR-encrypted values)
-    if (STRICT_BASE64.test(s)) {
-      try {
-        const decoded = base64Decode(s);
-        if (decoded) {
-          const xorDec = xorDecrypt(decoded, key);
-          const t = xorDec.trim();
-          if (t && VALID_PRICE.test(t)) return String(parseFloat(t));
-        }
-      } catch {
-        // ignore
-      }
+
+  if (STRICT_BASE64.test(s)) {
+    // 2. Pure base64 (no XOR) - e.g. "MA==" -> "0"
+    const plainDecoded = base64Decode(s);
+    if (plainDecoded) {
+      const plainTrimmed = plainDecoded.trim();
+      if (VALID_PRICE.test(plainTrimmed)) return String(parseFloat(plainTrimmed));
     }
 
-    // 4. Raw XOR decrypt (for non-base64 XOR-encrypted strings)
-    const decrypted = xorDecrypt(s, key);
-    const dt = decrypted.trim();
-    if (dt && VALID_PRICE.test(dt)) return String(parseFloat(dt));
+    // 3. Base64 decode + XOR decrypt (encrypted payloads)
+    if (key) {
+      const xorDec = xorDecryptBase64(s, key);
+      const decTrimmed = xorDec.trim();
+      if (decTrimmed && VALID_PRICE.test(decTrimmed)) return String(parseFloat(decTrimmed));
+    }
+  }
 
-    // 5. Fallback: strip non-base64 chars, decode, then XOR
-    const base64Only = s.match(/[A-Za-z0-9+/=]/g)?.join('') ?? '';
+  // 3a. Non-strict base64-like input (quoted/noisy): sanitize and retry plain decode first.
+  const base64Only = s.match(/[A-Za-z0-9+/=]/g)?.join('') ?? '';
+  if (base64Only.length >= 2 && STRICT_BASE64.test(base64Only)) {
+    const plainDecoded = base64Decode(base64Only);
+    const plainTrimmed = plainDecoded.trim();
+    if (plainTrimmed && VALID_PRICE.test(plainTrimmed)) return String(parseFloat(plainTrimmed));
+  }
+
+  // 4. Fallbacks (for any malformed string with some base64)
+  if (key) {
     if (base64Only.length >= 2 && base64Only !== s) {
-      try {
-        const decoded = base64Decode(base64Only);
-        const xorDec = xorDecrypt(decoded, key);
-        const t2 = xorDec.trim();
-        if (t2 && VALID_PRICE.test(t2)) return String(parseFloat(t2));
-      } catch {
-        // ignore
-      }
+      const xorDec = xorDecryptBase64(base64Only, key);
+      const decTrimmed = xorDec.trim();
+      if (decTrimmed && VALID_PRICE.test(decTrimmed)) return String(parseFloat(decTrimmed));
     }
   }
 

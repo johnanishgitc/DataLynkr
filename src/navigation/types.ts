@@ -243,6 +243,10 @@ export type MainStackParamList = {
   AdminDashboard: undefined;
   MainTabs: undefined;
   DataManagement: undefined;
+  BCommerce: { selectedCategory?: string } | undefined;
+  BCommerceCategories: { selectedCategory?: string, selectedParent?: string } | undefined;
+  BCommerceItemDetail: { itemData: any };
+  BCommerceCart: undefined;
   Payments: undefined;
   ExpenseClaims: undefined;
   Collections: undefined;

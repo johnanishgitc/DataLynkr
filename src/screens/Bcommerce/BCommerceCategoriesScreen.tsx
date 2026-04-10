@@ -1,0 +1,366 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  FlatList,
+  Dimensions,
+  Platform,
+  StatusBar,
+  ActivityIndicator,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { getStockItemsFromDataManagementCache } from '../../cache/stockItemsCacheReader';
+
+import SofaIcon from '../../assets/bcomm_img/container.svg';
+import ChairIcon from '../../assets/bcomm_img/container-1.svg';
+import LampIcon from '../../assets/bcomm_img/container-2.svg';
+import CupboardIcon from '../../assets/bcomm_img/container-3.svg';
+
+const { width } = Dimensions.get('window');
+const COLUMN_COUNT = 4;
+const ITEM_WIDTH = (width - 64) / COLUMN_COUNT;
+
+type EntryType = 'parent' | 'category';
+
+interface CategoryEntry {
+  name: string;
+  type: EntryType;
+  parent?: string;
+}
+
+export default function BCommerceCategoriesScreen() {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const route = useRoute();
+  
+  const initialCategory = (route.params as any)?.selectedCategory || null;
+  const initialParent = (route.params as any)?.selectedParent || null;
+
+  const [allItems, setAllItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedParent, setSelectedParent] = useState<string | null>(initialParent === 'All' ? null : initialParent);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategory === 'All' ? null : initialCategory);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    const fetchItems = async () => {
+      try {
+        setLoading(true);
+        const result = await getStockItemsFromDataManagementCache();
+        if (result && Array.isArray(result.data)) {
+          setAllItems(result.data);
+        } else {
+          setAllItems([]);
+        }
+      } catch (err) {
+        console.warn('Error fetching items in Categories screen:', err);
+        setAllItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchItems();
+  }, []);
+
+  const { entries, parentMap } = useMemo(() => {
+    const pSet = new Set<string>();
+    const cSet = new Set<string>();
+    const pMap = new Map<string, Set<string>>();
+
+    allItems.forEach((i: any) => {
+      const p = i.PARENT || i.parent;
+      const c = i.CATEGORY || i.category;
+      if (p) {
+        pSet.add(p);
+        if (!pMap.has(p)) pMap.set(p, new Set());
+        if (c) {
+          pMap.get(p)!.add(c);
+          cSet.add(c);
+        }
+      } else if (c) {
+        cSet.add(c);
+      }
+    });
+
+    const categoriesList: CategoryEntry[] = Array.from(cSet).map(name => {
+      // Find a parent for this category if possible
+      const p = Array.from(pMap.entries()).find(([_, cats]) => cats.has(name))?.[0];
+      return { name, type: 'category', parent: p };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    const parentsList: CategoryEntry[] = Array.from(pSet).map(name => ({ name, type: 'parent' }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { 
+      entries: [...parentsList, ...categoriesList],
+      parentMap: pMap
+    };
+  }, [allItems]);
+
+  const filteredEntries = entries.filter(e => 
+    e.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const getIcon = (item: CategoryEntry) => {
+    if (item.type === 'parent') {
+      return <Icon name="folder-outline" size={32} color={selectedParent === item.name ? "#1f3a89" : "#4A5565"} />;
+    }
+    const c = item.name.toLowerCase();
+    if (c.includes('sofa')) return <SofaIcon width={32} height={32} />;
+    if (c.includes('chair')) return <ChairIcon width={32} height={32} />;
+    if (c.includes('lamp')) return <LampIcon width={32} height={32} />;
+    if (c.includes('cupboard') || c.includes('closet')) return <CupboardIcon width={32} height={32} />;
+    return <Icon name="tag-outline" size={32} color="#4A5565" />;
+  };
+
+  const handleEntryPress = (item: CategoryEntry) => {
+    if (item.type === 'parent') {
+      if (selectedParent === item.name) {
+        setSelectedParent(null);
+        setSelectedCategory(null);
+      } else {
+        setSelectedParent(item.name);
+        setSelectedCategory(null);
+      }
+    } else {
+      if (selectedCategory === item.name) {
+        setSelectedCategory(null);
+      } else {
+        setSelectedCategory(item.name);
+        // If a category is selected, ensure its parent is also selected if not already
+        if (item.parent && selectedParent !== item.parent) {
+          setSelectedParent(item.parent);
+        }
+      }
+    }
+  };
+
+  const isEnabled = (item: CategoryEntry) => {
+    if (!selectedParent) return true;
+    
+    if (item.type === 'parent') {
+      return item.name === selectedParent;
+    } else {
+      // Category is enabled only if it belongs to the selected parent
+      const allowedCats = parentMap.get(selectedParent);
+      return allowedCats?.has(item.name) || false;
+    }
+  };
+
+  const handleConfirm = () => {
+    navigation.navigate('BCommerce', { 
+      selectedCategory: selectedCategory || 'All',
+      selectedParent: selectedParent || 'All'
+    } as any);
+  };
+
+  const renderEntryItem = ({ item }: { item: CategoryEntry }) => {
+    const enabled = isEnabled(item);
+    const isSelected = item.type === 'parent' ? selectedParent === item.name : selectedCategory === item.name;
+    
+    return (
+      <TouchableOpacity 
+        style={[styles.categoryItem, !enabled && { opacity: 0.3 }]} 
+        onPress={() => enabled && handleEntryPress(item)}
+        activeOpacity={0.7}
+        disabled={!enabled}
+      >
+        <View style={[styles.iconCircle, isSelected && styles.iconCircleSelected]}>
+          {getIcon(item)}
+        </View>
+        <Text style={[styles.categoryLabel, isSelected && styles.categoryLabelSelected]} numberOfLines={1}>
+          {item.name}
+        </Text>
+        {item.type === 'parent' && <View style={styles.parentBadge}><Text style={styles.parentBadgeText}>Group</Text></View>}
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Icon name="chevron-left" size={28} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Categories & Groups</Text>
+        <TouchableOpacity onPress={() => { setSelectedParent(null); setSelectedCategory(null); }}>
+          <Text style={{ color: '#1f3a89', fontWeight: '600' }}>Reset</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputWrapper}>
+          <Icon name="magnify" size={22} color="#bdbdbd" style={styles.searchIcon} />
+          <TextInput
+            placeholder="Search Categories or Groups..."
+            placeholderTextColor="#bdbdbd"
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+      </View>
+
+      {/* Grid */}
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#0e172b" />
+          <Text style={{ marginTop: 12, color: '#4a5565', fontFamily: 'WorkSans-VariableFont_wght' }}>Loading categories...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredEntries}
+          renderItem={renderEntryItem}
+          keyExtractor={(item, index) => `${item.type}-${item.name}-${index}`}
+          numColumns={COLUMN_COUNT}
+          contentContainerStyle={styles.gridContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={{ marginTop: 60, alignItems: 'center' }}>
+              <Icon name="package-variant" size={64} color="#f0f0f0" />
+              <Text style={{ marginTop: 16, color: '#999', fontSize: 16 }}>No items found</Text>
+            </View>
+          }
+        />
+      )}
+
+      {/* Confirm Button */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm}>
+          <Text style={styles.confirmText}>Confirm Selection</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    height: 56,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f5f6f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#121111',
+    fontFamily: 'WorkSans-VariableFont_wght',
+  },
+  searchContainer: {
+    paddingHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f6f7',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#121111',
+    fontFamily: 'WorkSans-VariableFont_wght',
+  },
+  gridContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 100,
+  },
+  categoryItem: {
+    width: ITEM_WIDTH,
+    alignItems: 'center',
+    marginBottom: 24,
+    marginHorizontal: 4,
+  },
+  iconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#f5f6f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  iconCircleSelected: {
+    backgroundColor: '#e6ecfd',
+    borderWidth: 1.5,
+    borderColor: '#1f3a89',
+  },
+  categoryLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#4a5565',
+    fontFamily: 'WorkSans-VariableFont_wght',
+    textAlign: 'center',
+  },
+  categoryLabelSelected: {
+    color: '#1f3a89',
+    fontWeight: '700',
+  },
+  parentBadge: {
+    marginTop: 2,
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  parentBadgeText: {
+    fontSize: 8,
+    color: '#888',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  confirmButton: {
+    height: 54,
+    backgroundColor: '#0e172b',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+    fontFamily: 'WorkSans-VariableFont_wght',
+  },
+});

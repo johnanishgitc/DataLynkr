@@ -8,11 +8,16 @@ import AdminDashboard from '../screens/AdminDashboard';
 import MainTabs from './MainTabs';
 import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
 import DataManagement from '../screens/CacheManagement2';
+import BCommerceScreen from '../screens/Bcommerce/BCommerceScreen';
+import BCommerceCartScreen from '../screens/Bcommerce/BCommerceCartScreen';
+import BCommerceCategoriesScreen from '../screens/Bcommerce/BCommerceCategoriesScreen';
+import BCommerceItemDetailScreen from '../screens/Bcommerce/BCommerceItemDetailScreen';
 import PaymentsScreen from '../screens/PayNExp/PaymentsScreen';
 import ExpenseClaimsScreen from '../screens/PayNExp/ExpenseClaimsScreen';
 import CollectionsScreen from '../screens/PayNExp/CollectionsScreen';
 import { GlobalSidebarProvider } from '../store/GlobalSidebarContext';
 import { ModuleAccessProvider } from '../store/ModuleAccessContext';
+import { BCommerceCartProvider } from '../store/BCommerceCartContext';
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
@@ -56,6 +61,10 @@ function MainStackInner() {
           },
         }}
       />
+      <Stack.Screen name="BCommerce" component={BCommerceScreen} />
+      <Stack.Screen name="BCommerceCategories" component={BCommerceCategoriesScreen} />
+      <Stack.Screen name="BCommerceItemDetail" component={BCommerceItemDetailScreen} />
+      <Stack.Screen name="BCommerceCart" component={BCommerceCartScreen} />
       <Stack.Screen name="Payments" component={PaymentsScreen} />
       <Stack.Screen name="ExpenseClaims" component={ExpenseClaimsScreen} />
       <Stack.Screen name="Collections" component={CollectionsScreen} />
@@ -72,7 +81,9 @@ export default function MainStack() {
   return (
     <ModuleAccessProvider>
       <GlobalSidebarProvider>
-        <MainStackInner />
+        <BCommerceCartProvider>
+          <MainStackInner />
+        </BCommerceCartProvider>
       </GlobalSidebarProvider>
     </ModuleAccessProvider>
   );

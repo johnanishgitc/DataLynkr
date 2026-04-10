@@ -138,9 +138,9 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
   // Screens outside MainTabs (Payments, Collections, ExpenseClaims, DataManagement)
   const isOutsideTabs = currentMainRoute?.name !== 'MainTabs';
 
-  if (item.target === 'DataManagement') {
+  if (item.target === 'DataManagement' || item.target === 'BCommerce') {
     if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
-    navigationRef.navigate('DataManagement' as never);
+    (navigationRef as any).navigate(item.target);
     return;
   }
 
