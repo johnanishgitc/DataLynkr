@@ -60,6 +60,7 @@ react {
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = true
+def enableHermes = (project.findProperty("hermesEnabled") ?: "true").toString().toBoolean()
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -101,8 +102,8 @@ android {
         applicationId "com.datalynkr"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 32
-        versionName "1.4.0"
+        versionCode 33
+        versionName "1.4.1"
     }
     
     buildFeatures {
@@ -159,7 +160,7 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
-    if (hermesEnabled.toBoolean()) {
+    if (enableHermes) {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor

@@ -4,6 +4,31 @@ import type { StockItem, LedgerItem } from '../api';
 /** Price level entry in item.PRICELEVELS (TallyCatalyst PlaceOrder.js) */
 export type PriceLevelEntry = { PLNAME?: string; RATE?: string; DISCOUNT?: string; RATEUNIT?: string };
 
+function getCustomerPriceLevel(selectedLedger: LedgerItem | null | undefined): string {
+    const ledger = selectedLedger as Record<string, unknown> | undefined;
+    return ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null
+        ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
+        : '';
+}
+
+/**
+ * Price-level resolution:
+ * Use only when customer PRICELEVEL is present and matches item PRICELEVELS[].PLNAME.
+ */
+function resolvePriceLevelEntry(
+    stock: Record<string, unknown>,
+    selectedLedger: LedgerItem | null | undefined
+): PriceLevelEntry | undefined {
+    const levels = stock.PRICELEVELS;
+    if (!Array.isArray(levels) || levels.length === 0) return undefined;
+    const customerPriceLevel = getCustomerPriceLevel(selectedLedger);
+    if (!customerPriceLevel) return undefined;
+    const matched = levels.find(
+        (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
+    ) as PriceLevelEntry | undefined;
+    return matched;
+}
+
 export function itemDisplayName(item: any): string {
     const s = item?.stockItem ?? item;
     if (!s || typeof s !== 'object') return '';
@@ -43,27 +68,19 @@ export function computeRateForItem(
 ): string {
     const s = item?.stockItem ?? item;
     if (!s || typeof s !== 'object') return '0';
-    const ledger = selectedLedger as Record<string, unknown> | undefined;
-    const customerPriceLevel =
-        ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null
-            ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
-            : '';
-    const levels = s.PRICELEVELS;
-    if (Array.isArray(levels) && levels.length > 0 && customerPriceLevel) {
-        const pl = levels.find(
-            (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
-        ) as PriceLevelEntry | undefined;
-        if (pl && pl.RATE != null) return deobfuscatePrice(String(pl.RATE));
+    const stock = s as Record<string, unknown>;
+    const pl = resolvePriceLevelEntry(stock, selectedLedger);
+    if (pl && pl.RATE != null) {
+        return deobfuscatePrice(String(pl.RATE));
     }
 
-    const o = s as Record<string, unknown>;
-    const rawStd = o.STDPRICE ?? o.stdprice ?? o.rate;
+    const rawStd = stock.STDPRICE ?? stock.stdprice ?? stock.rate;
     const rateFromStd = deobfuscatePrice(
         rawStd !== undefined && rawStd !== null ? (typeof rawStd === 'string' || typeof rawStd === 'number' ? rawStd : String(rawStd)) : null
     );
     // When STDPRICE is missing or decodes to 0, try LASTPRICE so something shows when API only sends LASTPRICE
     if (rateFromStd !== '0') return rateFromStd;
-    const rawLast = o.LASTPRICE ?? o.lastprice;
+    const rawLast = stock.LASTPRICE ?? stock.lastprice;
     return deobfuscatePrice(
         rawLast !== undefined && rawLast !== null ? (typeof rawLast === 'string' || typeof rawLast === 'number' ? rawLast : String(rawLast)) : null
     );
@@ -78,21 +95,13 @@ export function computeDiscountForItem(
 ): string {
     const s = item?.stockItem ?? item;
     if (!s || typeof s !== 'object') return '0';
-    const ledger = selectedLedger as Record<string, unknown> | undefined;
-    const customerPriceLevel =
-        ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null
-            ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
-            : '';
-    const levels = s.PRICELEVELS;
-    if (Array.isArray(levels) && levels.length > 0 && customerPriceLevel) {
-        const pl = levels.find(
-            (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
-        ) as PriceLevelEntry | undefined;
-        if (pl && pl.DISCOUNT != null) return deobfuscatePrice(String(pl.DISCOUNT));
+    const stock = s as Record<string, unknown>;
+    const pl = resolvePriceLevelEntry(stock, selectedLedger);
+    if (pl && pl.DISCOUNT != null) {
+        return deobfuscatePrice(String(pl.DISCOUNT));
     }
 
-    const o = s as Record<string, unknown>;
-    const disc = o.DISCOUNT ?? o.discount;
+    const disc = stock.DISCOUNT ?? stock.discount;
     return (disc != null) ? String(disc) : '0';
 }
 
@@ -107,21 +116,12 @@ export function itemPer(
 ): string {
     const s = item?.stockItem ?? item;
     if (!s || typeof s !== 'object') return '1';
+    const stock = s as Record<string, unknown>;
     if (rateFromPriceLevel) {
-        const levels = s.PRICELEVELS;
-        const ledger = selectedLedger as Record<string, unknown> | undefined;
-        const customerPriceLevel =
-            ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null
-                ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim()
-                : '';
-        if (Array.isArray(levels) && levels.length > 0 && customerPriceLevel) {
-            const pl = levels.find(
-                (e) => String((e as PriceLevelEntry).PLNAME ?? '').trim() === customerPriceLevel
-            ) as PriceLevelEntry | undefined;
-            if (pl && pl.RATEUNIT) return String(pl.RATEUNIT).trim();
-        }
+        const pl = resolvePriceLevelEntry(stock, selectedLedger);
+        if (pl && pl.RATEUNIT) return String(pl.RATEUNIT).trim();
     }
-    const u = s.STDPRICEUNIT ?? s.BASEUNITS ?? s.unit ?? '';
+    const u = stock.STDPRICEUNIT ?? stock.BASEUNITS ?? stock.unit ?? '';
     return String(u).trim() || '1';
 }
 
@@ -132,9 +132,5 @@ export function rateFromPriceLevel(
 ): boolean {
     const s = item?.stockItem ?? item;
     if (!s) return false;
-    const levels = s.PRICELEVELS;
-    if (!Array.isArray(levels) || levels.length === 0) return false;
-    const ledger = selectedLedger as Record<string, unknown> | undefined;
-    const plName = ledger && (ledger.PRICELEVEL ?? ledger.pricelevel) != null ? String(ledger.PRICELEVEL ?? ledger.pricelevel).trim() : '';
-    return plName !== '' && levels.some((e: PriceLevelEntry) => String(e.PLNAME ?? '').trim() === plName);
+    return !!resolvePriceLevelEntry(s as Record<string, unknown>, selectedLedger);
 }

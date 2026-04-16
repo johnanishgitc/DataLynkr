@@ -7,11 +7,13 @@ import type { MainStackParamList } from './types';
 import AdminDashboard from '../screens/AdminDashboard';
 import MainTabs from './MainTabs';
 import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
-import DataManagement from '../screens/CacheManagement2';
+import DataManagement from '../screens/DataManagement';
 import BCommerceScreen from '../screens/Bcommerce/BCommerceScreen';
 import BCommerceCartScreen from '../screens/Bcommerce/BCommerceCartScreen';
 import BCommerceCategoriesScreen from '../screens/Bcommerce/BCommerceCategoriesScreen';
 import BCommerceItemDetailScreen from '../screens/Bcommerce/BCommerceItemDetailScreen';
+import BCommerceCheckoutScreen from '../screens/Bcommerce/BCommerceCheckoutScreen';
+import BCommerceOrderPlacedScreen from '../screens/Bcommerce/BCommerceOrderPlacedScreen';
 import PaymentsScreen from '../screens/PayNExp/PaymentsScreen';
 import ExpenseClaimsScreen from '../screens/PayNExp/ExpenseClaimsScreen';
 import CollectionsScreen from '../screens/PayNExp/CollectionsScreen';
@@ -56,15 +58,17 @@ function MainStackInner() {
           },
           blur: () => {
             if (Platform.OS === 'android') {
-              SystemNavigationBar.setNavigationColor('#00000000', 'dark');
+              SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
             }
           },
         }}
       />
-      <Stack.Screen name="BCommerce" component={BCommerceScreen} />
-      <Stack.Screen name="BCommerceCategories" component={BCommerceCategoriesScreen} />
-      <Stack.Screen name="BCommerceItemDetail" component={BCommerceItemDetailScreen} />
-      <Stack.Screen name="BCommerceCart" component={BCommerceCartScreen} />
+      <Stack.Screen name="BCommerce" component={BCommerceScreen} options={{ navigationBarColor: '#ffffff' } as any} />
+      <Stack.Screen name="BCommerceCategories" component={BCommerceCategoriesScreen} options={{ navigationBarColor: '#ffffff' } as any} />
+      <Stack.Screen name="BCommerceItemDetail" component={BCommerceItemDetailScreen} options={{ navigationBarColor: '#ffffff' } as any} />
+      <Stack.Screen name="BCommerceCart" component={BCommerceCartScreen} options={{ navigationBarColor: '#ffffff' } as any} />
+      <Stack.Screen name="BCommerceCheckout" component={BCommerceCheckoutScreen} options={{ navigationBarColor: '#ffffff' } as any} />
+      <Stack.Screen name="BCommerceOrderPlaced" component={BCommerceOrderPlacedScreen} options={{ navigationBarColor: '#ffffff', gestureEnabled: false } as any} />
       <Stack.Screen name="Payments" component={PaymentsScreen} />
       <Stack.Screen name="ExpenseClaims" component={ExpenseClaimsScreen} />
       <Stack.Screen name="Collections" component={CollectionsScreen} />

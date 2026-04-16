@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,34 +11,36 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
-  PermissionsAndroid,
   Animated,
   TouchableWithoutFeedback,
   BackHandler,
   Modal,
   StatusBar,
   PanResponder,
+  InteractionManager,
 } from 'react-native';
-import Geolocation from 'react-native-geolocation-service';
 import axios from 'axios';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { getStockItemsFromDataManagementCache } from '../../cache/stockItemsCacheReader';
-import { computeRateForItem } from '../../utils/itemPriceUtils';
+import { getLedgerListFromDataManagementCache, subscribeToDataManagementSync, refreshAllDataManagementData } from '../../cache';
+import { computeRateForItem, computeDiscountForItem } from '../../utils/itemPriceUtils';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useGlobalSidebar } from '../../store/GlobalSidebarContext';
 import { useBCommerceCart } from '../../store/BCommerceCartContext';
+import { useModuleAccess } from '../../store/ModuleAccessContext';
 import { deobfuscatePrice } from '../../utils/priceUtils';
+import ProfileCustomerIcon from '../../assets/bcomm_img/profile-svgrepo-com.svg';
 
-import SofaIcon from '../../assets/bcomm_img/container.svg';
-import ChairIcon from '../../assets/bcomm_img/container-1.svg';
-import LampIcon from '../../assets/bcomm_img/container-2.svg';
-import CupboardIcon from '../../assets/bcomm_img/container-3.svg';
-import BellIcon from '../../assets/bcomm_img/bellicon.svg';
 import CartIcon from '../../assets/bcomm_img/carticon.svg';
 
-const sliderImg = require('../../assets/bcomm_img/pngwing-com-1-1.png');
+const FEATURE_IMAGES = [
+  require('../../assets/bcommFeatureImages/Container1.png'),
+  require('../../assets/bcommFeatureImages/Container2.png'),
+  require('../../assets/bcommFeatureImages/Container3.png'),
+  require('../../assets/bcommFeatureImages/Container4.png'),
+];
 
 const { width } = Dimensions.get('window');
 
@@ -48,7 +50,10 @@ type StockItem = {
   IMAGEPATH?: string;
   STANDARDPRICE?: number | string;
   CATEGORY?: string;
+  PARENT?: string;
 };
+
+type PriceRange = { min: number; max: number };
 
 export default function BCommerceScreen() {
   const insets = useSafeAreaInsets();
@@ -57,14 +62,33 @@ export default function BCommerceScreen() {
   const { openSidebar } = useGlobalSidebar();
 
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [items, setItems] = useState<StockItem[]>([]);
-  const [locationName, setLocationName] = useState('Fetching...');
-  const [locationExpanded, setLocationExpanded] = useState(false);
-  const [hasNotifications, setHasNotifications] = useState(true); // Default to true for testing
-  const { addToCart, cartCount, cartItems, updateQty } = useBCommerceCart();
+  const [currentSliderIndex, setCurrentSliderIndex] = useState(0);
+  const sliderListRef = useRef<FlatList<number>>(null);
+  const sliderIndexRef = useRef(0);
+  const [sliderItemWidth, setSliderItemWidth] = useState(width - 32);
+  const { addToCart, cartCount, cartItems, updateQty, favorites, toggleFavorite, refreshVoucherTypes, selectedCustomer, setSelectedCustomer } = useBCommerceCart();
+  const { ecommercePlaceOrderAccess } = useModuleAccess();
+  const showRateAmt = ecommercePlaceOrderAccess.show_rateamt_Column;
+  const showImages = ecommercePlaceOrderAccess.show_image;
+  const addCartDefaultQty = useMemo(() => {
+    const d = ecommercePlaceOrderAccess.defaultQty;
+    return d != null && d >= 1 ? Math.floor(d) : 1;
+  }, [ecommercePlaceOrderAccess.defaultQty]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedParent, setSelectedParent] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Customer selection state
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [customerModalVisible, setCustomerModalVisible] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const firstLoad = useRef(true);
+
+  // Slider pause state
+  const [isSliderPaused, setIsSliderPaused] = useState(false);
+  const sliderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if ((route.params as any)?.selectedCategory) {
@@ -77,19 +101,24 @@ export default function BCommerceScreen() {
     }
   }, [route.params]);
 
+
+
   const [filterVisible, setFilterVisible] = useState(false);
   const slideAnim = React.useRef(new Animated.Value(width)).current;
 
   const [sortBy, setSortBy] = useState('Featured');
   const [sortByName, setSortByName] = useState<string | null>('A to Z');
-  const [filterPrice, setFilterPrice] = useState<number | null>(null); 
+  const [filterPriceRange, setFilterPriceRange] = useState<PriceRange | null>(null);
   const [maxItemPrice, setMaxItemPrice] = useState(100);
+  const isPriceSliderInteractingRef = useRef(false);
+  const setPriceSliderInteracting = useCallback((isInteracting: boolean) => {
+    isPriceSliderInteractingRef.current = isInteracting;
+  }, []);
 
 
 
   const openFilter = () => {
     if (Platform.OS === 'android') {
-      SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
       StatusBar.setBackgroundColor('rgba(0,0,0,0.5)', true);
       StatusBar.setBarStyle('light-content', true);
     }
@@ -102,6 +131,7 @@ export default function BCommerceScreen() {
   };
 
   const closeFilter = () => {
+    isPriceSliderInteractingRef.current = false;
     Animated.timing(slideAnim, {
       toValue: width,
       duration: 300,
@@ -109,7 +139,6 @@ export default function BCommerceScreen() {
     }).start(() => {
       setFilterVisible(false);
       if (Platform.OS === 'android') {
-        SystemNavigationBar.setNavigationColor('#00000000', 'dark');
         StatusBar.setBackgroundColor('transparent', true);
         StatusBar.setBarStyle('dark-content', true);
       }
@@ -128,108 +157,172 @@ export default function BCommerceScreen() {
     return () => backHandler.remove();
   }, [filterVisible, slideAnim]);
 
-  const fetchLocation = async () => {
-    setLocationName('Fetching...');
-    try {
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          setLocationName('Location Denied');
-          return;
-        }
+  const rightEdgePanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      // Swipe left from right edge
+      return gestureState.dx < -10 && Math.abs(gestureState.dy) < Math.abs(gestureState.dx);
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dx < -40 || gestureState.vx < -0.3) {
+        if (!filterVisible) openFilter();
       }
-      Geolocation.getCurrentPosition(
-        async (pos) => {
-          try {
-            const geoRes = await axios.get('https://nominatim.openstreetmap.org/reverse', {
-              params: {
-                lat: pos.coords.latitude,
-                lon: pos.coords.longitude,
-                format: 'jsonv2',
-                addressdetails: 1,
-                'accept-language': 'en',
-              },
-              headers: { 'User-Agent': 'DataLynkr-Android/1.0 (contact@datalynkr.com)' },
-              timeout: 10000,
-            });
-            const addr = geoRes.data?.address ?? {};
-            const city = addr.city || addr.town || addr.village || '';
-            const state = addr.state ?? addr.state_district ?? addr.region ?? addr.county ?? '';
-            const country = addr.country || '';
-
-            const nameParts = [city, state, country].filter(Boolean);
-            setLocationName(nameParts.join(', ') || 'Unknown Location');
-          } catch (err) {
-            setLocationName('Location Failed');
-          }
-        },
-        () => {
-          setLocationName('GPS Unavailable');
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 10000,
-          forceRequestLocation: true,
-          showLocationDialog: true,
-        }
-      );
-    } catch (err) {
-      setLocationName('GPS Error');
     }
+  }), [filterVisible]);
+
+  const filterPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      if (isPriceSliderInteractingRef.current) return false;
+      // Swipe right from anywhere in filter
+      return gestureState.dx > 10 && Math.abs(gestureState.dy) < Math.abs(gestureState.dx);
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dx > 40 || gestureState.vx > 0.3) {
+        closeFilter();
+      }
+    }
+  }), []);
+
+  // Load customers list
+  useEffect(() => {
+    let cancelled = false;
+    getLedgerListFromDataManagementCache()
+      .then((res) => {
+        if (cancelled) return;
+        const list = (res?.ledgers ?? res?.data ?? []);
+        setCustomers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Show customer modal on first load if no customer selected
+  useEffect(() => {
+    if (firstLoad.current && !selectedCustomer && customers.length > 0) {
+      firstLoad.current = false;
+      setCustomerModalVisible(true);
+    }
+  }, [customers, selectedCustomer]);
+
+  // Preload checkout screen module after customer selection so cart -> shipping opens instantly.
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      require('./BCommerceCheckoutScreen');
+    });
+    return () => task.cancel();
+  }, [selectedCustomer]);
+
+  useEffect(() => {
+    if (showRateAmt) return;
+    setFilterPriceRange(null);
+    if (sortBy === 'Price: Low-High' || sortBy === 'Price: High-Low') {
+      setSortBy('Featured');
+    }
+  }, [showRateAmt, sortBy]);
+
+  const loadCachedItems = useCallback(async () => {
+    try {
+      const cache = await getStockItemsFromDataManagementCache();
+      const data = (cache?.data as StockItem[]) || [];
+      setItems(data);
+      const calcMax = data.reduce((max, item) => {
+        const p = parseFloat(computeRateForItem(item, selectedCustomer as any) || '0');
+        return isNaN(p) ? max : Math.max(max, p);
+      }, 100);
+      setMaxItemPrice(Math.ceil(calcMax));
+      return data.length > 0;
+    } catch (e) {
+      console.warn('Failed to load stock items for BCommerce:', e);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCustomer]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshVoucherTypes();
+      // Always reload latest cached stock items when returning to B-Commerce.
+      // This picks up manual Data Management refreshes done while away.
+      void loadCachedItems();
+    }, [refreshVoucherTypes, loadCachedItems])
+  );
+
+  useEffect(() => {
+    loadCachedItems().then((hasData) => {
+      // If no items found in cache, start a background refresh from API
+      if (!hasData) {
+        console.log('[BCommerceScreen] No items in cache, triggering background sync...');
+        refreshAllDataManagementData();
+      }
+    });
+
+    // Subscribe to background sync status changes
+    // When a sync completes (isSyncing false), reload the cache items
+    let lastSyncingState = false;
+    const unsubscribe = subscribeToDataManagementSync((syncing) => {
+      setIsSyncing(syncing);
+      if (lastSyncingState && !syncing) {
+        console.log('[BCommerceScreen] Background sync finished, reloading items...');
+        loadCachedItems();
+      }
+      lastSyncingState = syncing;
+    });
+
+    return unsubscribe;
+  }, [loadCachedItems]);
+
+  const pauseAutoScroll = () => {
+    setIsSliderPaused(true);
+    if (sliderTimeoutRef.current) {
+      clearTimeout(sliderTimeoutRef.current);
+    }
+    sliderTimeoutRef.current = setTimeout(() => {
+      setIsSliderPaused(false);
+      sliderTimeoutRef.current = null;
+    }, 10000);
   };
 
   useEffect(() => {
-    fetchLocation();
-  }, []);
+    if (isSliderPaused) return;
+    if (FEATURE_IMAGES.length <= 1) return;
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const cache = await getStockItemsFromDataManagementCache();
-        const data = (cache?.data as StockItem[]) || [];
-        setItems(data);
-        const calcMax = data.reduce((max, item) => {
-          const p = parseFloat(computeRateForItem(item, null) || '0');
-          return isNaN(p) ? max : Math.max(max, p);
-        }, 100);
-        setMaxItemPrice(Math.ceil(calcMax));
-      } catch (e) {
-        console.warn('Failed to load stock items for BCommerce:', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    const timer = setInterval(() => {
+      const nextIndex = (sliderIndexRef.current + 1) % FEATURE_IMAGES.length;
+      sliderListRef.current?.scrollToOffset({
+        offset: nextIndex * sliderItemWidth,
+        animated: true,
+      });
+      sliderIndexRef.current = nextIndex;
+      setCurrentSliderIndex(nextIndex);
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [isSliderPaused, sliderItemWidth]);
+
+  const customerName = selectedCustomer ? String((selectedCustomer as any).NAME || (selectedCustomer as any).name || '') : '';
 
   const renderTopBar = () => (
     <View style={styles.topBar}>
-      <TouchableOpacity style={styles.topBarBack} onPress={openSidebar}>
-        <Icon name="menu" size={24} color="#121111" />
+      <TouchableOpacity style={styles.topBarBack} onPress={openSidebar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <Icon name="menu" size={28} color="#0E172B" />
       </TouchableOpacity>
-      <View style={styles.topBarLocation}>
-        <Text style={styles.locationTitle}>Location</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 0, flexShrink: 1 }}>
-          <TouchableOpacity
-            style={[styles.locationDropdown, { flexShrink: 1, marginRight: 2 }]}
-            onPress={() => setLocationExpanded(!locationExpanded)}
-          >
-            <Icon name="map-marker" size={16} color="#4a5565" />
-            <Text style={styles.locationText} numberOfLines={locationExpanded ? undefined : 1}>{locationName}</Text>
-          </TouchableOpacity>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {locationExpanded && (
-              <TouchableOpacity onPress={fetchLocation} style={{ paddingVertical: 4, paddingHorizontal: 2 }}>
-                <Icon name="refresh" size={16} color="#4a5565" />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={() => setLocationExpanded(!locationExpanded)} style={{ paddingVertical: 4, paddingHorizontal: 0 }}>
-              <Icon name={locationExpanded ? "chevron-up" : "chevron-down"} size={16} color="#121111" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      {/* Customer name display */}
+      <TouchableOpacity
+        style={styles.customerDisplay}
+        onPress={() => setCustomerModalVisible(true)}
+        activeOpacity={0.7}
+      >
+        <ProfileCustomerIcon width={22} height={22} />
+        <Text style={styles.customerDisplayText} numberOfLines={1}>
+          {customerName || 'Select Customer'}
+        </Text>
+        <Icon name="chevron-down" size={18} color="#0E172B" />
+      </TouchableOpacity>
+
       <View style={styles.topBarRight}>
         <TouchableOpacity style={styles.iconButtonSolid} onPress={() => (navigation as any).navigate('BCommerceCart')}>
           <CartIcon width={20} height={20} />
@@ -240,23 +333,6 @@ export default function BCommerceScreen() {
             </View>
           )}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconButtonTransparent} onPress={() => setHasNotifications(!hasNotifications)}>
-          <View style={{ width: 24, height: 24, position: 'relative' }}>
-            <BellIcon width={24} height={24} />
-            {/* Bell notification/filling dot (fills the cutout when inactive) */}
-            <View style={[
-              styles.notificationDot,
-              {
-                top: 4.5,
-                right: 4,
-                backgroundColor: hasNotifications ? '#db4d4d' : '#4A5565',
-                width: 5,
-                height: 5,
-                borderRadius: 4,
-              }
-            ]} />
-          </View>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -265,11 +341,13 @@ export default function BCommerceScreen() {
     <View style={styles.searchContainer}>
       <View style={styles.searchInputWrapper}>
         <TextInput
-          placeholder="Search items by name, alias..."
+          placeholder="Search items..."
           placeholderTextColor="#bdbdbd"
           style={styles.searchInput}
           value={searchQuery}
           onChangeText={setSearchQuery}
+          multiline={false}
+          numberOfLines={1}
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')} style={{ marginRight: 6 }}>
@@ -284,42 +362,94 @@ export default function BCommerceScreen() {
     </View>
   );
 
-  const renderSlider = () => (
-    <View style={styles.sliderContainer}>
-      <View style={styles.sliderContent}>
-        <Text style={styles.sliderHeading}>New Collection</Text>
-        <Text style={styles.sliderSubheading}>Discount 50% for the first transaction</Text>
-        <TouchableOpacity style={styles.shopNowBtn}>
-          <Text style={styles.shopNowText}>Shop Now</Text>
-        </TouchableOpacity>
+  const renderSlider = () => {
+    const sliderWidth = width - 32;
+    const sliderHeight = sliderWidth * (150 / 343);
+
+    return (
+      <View style={styles.sliderSection}>
+        <View
+          style={[styles.sliderContainer, { height: sliderHeight }]}
+          onLayout={(event) => {
+            const measuredWidth = event.nativeEvent.layout.width;
+            if (measuredWidth > 0 && Math.abs(measuredWidth - sliderItemWidth) > 1) {
+              setSliderItemWidth(measuredWidth);
+            }
+          }}
+        >
+          <FlatList
+            ref={sliderListRef}
+            data={FEATURE_IMAGES}
+            horizontal
+            pagingEnabled
+            nestedScrollEnabled
+            disableIntervalMomentum
+            showsHorizontalScrollIndicator={false}
+            onScrollBeginDrag={pauseAutoScroll}
+            decelerationRate="normal"
+            getItemLayout={(_, index) => ({
+              length: sliderItemWidth,
+              offset: sliderItemWidth * index,
+              index,
+            })}
+            keyExtractor={(_, idx) => `feature-${idx}`}
+            onMomentumScrollEnd={(event) => {
+              const index = Math.round(event.nativeEvent.contentOffset.x / sliderItemWidth);
+              const safeIndex = Math.max(0, Math.min(index, FEATURE_IMAGES.length - 1));
+              sliderIndexRef.current = safeIndex;
+              setCurrentSliderIndex(safeIndex);
+            }}
+            renderItem={({ item }) => (
+              <View style={{ width: sliderItemWidth, height: sliderHeight }}>
+                <Image source={item} style={{ width: sliderItemWidth, height: sliderHeight }} resizeMode="cover" />
+              </View>
+            )}
+          />
+        </View>
+        <View style={styles.sliderIndicators}>
+          {FEATURE_IMAGES.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.dot,
+                currentSliderIndex === index && styles.dotActive
+              ]}
+            />
+          ))}
+        </View>
       </View>
-      <View style={styles.sliderImagePlaceholder}>
-        <Image source={sliderImg} style={{ width: 140, height: 130 }} resizeMode="contain" />
-      </View>
-      <View style={styles.sliderIndicators}>
-        <View style={[styles.dot, styles.dotActive]} />
-        <View style={styles.dot} />
-        <View style={styles.dot} />
-        <View style={styles.dot} />
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderCategories = () => {
     // Extract unique categories from items array using CATEGORY field
-    const uniqueCats = Array.from(new Set(items.map(i => i.CATEGORY).filter(Boolean) as string[]));
+    const names = new Set<string>();
+    items.forEach(i => {
+      if (i.CATEGORY) names.add(i.CATEGORY);
+      if (i.PARENT) names.add(i.PARENT);
+      if ((i as any).category) names.add((i as any).category);
+      if ((i as any).parent) names.add((i as any).parent);
+    });
+    const uniqueCats = Array.from(names).filter(Boolean).sort();
 
     if (uniqueCats.length === 0) return null;
 
-    const displayedCats = uniqueCats.slice(0, 4);
-    const hasMore = uniqueCats.length > 4;
+    // Responsive category count calculation
+    // Card width (70) + Gap (16) = 86px per item
+    // Available width = Screen width - (Horizontal padding 16 * 2)
+    const horizontalPadding = 32;
+    const itemFullWidth = 86;
+    const maxVisible = Math.max(4, Math.floor((width - horizontalPadding + 16) / itemFullWidth));
+
+    const displayedCats = uniqueCats.slice(0, maxVisible);
+    const hasMore = uniqueCats.length > maxVisible;
 
     return (
       <View style={styles.categoriesSection}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Category</Text>
           {hasMore && (
-            <TouchableOpacity onPress={() => (navigation as any).navigate('BCommerceCategories', { 
+            <TouchableOpacity onPress={() => (navigation as any).navigate('BCommerceCategories', {
               selectedCategory: selectedCategory || 'All',
               selectedParent: selectedParent || 'All'
             })}>
@@ -352,10 +482,16 @@ export default function BCommerceScreen() {
 
   const renderGridItem = ({ item, index }: { item: StockItem; index: number }) => {
     const itemName = item.NAME || item.name || 'Unknown Item';
-    const rateNum = parseFloat(computeRateForItem(item, null)) || 0;
+    const rateBeforeDiscount = parseFloat(computeRateForItem(item, selectedCustomer as any)) || 0;
+    const discountPctRaw = parseFloat(computeDiscountForItem(item, selectedCustomer as any) || '0');
+    const discountPct = Number.isFinite(discountPctRaw) && discountPctRaw > 0 ? discountPctRaw : 0;
+    const discountedRate = discountPct > 0
+      ? rateBeforeDiscount * (1 - (discountPct / 100))
+      : rateBeforeDiscount;
+    const rateNum = Number.isFinite(discountedRate) ? Math.max(0, discountedRate) : 0;
 
     let currentPriceStr = '₹0.00';
-    const basePriceStr = '';
+    let basePriceStr = '';
     if (rateNum > 0) currentPriceStr = `₹${rateNum.toFixed(2)}`;
 
     // IMAGEPATH can be comma-separated; use the first URL
@@ -364,6 +500,13 @@ export default function BCommerceScreen() {
 
     const rawStdPrice = (item as Record<string, unknown>).STDPRICE ?? (item as Record<string, unknown>).stdprice;
     const basePriceNum = parseFloat(deobfuscatePrice(rawStdPrice != null ? String(rawStdPrice) : null));
+    const effectiveBasePrice = Math.max(
+      Number.isFinite(basePriceNum) ? basePriceNum : 0,
+      Number.isFinite(rateBeforeDiscount) ? rateBeforeDiscount : 0,
+    );
+    if (effectiveBasePrice > rateNum) {
+      basePriceStr = `₹${effectiveBasePrice.toFixed(2)}`;
+    }
     const igst = typeof (item as Record<string, unknown>).IGST === 'number' ? (item as Record<string, unknown>).IGST as number : 0;
 
     const cartItem = cartItems.find(i => i.name === itemName);
@@ -374,9 +517,10 @@ export default function BCommerceScreen() {
           stockItem: item as Record<string, unknown>,
           name: itemName,
           price: rateNum,
-          basePrice: basePriceNum > rateNum ? basePriceNum : rateNum,
+          basePrice: effectiveBasePrice > rateNum ? effectiveBasePrice : rateNum,
+          discountPercent: discountPct > 0 ? discountPct : undefined,
           igst,
-          imagePath: imagePath || undefined,
+          imagePath: showImages ? (imagePath || undefined) : undefined,
         }
       });
     };
@@ -384,25 +528,42 @@ export default function BCommerceScreen() {
     return (
       <View style={styles.gridItem}>
         <TouchableOpacity activeOpacity={0.9} onPress={handlePressItem}>
-          <View style={styles.gridImageContainer}>
-            {imagePath ? (
-              <Image source={{ uri: imagePath }} style={styles.gridImage} resizeMode="cover" />
-            ) : (
-              <View style={[styles.gridImage, styles.gridImagePlaceholder, { alignItems: 'center', justifyContent: 'center' }]}>
-                <Icon name="image-off-outline" size={32} color="#ccc" />
-                <Text style={{ fontSize: 10, color: '#ccc', marginTop: 4 }}>No Image found</Text>
-              </View>
-            )}
-            <TouchableOpacity style={styles.favoriteButton}>
-              <Icon name="heart-outline" size={16} color="#121111" />
-            </TouchableOpacity>
-          </View>
-        
+          {showImages ? (
+            <View style={styles.gridImageContainer}>
+              {imagePath ? (
+                <Image source={{ uri: imagePath }} style={styles.gridImage} resizeMode="cover" />
+              ) : (
+                <View style={[styles.gridImage, styles.gridImagePlaceholder, { alignItems: 'center', justifyContent: 'center' }]}>
+                  <Icon name="image-off-outline" size={32} color="#ccc" />
+                  <Text style={{ fontSize: 10, color: '#ccc', marginTop: 4 }}>No Image found</Text>
+                </View>
+              )}
+              <TouchableOpacity style={styles.favoriteButton} onPress={() => {
+                toggleFavorite({
+                  stockItem: item as Record<string, unknown>,
+                  name: itemName,
+                  price: rateNum,
+                  basePrice: effectiveBasePrice > rateNum ? effectiveBasePrice : rateNum,
+                  qty: addCartDefaultQty,
+                  taxPercent: igst,
+                  imagePath: showImages ? (imagePath || undefined) : undefined,
+                });
+              }}>
+                <Icon name={favorites.some(f => f.name === itemName) ? "heart" : "heart-outline"} size={16} color={favorites.some(f => f.name === itemName) ? "#e74c3c" : "#121111"} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           <Text style={styles.gridItemName} numberOfLines={1}>{itemName}</Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.currentPrice}>{currentPriceStr}</Text>
-            {!!basePriceStr && <Text style={styles.oldPrice}>{basePriceStr}</Text>}
-          </View>
+          {showRateAmt ? (
+            <View style={styles.priceRow}>
+              {discountPct > 0 ? (
+                <Text style={styles.discountText}>-{Math.round(discountPct)}%</Text>
+              ) : null}
+              <Text style={styles.currentPrice}>{currentPriceStr}</Text>
+              {!!basePriceStr && <Text style={styles.oldPrice}>{basePriceStr}</Text>}
+            </View>
+          ) : null}
         </TouchableOpacity>
 
         <View style={styles.gridItemDetails}>
@@ -426,16 +587,22 @@ export default function BCommerceScreen() {
             </View>
           ) : (
             <TouchableOpacity
-              style={styles.addToCartBtn}
-              onPress={() => addToCart({
-                stockItem: item as Record<string, unknown>,
-                name: itemName,
-                price: rateNum,
-                basePrice: basePriceNum > rateNum ? basePriceNum : rateNum,
-                qty: 1,
-                taxPercent: igst,
-                imagePath: imagePath || undefined,
-              })}
+              style={[styles.addToCartBtn, !selectedCustomer && { opacity: 0.4 }]}
+              onPress={() => {
+                if (!selectedCustomer) {
+                  setCustomerModalVisible(true);
+                  return;
+                }
+                addToCart({
+                  stockItem: item as Record<string, unknown>,
+                  name: itemName,
+                  price: rateNum,
+                  basePrice: basePriceNum > rateNum ? basePriceNum : rateNum,
+                  qty: addCartDefaultQty,
+                  taxPercent: igst,
+                  imagePath: showImages ? (imagePath || undefined) : undefined,
+                });
+              }}
             >
               <Icon name="cart-outline" size={16} color="#fff" />
               <Text style={styles.addToCartText}>Add to Cart</Text>
@@ -454,9 +621,9 @@ export default function BCommerceScreen() {
       // Ignore these chars in search: space, hyphen, dot, comma, ?, ;, { }, =, +, *, &, /, ~
       const normalize = (s: string) =>
         s.toLowerCase().replace(/[\s\-.,?;{}=\+*&\/~]/g, '');
-      
+
       const q = normalize(searchQuery.trim());
-      
+
       filtered = filtered.filter(i => {
         const name = normalize(i.NAME || i.name || '');
         const alias = normalize((i as any).ALIAS || '');
@@ -466,46 +633,48 @@ export default function BCommerceScreen() {
     }
 
     if (selectedCategory) {
-      filtered = filtered.filter(i => (i.CATEGORY || (i as any).category) === selectedCategory);
+      filtered = filtered.filter(i => (i.CATEGORY || i.PARENT || (i as any).category || (i as any).parent) === selectedCategory);
     }
     if (selectedParent) {
       filtered = filtered.filter(i => (i.PARENT || (i as any).parent) === selectedParent);
     }
-    if (filterPrice !== null) {
+    if (showRateAmt && filterPriceRange !== null) {
       filtered = filtered.filter(i => {
-        const price = parseFloat(computeRateForItem(i) || '0');
-        return !isNaN(price) && price <= filterPrice;
+        const price = parseFloat(computeRateForItem(i, selectedCustomer as any) || '0');
+        return !isNaN(price) && price >= filterPriceRange.min && price <= filterPriceRange.max;
       });
     }
 
     if (sortByName === 'A to Z') {
       filtered = [...filtered].sort((a, b) => {
-         const nameA = a.NAME || a.name || '';
-         const nameB = b.NAME || b.name || '';
-         return nameA.localeCompare(nameB);
+        const nameA = a.NAME || a.name || '';
+        const nameB = b.NAME || b.name || '';
+        return nameA.localeCompare(nameB);
       });
     } else if (sortByName === 'Z to A') {
       filtered = [...filtered].sort((a, b) => {
-         const nameA = a.NAME || a.name || '';
-         const nameB = b.NAME || b.name || '';
-         return nameB.localeCompare(nameA);
+        const nameA = a.NAME || a.name || '';
+        const nameB = b.NAME || b.name || '';
+        return nameB.localeCompare(nameA);
       });
     }
 
-    if (sortBy === 'Price: Low-High') {
-      filtered = [...filtered].sort((a, b) => {
-        const pA = parseFloat(computeRateForItem(a) || '0');
-        const pB = parseFloat(computeRateForItem(b) || '0');
-        return pA - pB;
-      });
-    } else if (sortBy === 'Price: High-Low') {
-      filtered = [...filtered].sort((a, b) => {
-        const pA = parseFloat(computeRateForItem(a) || '0');
-        const pB = parseFloat(computeRateForItem(b) || '0');
-        return pB - pA;
-      });
+    if (showRateAmt) {
+      if (sortBy === 'Price: Low-High') {
+        filtered = [...filtered].sort((a, b) => {
+          const pA = parseFloat(computeRateForItem(a, selectedCustomer as any) || '0');
+          const pB = parseFloat(computeRateForItem(b, selectedCustomer as any) || '0');
+          return pA - pB;
+        });
+      } else if (sortBy === 'Price: High-Low') {
+        filtered = [...filtered].sort((a, b) => {
+          const pA = parseFloat(computeRateForItem(a, selectedCustomer as any) || '0');
+          const pB = parseFloat(computeRateForItem(b, selectedCustomer as any) || '0');
+          return pB - pA;
+        });
+      }
     }
-    
+
     return filtered;
   };
 
@@ -524,34 +693,49 @@ export default function BCommerceScreen() {
           data={getFilteredItems()}
           keyExtractor={(_, index) => index.toString()}
           numColumns={2}
-          ListHeaderComponent={() => (
+          ListHeaderComponent={!searchQuery.trim() ? (
             <>
               {renderSlider()}
               {renderCategories()}
             </>
-          )}
+          ) : null}
           showsVerticalScrollIndicator={false}
           renderItem={renderGridItem}
           contentContainerStyle={styles.gridContent}
           columnWrapperStyle={styles.columnWrapper}
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
-              <Icon name={searchQuery ? "magnify" : "package-variant"} size={48} color="#ccc" />
-              <Text style={styles.emptyText}>
-                {searchQuery ? `No items matching "${searchQuery}"` : "No items found in Data Management Cache."}
-              </Text>
-              {!searchQuery && (
-                <Text style={{ fontFamily: 'WorkSans-VariableFont_wght', textAlign: 'center', fontSize: 13, color: '#888', marginTop: 8 }}>
-                  Try pressing 'Refresh Data' in Data Management screen.
-                </Text>
+              {isSyncing ? (
+                <>
+                  <ActivityIndicator size="large" color="#0E172B" />
+                  <Text style={[styles.emptyText, { marginTop: 16 }]}>
+                    Refreshing data in background...
+                  </Text>
+                  <Text style={{ fontFamily: 'WorkSans-VariableFont_wght', textAlign: 'center', fontSize: 13, color: '#888', marginTop: 8 }}>
+                    Please wait while we sync with the server. Items will appear once complete.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Icon name={searchQuery ? "magnify" : "package-variant"} size={48} color="#ccc" />
+                  <Text style={styles.emptyText}>
+                    {searchQuery ? `No items matching "${searchQuery}"` : "No items found in Data Management Cache."}
+                  </Text>
+                  {!searchQuery && (
+                    <Text style={{ fontFamily: 'WorkSans-VariableFont_wght', textAlign: 'center', fontSize: 13, color: '#888', marginTop: 8 }}>
+                      Background refresh triggered. If you still see this, try manual 'Refresh Data' in Data Management.
+                    </Text>
+                  )}
+                </>
               )}
             </View>
           )}
         />
       )}
 
+      {/* Filter Overlay */}
       {filterVisible && (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 1000, elevation: 1000 }]}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 10000, elevation: 10000 }]} {...filterPanResponder.panHandlers}>
           <Animated.View
             style={[
               StyleSheet.absoluteFill,
@@ -570,15 +754,16 @@ export default function BCommerceScreen() {
               <View style={{ flex: 1 }} />
             </TouchableWithoutFeedback>
             <Animated.View style={[styles.drawerContent, { transform: [{ translateX: slideAnim }] }]}>
-              <View style={{ paddingTop: Math.max(insets.top, 16) + 4, paddingHorizontal: 20 }}>
-                <TouchableOpacity onPress={closeFilter} style={{ alignSelf: 'flex-end', marginBottom: 8, marginTop: 4 }}>
-                  <Icon name="close" size={28} color="#121111" />
-                </TouchableOpacity>
-
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <Text style={styles.drawerTitle}>Filter</Text>
-                  <TouchableOpacity style={styles.drawerHeaderIcon}>
-                    <Icon name="tune-variant" size={24} color="#fff" />
+              <View style={{ paddingTop: Math.max(insets.top, 16) + 24, paddingHorizontal: 20 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={styles.drawerHeaderIcon}>
+                      <Icon name="tune-variant" size={18} color="#fff" />
+                    </View>
+                    <Text style={styles.drawerTitle}>Filter</Text>
+                  </View>
+                  <TouchableOpacity onPress={closeFilter}>
+                    <Icon name="close" size={28} color="#121111" />
                   </TouchableOpacity>
                 </View>
 
@@ -587,7 +772,7 @@ export default function BCommerceScreen() {
 
               <ScrollView style={{ flex: 1, padding: 20 }}>
                 <Text style={styles.filterSectionTitle}>Sort By</Text>
-                {['Featured', 'Price: Low-High', 'Price: High-Low'].map((opt, i) => (
+                {(showRateAmt ? ['Featured', 'Price: Low-High', 'Price: High-Low'] : ['Featured']).map((opt, i) => (
                   <TouchableOpacity key={i} style={styles.radioOption} onPress={() => setSortBy(opt)}>
                     <Icon name={sortBy === opt ? "radiobox-marked" : "radiobox-blank"} size={22} color={sortBy === opt ? "#121111" : "#bdbdbd"} />
                     <Text style={styles.radioText}>{opt}</Text>
@@ -596,7 +781,14 @@ export default function BCommerceScreen() {
 
                 <View style={styles.filterDivider} />
 
-                <FilterPriceSlider maxPrice={maxItemPrice} globalPrice={filterPrice} onRelease={setFilterPrice} />
+                {showRateAmt ? (
+                  <FilterPriceSlider
+                    maxPrice={maxItemPrice}
+                    globalRange={filterPriceRange}
+                    onRelease={setFilterPriceRange}
+                    onInteractionChange={setPriceSliderInteracting}
+                  />
+                ) : null}
 
                 <Text style={styles.filterSectionTitle}>Shop by Name</Text>
                 {['A to Z', 'Z to A'].map((opt, i) => (
@@ -610,8 +802,8 @@ export default function BCommerceScreen() {
               <View style={[styles.drawerFooter, { paddingBottom: Math.max(insets.bottom, 20) + 20 }]}>
                 <TouchableOpacity style={styles.drawerBtnSecondary} onPress={() => {
                   setSortBy('Featured');
-                  setSortByName(null);
-                  setFilterPrice(null);
+                  setSortByName('A to Z');
+                  setFilterPriceRange(null);
                 }}>
                   <Text style={styles.drawerBtnSecondaryText}>Reset</Text>
                 </TouchableOpacity>
@@ -623,72 +815,209 @@ export default function BCommerceScreen() {
           </View>
         </View>
       )}
+
+
+      {/* Right Edge Swipe overlay to open filter */}
+      {!filterVisible && (
+        <View
+          {...rightEdgePanResponder.panHandlers}
+          style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 25, zIndex: 999 }}
+        />
+      )}
+
+      {/* Customer Selection Modal */}
+      <Modal visible={customerModalVisible} animationType="slide" transparent={false}>
+        <View style={[styles.customerModalContainer, { paddingTop: Platform.OS === 'ios' ? insets.top : 0 }]}>
+          <View style={styles.customerModalHeader}>
+            <TouchableOpacity onPress={() => setCustomerModalVisible(false)} style={styles.customerModalCloseBtn}>
+              <Icon name="close" size={24} color="#121111" />
+            </TouchableOpacity>
+            <Text style={styles.customerModalTitle}>Select Customer</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <View style={styles.customerModalSearchBox}>
+            <TextInput
+              style={styles.customerModalSearchInput}
+              placeholder="Search customer..."
+              placeholderTextColor="#bdbdbd"
+              value={customerSearch}
+              onChangeText={setCustomerSearch}
+              autoFocus
+            />
+            <Icon name="magnify" size={20} color="#bdbdbd" />
+          </View>
+
+          <FlatList
+            data={customerSearch
+              ? customers.filter(c => {
+                  const cName = (c.NAME || c.name || '').toLowerCase();
+                  return cName.includes(customerSearch.toLowerCase());
+                })
+              : customers
+            }
+            keyExtractor={(item, index) => String(item.NAME || item.name || index)}
+            initialNumToRender={20}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 40 }}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.customerModalItem}
+                onPress={() => {
+                  setSelectedCustomer(item);
+                  setCustomerSearch('');
+                  setCustomerModalVisible(false);
+                }}
+              >
+                <View style={styles.customerModalItemContent}>
+                  <Text style={styles.customerModalItemText}>{item.NAME || item.name}</Text>
+                </View>
+                <Icon name="chevron-right" size={20} color="#efefef" />
+              </TouchableOpacity>
+            )}
+            ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: '#f5f5f5', marginHorizontal: 16 }} />}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
 
-const FilterPriceSlider = ({ maxPrice, globalPrice, onRelease }: { maxPrice: number, globalPrice: number | null, onRelease: (val: number) => void }) => {
+const FilterPriceSlider = ({
+  maxPrice,
+  globalRange,
+  onRelease,
+  onInteractionChange,
+}: {
+  maxPrice: number,
+  globalRange: PriceRange | null,
+  onRelease: (val: PriceRange) => void,
+  onInteractionChange?: (isInteracting: boolean) => void
+}) => {
   const [sliderWidth, setSliderWidth] = useState(0);
-  const [localPrice, setLocalPrice] = useState(globalPrice === null ? maxPrice : globalPrice);
-  
-  useEffect(() => {
-    setLocalPrice(globalPrice === null ? maxPrice : globalPrice);
-  }, [globalPrice, maxPrice]);
+  const [localRange, setLocalRange] = useState<PriceRange>(globalRange ?? { min: 0, max: maxPrice });
 
-  const currentPriceRef = useRef(localPrice);
-  const widthRef = useRef(sliderWidth);
+  useEffect(() => {
+    setLocalRange(globalRange ?? { min: 0, max: maxPrice });
+  }, [globalRange, maxPrice]);
+
+  const widthRef = useRef(0);
   const maxPriceRef = useRef(maxPrice);
+  const rangeRef = useRef<PriceRange>(globalRange ?? { min: 0, max: maxPrice });
 
   useEffect(() => { widthRef.current = sliderWidth; }, [sliderWidth]);
   useEffect(() => { maxPriceRef.current = maxPrice; }, [maxPrice]);
+  useEffect(() => { rangeRef.current = localRange; }, [localRange]);
 
-  const trackLeftRef = useRef(0);
+  const minDragStartRef = useRef(0);
+  const maxDragStartRef = useRef(0);
 
-  const priceFromPageX = (pageX: number) => {
+  const priceDeltaFromDx = (dx: number) => {
     const w = widthRef.current;
     const mP = maxPriceRef.current;
-    const x = pageX - trackLeftRef.current;
-    let newPrice = w > 0 ? (x / w) * mP : mP;
-    return Math.max(0, Math.min(newPrice, mP));
+    if (w <= 0 || mP <= 0) return 0;
+    return (dx / w) * mP;
   };
-  
-  const panResponder = useMemo(() => PanResponder.create({
+
+  const setRange = (next: PriceRange) => {
+    const safe: PriceRange = {
+      min: Math.max(0, Math.min(next.min, next.max)),
+      max: Math.min(maxPriceRef.current, Math.max(next.max, next.min)),
+    };
+    rangeRef.current = safe;
+    setLocalRange(safe);
+    return safe;
+  };
+
+  const minThumbPanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (evt) => {
-      trackLeftRef.current = evt.nativeEvent.pageX - evt.nativeEvent.locationX;
-      const newPrice = priceFromPageX(evt.nativeEvent.pageX);
-      setLocalPrice(newPrice);
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderGrant: () => {
+      onInteractionChange?.(true);
+      minDragStartRef.current = rangeRef.current.min;
     },
-    onPanResponderMove: (evt) => {
-      const newPrice = priceFromPageX(evt.nativeEvent.pageX);
-      setLocalPrice(newPrice);
+    onPanResponderMove: (_, g) => {
+      const nextMin = minDragStartRef.current + priceDeltaFromDx(g.dx);
+      const proposedMin = Math.min(Math.max(0, nextMin), rangeRef.current.max);
+      setRange({ min: proposedMin, max: rangeRef.current.max });
     },
-    onPanResponderRelease: (evt) => {
-      const newPrice = priceFromPageX(evt.nativeEvent.pageX);
-      setLocalPrice(newPrice);
-      onRelease(newPrice);
-    }
-  }), [onRelease]);
+    onPanResponderRelease: (_, g) => {
+      const nextMin = minDragStartRef.current + priceDeltaFromDx(g.dx);
+      const proposedMin = Math.min(Math.max(0, nextMin), rangeRef.current.max);
+      const safe = setRange({ min: proposedMin, max: rangeRef.current.max });
+      onRelease(safe);
+      onInteractionChange?.(false);
+    },
+    onPanResponderTerminate: () => {
+      onInteractionChange?.(false);
+    },
+  }), [onRelease, onInteractionChange]);
+
+  const maxThumbPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > Math.abs(g.dy),
+    onPanResponderGrant: () => {
+      onInteractionChange?.(true);
+      maxDragStartRef.current = rangeRef.current.max;
+    },
+    onPanResponderMove: (_, g) => {
+      const nextMax = maxDragStartRef.current + priceDeltaFromDx(g.dx);
+      const proposedMax = Math.max(Math.min(maxPriceRef.current, nextMax), rangeRef.current.min);
+      setRange({ min: rangeRef.current.min, max: proposedMax });
+    },
+    onPanResponderRelease: (_, g) => {
+      const nextMax = maxDragStartRef.current + priceDeltaFromDx(g.dx);
+      const proposedMax = Math.max(Math.min(maxPriceRef.current, nextMax), rangeRef.current.min);
+      const safe = setRange({ min: rangeRef.current.min, max: proposedMax });
+      onRelease(safe);
+      onInteractionChange?.(false);
+    },
+    onPanResponderTerminate: () => {
+      onInteractionChange?.(false);
+    },
+  }), [onRelease, onInteractionChange]);
+
+  const minThumbLeft = maxPrice > 0 ? (localRange.min / maxPrice) * sliderWidth : 0;
+  const maxThumbLeft = maxPrice > 0 ? (localRange.max / maxPrice) * sliderWidth : 0;
+  const activeTrackLeft = Math.min(minThumbLeft, maxThumbLeft);
+  const activeTrackWidth = Math.abs(maxThumbLeft - minThumbLeft);
 
   return (
     <>
       <Text style={styles.filterSectionTitle}>Shop by Price</Text>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
         <Text style={styles.filterSubLabel}>Price</Text>
-        <Text style={styles.filterSubLabel}>₹{Math.round(localPrice)}</Text>
+        <Text style={styles.filterSubLabel}>
+          Min ₹{Math.round(localRange.min)}   Max ₹{Math.round(localRange.max)}
+        </Text>
       </View>
-      <View 
-        style={{ paddingVertical: 15 }} 
-        {...panResponder.panHandlers}
+      <View
+        style={{ paddingVertical: 15 }}
       >
-        <View 
-          style={styles.sliderTrack} 
+        <View
+          style={styles.sliderTrack}
           onLayout={(e) => setSliderWidth(e.nativeEvent.layout.width)}
-          pointerEvents="none"
         >
-          <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#121111', width: maxPrice > 0 ? (localPrice / maxPrice) * sliderWidth : 0 }} />
-          <View style={[styles.sliderThumb, { left: Math.max(0, maxPrice > 0 ? (localPrice / maxPrice) * (sliderWidth - 16) : 0) }]} />
+          <View
+            style={{
+              position: 'absolute',
+              left: activeTrackLeft,
+              top: 0,
+              bottom: 0,
+              backgroundColor: '#121111',
+              width: activeTrackWidth,
+            }}
+          />
+          <View
+            style={[styles.sliderThumb, { left: Math.max(0, minThumbLeft - 8) }]}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+            {...minThumbPanResponder.panHandlers}
+          />
+          <View
+            style={[styles.sliderThumb, { left: Math.max(0, maxThumbLeft - 8) }]}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+            {...maxThumbPanResponder.panHandlers}
+          />
         </View>
       </View>
 
@@ -705,39 +1034,18 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     marginBottom: 20,
   },
   topBarBack: {
     padding: 8,
     marginRight: 4,
-    marginLeft: -8,
   },
-  topBarLocation: {
-    flex: 1,
-  },
-  locationTitle: {
-    fontFamily: 'WorkSans-VariableFont_wght',
-    color: '#4a5565',
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  locationDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  locationText: {
-    fontFamily: 'WorkSans-VariableFont_wght',
-    color: '#121111',
-    fontWeight: '500',
-    fontSize: 15,
-    flexShrink: 1,
-  },
+
   topBarRight: {
     flexDirection: 'row',
     gap: 4,
-    marginRight: -8, // Pulls the icons slightly further right to visually align with the edge
   },
   iconButtonSolid: {
     width: 40,
@@ -795,7 +1103,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#dfdede',
     paddingHorizontal: 16,
-    height: 48,
+    height: 40,
   },
   searchIcon: {
     marginLeft: 6,
@@ -805,8 +1113,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#0e172b',
-    paddingVertical: 10,
+    paddingVertical: 0,
+    textAlignVertical: 'center',
     height: '100%',
+    includeFontPadding: false,
   },
   filterButton: {
     width: 40,
@@ -816,13 +1126,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sliderSection: {
+    marginBottom: 24,
+  },
   sliderContainer: {
-    height: 174,
     backgroundColor: '#efefef',
     borderRadius: 16,
     marginHorizontal: 16,
-    marginBottom: 24,
-    flexDirection: 'row',
     position: 'relative',
     overflow: 'hidden',
   },
@@ -867,23 +1177,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sliderIndicators: {
-    position: 'absolute',
-    bottom: 10,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 4,
+    marginTop: 12,
+    gap: 8,
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#d1d5dc',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#bdbdbd',
   },
   dotActive: {
-    backgroundColor: '#121111',
-    width: 16,
+    backgroundColor: '#3a5b60',
   },
   categoriesSection: {
     marginBottom: 24,
@@ -992,6 +1298,12 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
+  discountText: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#e53939',
+  },
   currentPrice: {
     fontSize: 16,
     fontWeight: '600',
@@ -1082,10 +1394,10 @@ const styles = StyleSheet.create({
     color: '#121111',
   },
   drawerHeaderIcon: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     backgroundColor: '#121111',
-    borderRadius: 12,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1170,5 +1482,83 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Customer display in header
+  customerDisplay: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  customerDisplayText: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#0E172B',
+    flexShrink: 1,
+  },
+  // Customer modal styles
+  customerModalContainer: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  customerModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#efefef',
+  },
+  customerModalCloseBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerModalTitle: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#121111',
+  },
+  customerModalSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: '#dfdede',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    height: 48,
+  },
+  customerModalSearchInput: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    flex: 1,
+    fontSize: 16,
+    color: '#0e172b',
+    paddingVertical: 10,
+    height: '100%',
+  },
+  customerModalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  customerModalItemContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  customerModalItemText: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    fontSize: 15,
+    color: '#121111',
   },
 });

@@ -720,10 +720,15 @@ export default function OrderEntryItemDetail() {
 
   /** Show godown & batch row only when enable_batchGodown is granted. */
   const showGodownBatchRow = perms.enable_batchGodown;
+  const canEditRateField = perms.edit_rate && (selectedLineId != null || !rateLockedAfterAdd);
 
   useEffect(() => {
     if (isBatchWiseOn) setGodownDropdownOpen(false);
   }, [isBatchWiseOn]);
+
+  useEffect(() => {
+    if (!canEditRateField && perDropdownOpen) setPerDropdownOpen(false);
+  }, [canEditRateField, perDropdownOpen]);
 
   useEffect(() => {
     if (selectedBatchData) {
@@ -1384,7 +1389,7 @@ export default function OrderEntryItemDetail() {
                       <View style={styles.half}>
                         <Text style={styles.label}>Rate</Text>
                         <TextInput
-                          style={[styles.input, styles.inputRowField, ((selectedLineId == null && rateLockedAfterAdd) || !perms.edit_rate) ? styles.inputReadOnly : undefined]}
+                          style={[styles.input, styles.inputRowField, !canEditRateField ? styles.inputReadOnly : undefined]}
                           value={rate}
                           onChangeText={(text) => {
                             const sanitized = text.replace(/[^0-9.]/g, '');
@@ -1396,7 +1401,7 @@ export default function OrderEntryItemDetail() {
                             const n = parseFloat(rate) || 0;
                             setRate(n >= 0 ? n.toFixed(2) : '0');
                           }}
-                          editable={perms.edit_rate && (selectedLineId != null || !rateLockedAfterAdd)}
+                          editable={canEditRateField}
                           keyboardType="decimal-pad"
                           placeholder="0"
                           placeholderTextColor={LABEL_GRAY}
@@ -1410,8 +1415,9 @@ export default function OrderEntryItemDetail() {
                       <View style={styles.half}>
                         <Text style={styles.label}>Per</Text>
                         <TouchableOpacity
-                          style={[styles.input, styles.inputRow]}
+                          style={[styles.input, styles.inputRow, !canEditRateField ? styles.inputReadOnly : undefined]}
                           onPress={() => {
+                            if (!canEditRateField) return;
                             setBatchDropdownOpen(false);
                             setGodownDropdownOpen(false);
                             setPerDropdownOpen((prev) => !prev);
@@ -1442,7 +1448,7 @@ export default function OrderEntryItemDetail() {
                   </View>
 
                   {/* Inline Per (rate UOM) dropdown - same pattern as Godown/Batch so it always appears */}
-                  {perms.show_rateamt_Column && perDropdownOpen ? (
+                  {perms.show_rateamt_Column && canEditRateField && perDropdownOpen ? (
                     <View style={styles.inlineDropdownWrap}>
                       <View style={styles.overlayDropdown}>
                         <View style={styles.inlineBatchDropdownList}>

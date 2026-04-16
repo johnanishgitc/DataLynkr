@@ -28,6 +28,7 @@ export {
   ensureStockGroupsInDataManagement,
   ensureAllDataManagementData,
   refreshAllDataManagementData,
+  subscribeToDataManagementSync,
 } from './dataManagementAutoSync';
 export {
   getSessionStockItems,

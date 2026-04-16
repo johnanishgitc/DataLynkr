@@ -153,7 +153,10 @@ export function PopupModal({
                                                 )}
                                             </View>
                                         </View>
-                                        <Text style={styles.title}>{effectiveTitle}</Text>
+                                        <Text style={[styles.title, !subtitle && styles.titleWithNoSubtitle]}>{effectiveTitle}</Text>
+                                        {subtitle ? (
+                                            <Text style={styles.subtitle}>{subtitle}</Text>
+                                        ) : null}
 
                                         <View style={styles.buttonRow}>
                                             <TouchableOpacity
@@ -293,8 +296,20 @@ const styles = StyleSheet.create({
         fontSize: 24,
         color: '#131313',
         textAlign: 'center',
-        marginBottom: 32,
+        marginBottom: 8,
         lineHeight: 32,
+    },
+    titleWithNoSubtitle: {
+        marginBottom: 32,
+    },
+    subtitle: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        fontWeight: '400',
+        color: colors.text_secondary,
+        textAlign: 'center',
+        marginBottom: 24,
+        lineHeight: 20,
     },
     successTitle: {
         fontFamily: 'Roboto',

@@ -46,6 +46,30 @@ export type PlaceOrderPermissions = {
 };
 
 /**
+ * B-Commerce (`ecommerce_place_order`) from user-access — separate from Order Entry `place_order`.
+ * If the module is missing from the API, `show_rateamt_Column` defaults true for backward compatibility.
+ */
+export type EcommercePlaceOrderAccess = {
+    show_itemdesc: boolean;
+    show_rateamt_Column: boolean;
+    /** Show stock item images in B-Commerce UI only when explicitly granted. */
+    show_image: boolean;
+    /** From `def_qty` when granted and value is a valid positive number. */
+    defaultQty?: number;
+    /** From `save_optional` when granted; B-Commerce checkout sends `isoptional: 'Yes'`. */
+    saveOptionalForPlaceOrder: boolean;
+};
+
+/** B-Commerce access before user-access resolves; same shape as when `ecommerce_place_order` is absent from the API. */
+const ECOMMERCE_ACCESS_LEGACY_DEFAULT: EcommercePlaceOrderAccess = {
+    show_itemdesc: false,
+    show_rateamt_Column: true,
+    show_image: false,
+    defaultQty: undefined,
+    saveOptionalForPlaceOrder: false,
+};
+
+/**
  * Transaction configuration for place_order from the API.
  */
 export type PlaceOrderTransConfig = {
@@ -136,6 +160,7 @@ type UseUserAccessReturn = {
     permissions: PlaceOrderPermissions;
     moduleAccess: ModuleAccess;
     transConfig: PlaceOrderTransConfig;
+    ecommercePlaceOrderAccess: EcommercePlaceOrderAccess;
     loading: boolean;
     /** Call refresh() to re-fetch. Pass true to immediately reset moduleAccess to defaults (e.g. on company change). */
     refresh: (resetAccess?: boolean) => void;
@@ -151,6 +176,7 @@ export function useUserAccess(): UseUserAccessReturn {
     const [permissions, setPermissions] = useState<PlaceOrderPermissions>(LOADING_PERMISSIONS);
     const [moduleAccess, setModuleAccess] = useState<ModuleAccess>(DEFAULT_MODULE_ACCESS);
     const [transConfig, setTransConfig] = useState<PlaceOrderTransConfig>({});
+    const [ecommercePlaceOrderAccess, setEcommercePlaceOrderAccess] = useState<EcommercePlaceOrderAccess>(ECOMMERCE_ACCESS_LEGACY_DEFAULT);
     const [loading, setLoading] = useState(true);
     const [refreshKey, setRefreshKey] = useState(0);
     const latestRequestIdRef = useRef(0);
@@ -191,6 +217,7 @@ export function useUserAccess(): UseUserAccessReturn {
             const [tallylocId, co_guid] = await Promise.all([getTallylocId(), getGuid()]);
             if (!tallylocId || !co_guid || cancelled) {
                 if (!cancelled && requestId === latestRequestIdRef.current) {
+                    setEcommercePlaceOrderAccess(ECOMMERCE_ACCESS_LEGACY_DEFAULT);
                     setLoading(false);
                     const waiters = refreshWaitersRef.current.splice(0);
                     waiters.forEach((w) => w());
@@ -353,6 +380,50 @@ export function useUserAccess(): UseUserAccessReturn {
                 (modAccess as any).approvals_def_daterange = approvalsDateRangeValue;
                 if (!cancelled && requestId === latestRequestIdRef.current) setModuleAccess(modAccess);
 
+                // --- B-Commerce: `ecommerce_place_order` module (item desc, rate/amount visibility, def qty, save optional) ---
+                let ecommerceAccess: EcommercePlaceOrderAccess = { ...ECOMMERCE_ACCESS_LEGACY_DEFAULT };
+                const ecommerceModule = modules.find((m) => {
+                    const mName = String(m.module_name ?? m.module_key ?? '').trim().toLowerCase();
+                    return mName === 'ecommerce_place_order' || mName === 'ecommerce_placeorder';
+                });
+                if (ecommerceModule) {
+                    const isEnabledRaw = ecommerceModule.is_enabled ?? ecommerceModule.enabled ?? ecommerceModule.is_granted ?? ecommerceModule.granted;
+                    const ecommerceEnabled = isEnabledRaw !== undefined ? toBool(isEnabledRaw) : true;
+                    if (ecommerceEnabled) {
+                        const ePerms = (ecommerceModule.permissions ?? []) as Array<Record<string, unknown>>;
+                        const ePermMap: Record<string, boolean> = {};
+                        let eDefaultQty: number | undefined;
+                        let eSaveOptional = false;
+                        for (const p of ePerms) {
+                            const pName = String(p.permission_name ?? p.permission_key ?? '').trim();
+                            const granted = toBool(p.is_granted ?? p.granted);
+                            if (pName) {
+                                ePermMap[pName] = granted;
+                            }
+                            if (pName === 'def_qty' && granted) {
+                                const rawVal = (p as Record<string, unknown>).permission_value ?? (p as Record<string, unknown>).value;
+                                const num = rawVal != null ? Number(rawVal) : NaN;
+                                if (!Number.isNaN(num) && num >= 1) {
+                                    eDefaultQty = Math.floor(num);
+                                }
+                            }
+                            if (pName === 'save_optional' && granted) {
+                                eSaveOptional = true;
+                            }
+                        }
+                        ecommerceAccess = {
+                            show_itemdesc: ePermMap.show_itemdesc ?? false,
+                            show_rateamt_Column: ePermMap.show_rateamt_Column ?? false,
+                            show_image: ePermMap.show_image ?? false,
+                            defaultQty: eDefaultQty,
+                            saveOptionalForPlaceOrder: eSaveOptional,
+                        };
+                    }
+                }
+                if (!cancelled && requestId === latestRequestIdRef.current) {
+                    setEcommercePlaceOrderAccess(ecommerceAccess);
+                }
+
                 // --- Place-order field permissions ---
                 const placeOrderModule = modules.find((m) => {
                     const mName = String(m.module_name ?? m.module_key ?? '').trim().toLowerCase();
@@ -443,6 +514,9 @@ export function useUserAccess(): UseUserAccessReturn {
                 }
             } catch (err) {
                 console.warn('[useUserAccess] Failed to fetch permissions', err);
+                if (!cancelled && requestId === latestRequestIdRef.current) {
+                    setEcommercePlaceOrderAccess(ECOMMERCE_ACCESS_LEGACY_DEFAULT);
+                }
             } finally {
                 if (!cancelled && requestId === latestRequestIdRef.current) {
                     setLoading(false);
@@ -457,5 +531,5 @@ export function useUserAccess(): UseUserAccessReturn {
         };
     }, [refreshKey]);
 
-    return { permissions, moduleAccess, transConfig, loading, refresh, refreshAndWait };
+    return { permissions, moduleAccess, transConfig, ecommercePlaceOrderAccess, loading, refresh, refreshAndWait };
 }

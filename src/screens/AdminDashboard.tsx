@@ -134,9 +134,11 @@ export default function AdminDashboard() {
     }
   }, [nav, refreshModuleAccessAndWait]);
 
-  React.useEffect(() => {
-    fetchConn();
-  }, [fetchConn]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchConn();
+    }, [fetchConn])
+  );
 
   const onRefresh = () => fetchConn();
 

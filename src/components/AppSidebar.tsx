@@ -26,6 +26,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import FontAwesome from 'react-native-vector-icons/FontAwesome';
 import OrdersIcon from './footer-icons/OrdersIcon';
 import LedgerIcon from './footer-icons/LedgerIcon';
 import ApprovalsIcon from './footer-icons/ApprovalsIcon';
@@ -38,12 +39,16 @@ import { saveCompanyInfo, getCompany, getTallylocId, getGuid } from '../store/st
 import type { UserConnection } from '../api/models/connections';
 import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
+import DataLynkrTextDarkBlueSvg from '../../assets/DataLynkrTextWhiteNoPaddingDarkBlue.svg';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { navigationRef } from '../navigation/navigationRef';
 import { REPORT_OPTIONS, REPORT_MODULE_ACCESS_MAP } from '../screens/ledger/utils';
 import { useModuleAccess } from '../store/ModuleAccessContext';
+import { useBCommerceCart } from '../store/BCommerceCartContext';
 
 const SIDEBAR_WIDTH = Math.min(Dimensions.get('window').width * 0.89, 348);
+const ACTIVE_TAB_COLOR = '#EFC94F';
+const DEFAULT_TAB_COLOR = '#d1d5dc';
 
 const WHITE_NAVBAR_ROUTES = new Set([
   'DataManagement', 'AddCustomer',
@@ -52,6 +57,7 @@ const WHITE_NAVBAR_ROUTES = new Set([
   'VoucherDetailView', 'VoucherDetails', 'BillAllocations', 'MoreDetails',
   'ApprovalsScreen',
   'StockSummary', 'StockGroupSummary', 'StockItemMonthly', 'StockItemVouchers',
+  'BCommerce', 'BCommerceCategories', 'BCommerceItemDetail', 'BCommerceCart'
 ]);
 
 export interface AppSidebarMenuItem {
@@ -75,6 +81,10 @@ export interface AppSidebarProps {
   onCompanyChange?: (companyName: string) => void;
   /** When false, all module access checks are bypassed (items stay enabled) */
   restrictAccess?: boolean;
+  /** Use darker #0E172B theme (e.g. when opened from BCommerce) */
+  darkTheme?: boolean;
+  /** Active ledger report name to highlight under Ledger Reports */
+  activeLedgerReport?: string;
 }
 
 export function AppSidebar({
@@ -87,11 +97,15 @@ export function AppSidebar({
   onConnectionsPress,
   onCompanyChange,
   restrictAccess = false,
+  darkTheme = false,
+  activeLedgerReport,
 }: AppSidebarProps) {
+  const panelBg = darkTheme ? '#0E172B' : '#1f3a89';
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
   const { logout, userName, userEmail } = useAuth();
   const { moduleAccess } = useModuleAccess();
+  const { clearCart } = useBCommerceCart();
 
   // Needed on Android for LayoutAnimation to work.
   useEffect(() => {
@@ -109,6 +123,13 @@ export function AppSidebar({
       case 'SalesTab': return 'sales_dashboard';
       case 'OrdersTab':
       case 'OrderEntry': return 'place_order';
+      case 'BCommerce':
+      case 'BCommerceCategories':
+      case 'BCommerceItemDetail':
+      case 'BCommerceCart':
+      case 'BCommerceCheckout':
+      case 'BCommerceOrderPlaced':
+        return 'ecommerce_place_order';
       case 'LedgerTab': return 'ledger_book';
       case 'ApprovalsTab': return 'approvals';
       case 'StockSummaryTab':
@@ -138,6 +159,8 @@ export function AppSidebar({
         return <ApprovalsIcon color={color} size={size} />;
       case 'summary':
         return <SummaryIcon color={color} size={size} />;
+      case 'bcom':
+        return <OrdersIcon color={color} size={size} />;
       default:
         return <Icon name={item.icon} size={size} color={color} />;
     }
@@ -196,26 +219,40 @@ export function AppSidebar({
         setSelectedTallylocId(id);
         setSelectedGuid(g ?? '');
       });
+
+      // Auto-expand sections when a child route is currently active,
+      // so the selected sub-item highlight is visible immediately.
+      if (activeLedgerReport) setLedgerExpanded(true);
+      if (activeTarget === 'ExpenseClaims' || activeTarget === 'Payments' || activeTarget === 'Collections') {
+        setPaymentExpanded(true);
+      }
     } else {
       setDropdownOpen(false);
       setDashboardExpanded(false);
       setLedgerExpanded(false);
       setPaymentExpanded(false);
     }
-  }, [visible]);
+  }, [visible, activeTarget, activeLedgerReport]);
 
   const handleSelectCompany = useCallback(async (connection: UserConnection) => {
     const name = connection.company || '';
+    const nextTallylocId = connection.tallyloc_id ?? 0;
+    const nextGuid = connection.guid ?? '';
+    const didCompanyChange =
+      nextTallylocId !== selectedTallylocId ||
+      nextGuid !== selectedGuid ||
+      name !== selectedCompany;
+
     setSelectedCompany(name);
-    setSelectedTallylocId(connection.tallyloc_id ?? 0);
-    setSelectedGuid(connection.guid ?? '');
+    setSelectedTallylocId(nextTallylocId);
+    setSelectedGuid(nextGuid);
     setDropdownOpen(false);
     // Save all company info to storage
     try {
       await saveCompanyInfo({
-        tallyloc_id: connection.tallyloc_id ?? 0,
+        tallyloc_id: nextTallylocId,
         company: name,
-        guid: connection.guid ?? '',
+        guid: nextGuid,
         conn_name: connection.conn_name ?? '',
         shared_email: connection.shared_email ?? '',
         status: connection.status ?? '',
@@ -232,11 +269,15 @@ export function AppSidebar({
         booksfrom: connection.booksfrom ?? '',
         createdAt: connection.createdAt ?? '',
       });
-      onCompanyChange?.(name);
+      if (didCompanyChange) {
+        clearCart();
+        onCompanyChange?.(name);
+      }
+      onClose();
     } catch (err) {
       console.warn('[AppSidebar] Failed to save company info:', err);
     }
-  }, [onCompanyChange]);
+  }, [onCompanyChange, onClose, clearCart, selectedCompany, selectedGuid, selectedTallylocId]);
 
   const doLogout = () => {
     Alert.alert(strings.logout, 'Are you sure?', [
@@ -313,20 +354,24 @@ export function AppSidebar({
 
   return (
     <Modal visible={showModal} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
-      <StatusBar backgroundColor="#1f3a89" barStyle="light-content" />
+      <StatusBar backgroundColor={panelBg} barStyle="light-content" />
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
         <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]} />
       </Pressable>
       <Animated.View
         {...panResponder.panHandlers}
-        style={[styles.panel, { width: SIDEBAR_WIDTH, transform: [{ translateX: panelTranslateX }] }]}
+        style={[styles.panel, { width: SIDEBAR_WIDTH, backgroundColor: panelBg, transform: [{ translateX: panelTranslateX }] }]}
       >
         {/* Padded inner container matching Figma px-24 py-20 */}
         <View style={[styles.innerContainer, { paddingTop: insets.top + 20 }]}>
           {/* Logo + DataLynkr text row */}
           <View style={styles.logoRow}>
             <FullYellowLogo width={55} height={55} />
-            <DataLynkrTextSvg width={150} height={35} />
+            {darkTheme ? (
+              <DataLynkrTextDarkBlueSvg width={150} height={35} />
+            ) : (
+              <DataLynkrTextSvg width={150} height={35} />
+            )}
           </View>
 
           {/* User Profile Section */}
@@ -425,28 +470,43 @@ export function AppSidebar({
                 const isSelected = item.target === activeTarget;
                 const modKey = getModuleKey(item.target);
                 const isEnabled = restrictAccess ? (modKey ? !!moduleAccess[modKey] : true) : true;
+                const isPaymentChildSelected =
+                  isPaymentCollections &&
+                  (activeTarget === 'ExpenseClaims' || activeTarget === 'Payments' || activeTarget === 'Collections');
+                const rowStyles = [styles.row];
 
                 if (isDashboard) {
+                  const dashRoute = navigationRef.getCurrentRoute();
+                  const dashLeaf = dashRoute?.name ?? '';
+                  const dashP = (dashRoute?.params ?? {}) as { tab_name?: string; params?: { tab_name?: string } };
+                  const dashTab = String(dashP.tab_name ?? dashP.params?.tab_name ?? '').trim();
+                  const isDashboardSalesChild = dashLeaf === 'SalesDashboard';
+                  const isDashboardReceivablesChild = dashLeaf === 'ComingSoon' && dashTab === 'Receivables';
+                  const dashboardContextActive = isDashboardSalesChild || isDashboardReceivablesChild;
+                  const dashboardParentHighlight = dashboardContextActive && !dashboardExpanded;
+                  const dashboardRowTint = dashboardParentHighlight ? ACTIVE_TAB_COLOR : DEFAULT_TAB_COLOR;
+                  const dashboardRowLabelStyles = [styles.rowLabel, dashboardParentHighlight && styles.rowLabelSelected];
+
                   return (
                     <View style={[styles.dashboardBlock, dashboardExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
-                        style={styles.row}
+                        style={rowStyles}
                         onPress={isEnabled
                           ? () => {
-                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                              setDashboardExpanded((v) => !v);
-                            }
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setDashboardExpanded((v) => !v);
+                          }
                           : undefined}
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
-                          {renderMenuItemIcon(item, '#d1d5dc', 24)}
+                          {renderMenuItemIcon(item, dashboardRowTint, 24)}
                         </View>
-                        <Text style={styles.rowLabel}>{item.label}</Text>
+                        <Text style={dashboardRowLabelStyles}>{item.label}</Text>
                         <Icon
                           name={dashboardExpanded ? 'chevron-up' : 'chevron-down'}
                           size={20}
-                          color="#d1d5dc"
+                          color={dashboardRowTint}
                         />
                       </TouchableOpacity>
                       {dashboardExpanded && (
@@ -456,14 +516,28 @@ export function AppSidebar({
                             onPress={() => onItemPress({ ...item, label: 'Sales' })}
                             activeOpacity={0.7}
                           >
-                            <Text style={styles.subItemBoxText}>Sales</Text>
+                            <Text
+                              style={[
+                                styles.subItemBoxText,
+                                isDashboardSalesChild && styles.subItemBoxTextSelected,
+                              ]}
+                            >
+                              Sales
+                            </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.subItemBox}
                             onPress={() => onItemPress({ id: 'receivables', label: 'Receivables', target: 'ComingSoon', icon: item.icon, params: { tab_name: 'Receivables' } })}
                             activeOpacity={0.7}
                           >
-                            <Text style={styles.subItemBoxText}>Receivables</Text>
+                            <Text
+                              style={[
+                                styles.subItemBoxText,
+                                isDashboardReceivablesChild && styles.subItemBoxTextSelected,
+                              ]}
+                            >
+                              Receivables
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -471,100 +545,121 @@ export function AppSidebar({
                   );
                 }
                 if (isLedger) {
+                  const ledgerContextActive = activeTarget === 'LedgerTab';
+                  const ledgerParentHighlight = ledgerContextActive && !ledgerExpanded;
+                  const ledgerRowTint = ledgerParentHighlight ? ACTIVE_TAB_COLOR : DEFAULT_TAB_COLOR;
+                  const ledgerRowLabelStyles = [styles.rowLabel, ledgerParentHighlight && styles.rowLabelSelected];
+
                   return (
                     <View style={[styles.dashboardBlock, ledgerExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
-                        style={styles.row}
+                        style={rowStyles}
                         onPress={isEnabled
                           ? () => {
-                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                              setLedgerExpanded((v) => !v);
-                            }
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setLedgerExpanded((v) => !v);
+                          }
                           : undefined}
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
-                          {renderMenuItemIcon(item, '#d1d5dc', 24)}
+                          {renderMenuItemIcon(item, ledgerRowTint, 24)}
                         </View>
-                        <Text style={styles.rowLabel}>{item.label}</Text>
+                        <Text style={ledgerRowLabelStyles}>{item.label}</Text>
                         <Icon
                           name={ledgerExpanded ? 'chevron-up' : 'chevron-down'}
                           size={20}
-                          color="#d1d5dc"
+                          color={ledgerRowTint}
                         />
                       </TouchableOpacity>
                       {ledgerExpanded && (
                         <View style={styles.dashboardSubItems}>
-                          {REPORT_OPTIONS.map(report => (
-                            <TouchableOpacity
-                              key={report}
-                              style={[
-                                styles.subItemBox,
-                                !ledgerReportEnabledMap[report] && { opacity: 0.45 },
-                              ]}
-                              onPress={
-                                ledgerReportEnabledMap[report]
-                                  ? () => onItemPress({ ...item, params: { ...item.params, auto_open_customer: true, report_name: report } })
-                                  : undefined
-                              }
-                              activeOpacity={ledgerReportEnabledMap[report] ? 0.7 : 1}
-                            >
-                              <Text
+                          {REPORT_OPTIONS.map((report) => {
+                            const isReportSelected = activeLedgerReport === report;
+                            return (
+                              <TouchableOpacity
+                                key={report}
                                 style={[
-                                  styles.subItemBoxText,
-                                  !ledgerReportEnabledMap[report] && { color: 'rgba(226,232,240,0.6)' },
+                                  styles.subItemBox,
+                                  !ledgerReportEnabledMap[report] && { opacity: 0.45 },
                                 ]}
+                                onPress={
+                                  ledgerReportEnabledMap[report]
+                                    ? () => onItemPress({ ...item, params: { ...item.params, auto_open_customer: true, report_name: report } })
+                                    : undefined
+                                }
+                                activeOpacity={ledgerReportEnabledMap[report] ? 0.7 : 1}
                               >
-                                {report}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
+                                <Text
+                                  style={[
+                                    styles.subItemBoxText,
+                                    isReportSelected && styles.subItemBoxTextSelected,
+                                    !ledgerReportEnabledMap[report] && { color: 'rgba(226,232,240,0.6)' },
+                                  ]}
+                                >
+                                  {report}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </View>
                       )}
                     </View>
                   );
                 }
                 if (isPaymentCollections) {
+                  const paymentParentHighlight = isPaymentChildSelected && !paymentExpanded;
+                  const paymentRowTint = paymentParentHighlight ? ACTIVE_TAB_COLOR : DEFAULT_TAB_COLOR;
+                  const paymentRowLabelStyles = [styles.rowLabel, paymentParentHighlight && styles.rowLabelSelected];
+
                   return (
                     <View style={[styles.dashboardBlock, paymentExpanded && styles.dashboardBlockExpanded, !isEnabled && { opacity: 0.4 }]}>
                       <TouchableOpacity
-                        style={styles.row}
+                        style={rowStyles}
                         onPress={isEnabled
                           ? () => {
-                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                              setPaymentExpanded((v) => !v);
-                            }
+                            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                            setPaymentExpanded((v) => !v);
+                          }
                           : undefined}
                         activeOpacity={isEnabled ? 0.7 : 1}
                       >
                         <View style={styles.rowIconContainer}>
-                          {renderMenuItemIcon(item, '#d1d5dc', 24)}
+                          {renderMenuItemIcon(item, paymentRowTint, 24)}
                         </View>
-                        <Text style={styles.rowLabel}>{item.label}</Text>
+                        <Text style={paymentRowLabelStyles}>{item.label}</Text>
                         <Icon
                           name={paymentExpanded ? 'chevron-up' : 'chevron-down'}
                           size={20}
-                          color="#d1d5dc"
+                          color={paymentRowTint}
                         />
                       </TouchableOpacity>
                       {paymentExpanded && (
                         <View style={styles.dashboardSubItems}>
+                          {(() => {
+                            const isExpenseClaimsSelected = activeTarget === 'ExpenseClaims';
+                            const isPaymentsSelected = activeTarget === 'Payments';
+                            const isCollectionsSelected = activeTarget === 'Collections';
+                            return (
+                              <>
                           <TouchableOpacity
                             style={styles.subItemBox}
                             onPress={
                               isEnabled
                                 ? () =>
-                                    onItemPress({
-                                      id: 'expense-claims',
-                                      label: 'Expense Claims',
-                                      target: 'ExpenseClaims',
-                                      icon: item.icon,
-                                    })
+                                  onItemPress({
+                                    id: 'expense-claims',
+                                    label: 'Expense Claims',
+                                    target: 'ExpenseClaims',
+                                    icon: item.icon,
+                                  })
                                 : undefined
                             }
                             activeOpacity={0.7}
                           >
-                            <Text style={styles.subItemBoxText}>Expense Claims</Text>
+                            <Text style={[styles.subItemBoxText, isExpenseClaimsSelected && styles.subItemBoxTextSelected]}>
+                              Expense Claims
+                            </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.subItemBox}
@@ -575,25 +670,36 @@ export function AppSidebar({
                             }
                             activeOpacity={0.7}
                           >
-                            <Text style={styles.subItemBoxText}>Payments</Text>
+                            <Text style={[styles.subItemBoxText, isPaymentsSelected && styles.subItemBoxTextSelected]}>
+                              Payments
+                            </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.subItemBox}
                             onPress={
                               isEnabled
                                 ? () =>
-                                    onItemPress({ id: 'collections', label: 'Collections', target: 'Collections', icon: item.icon })
+                                  onItemPress({ id: 'collections', label: 'Collections', target: 'Collections', icon: item.icon })
                                 : undefined
                             }
                             activeOpacity={0.7}
                           >
-                            <Text style={styles.subItemBoxText}>Collections</Text>
+                            <Text style={[styles.subItemBoxText, isCollectionsSelected && styles.subItemBoxTextSelected]}>
+                              Collections
+                            </Text>
                           </TouchableOpacity>
+                              </>
+                            );
+                          })()}
                         </View>
                       )}
                     </View>
                   );
                 }
+                const flatSelected = isSelected;
+                const flatRowTint = flatSelected ? ACTIVE_TAB_COLOR : DEFAULT_TAB_COLOR;
+                const flatRowLabelStyles = [styles.rowLabel, flatSelected && styles.rowLabelSelected];
+
                 return (
                   <TouchableOpacity
                     style={[styles.row, !isEnabled && { opacity: 0.4 }]}
@@ -601,11 +707,11 @@ export function AppSidebar({
                     activeOpacity={isEnabled ? 0.7 : 1}
                   >
                     <View style={styles.rowIconContainer}>
-                      {renderMenuItemIcon(item, '#d1d5dc', 24)}
+                      {renderMenuItemIcon(item, flatRowTint, 24)}
                     </View>
-                    <Text style={styles.rowLabel}>{item.label}</Text>
+                    <Text style={flatRowLabelStyles}>{item.label}</Text>
                     {hasChevron && (
-                      <Icon name="chevron-right" size={20} color="#d1d5dc" />
+                      <Icon name="chevron-right" size={20} color={flatRowTint} />
                     )}
                   </TouchableOpacity>
                 );
@@ -792,6 +898,10 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: 'Roboto',
   },
+  rowLabelSelected: {
+    color: ACTIVE_TAB_COLOR,
+    fontWeight: '500',
+  },
   dashboardBlock: {
     marginBottom: 2,
     borderRadius: 12,
@@ -819,6 +929,10 @@ const styles = StyleSheet.create({
     color: '#e2e8f0',
     fontFamily: 'Roboto',
     marginLeft: 0, // Keep text alignment consistent with unexpanded list
+  },
+  subItemBoxTextSelected: {
+    color: ACTIVE_TAB_COLOR,
+    fontWeight: '500',
   },
   customizeBtn: {
     flexDirection: 'row',

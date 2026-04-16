@@ -13,13 +13,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { getStockItemsFromDataManagementCache } from '../../cache/stockItemsCacheReader';
-
-import SofaIcon from '../../assets/bcomm_img/container.svg';
-import ChairIcon from '../../assets/bcomm_img/container-1.svg';
-import LampIcon from '../../assets/bcomm_img/container-2.svg';
-import CupboardIcon from '../../assets/bcomm_img/container-3.svg';
 
 const { width } = Dimensions.get('window');
 const COLUMN_COUNT = 4;
@@ -47,6 +43,8 @@ export default function BCommerceCategoriesScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategory === 'All' ? null : initialCategory);
   const [searchQuery, setSearchQuery] = useState('');
 
+
+
   useEffect(() => {
     const fetchItems = async () => {
       try {
@@ -67,89 +65,76 @@ export default function BCommerceCategoriesScreen() {
     fetchItems();
   }, []);
 
-  const { entries, parentMap } = useMemo(() => {
+  const { entries } = useMemo(() => {
     const pSet = new Set<string>();
     const cSet = new Set<string>();
-    const pMap = new Map<string, Set<string>>();
-
+    
     allItems.forEach((i: any) => {
       const p = i.PARENT || i.parent;
       const c = i.CATEGORY || i.category;
-      if (p) {
-        pSet.add(p);
-        if (!pMap.has(p)) pMap.set(p, new Set());
-        if (c) {
-          pMap.get(p)!.add(c);
-          cSet.add(c);
-        }
-      } else if (c) {
-        cSet.add(c);
-      }
+      if (p) pSet.add(p);
+      if (c) cSet.add(c);
     });
 
-    const categoriesList: CategoryEntry[] = Array.from(cSet).map(name => {
-      // Find a parent for this category if possible
-      const p = Array.from(pMap.entries()).find(([_, cats]) => cats.has(name))?.[0];
-      return { name, type: 'category', parent: p };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    const parentsList: CategoryEntry[] = Array.from(pSet)
+      .sort((a, b) => a.localeCompare(b))
+      .map(name => ({ name, type: 'parent' }));
+      
+    const categoriesList: CategoryEntry[] = Array.from(cSet)
+      .sort((a, b) => a.localeCompare(b))
+      .map(name => ({ name, type: 'category' }));
 
-    const parentsList: CategoryEntry[] = Array.from(pSet).map(name => ({ name, type: 'parent' }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    return { 
-      entries: [...parentsList, ...categoriesList],
-      parentMap: pMap
-    };
+    return { entries: [...parentsList, ...categoriesList] };
   }, [allItems]);
 
   const filteredEntries = entries.filter(e => 
     e.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const getIcon = (item: CategoryEntry) => {
-    if (item.type === 'parent') {
-      return <Icon name="folder-outline" size={32} color={selectedParent === item.name ? "#1f3a89" : "#4A5565"} />;
-    }
-    const c = item.name.toLowerCase();
-    if (c.includes('sofa')) return <SofaIcon width={32} height={32} />;
-    if (c.includes('chair')) return <ChairIcon width={32} height={32} />;
-    if (c.includes('lamp')) return <LampIcon width={32} height={32} />;
-    if (c.includes('cupboard') || c.includes('closet')) return <CupboardIcon width={32} height={32} />;
-    return <Icon name="tag-outline" size={32} color="#4A5565" />;
+  const getIcon = (item: CategoryEntry, isSelected: boolean) => {
+    return (
+      <Text style={{ 
+        fontFamily: 'WorkSans-VariableFont_wght', 
+        fontSize: 24, 
+        fontWeight: 'bold', 
+        color: isSelected ? '#1f3a89' : '#4a5565' 
+      }}>
+        {item.name ? item.name.charAt(0).toUpperCase() : '?'}
+      </Text>
+    );
   };
 
   const handleEntryPress = (item: CategoryEntry) => {
     if (item.type === 'parent') {
       if (selectedParent === item.name) {
         setSelectedParent(null);
-        setSelectedCategory(null);
       } else {
         setSelectedParent(item.name);
-        setSelectedCategory(null);
       }
     } else {
       if (selectedCategory === item.name) {
         setSelectedCategory(null);
       } else {
         setSelectedCategory(item.name);
-        // If a category is selected, ensure its parent is also selected if not already
-        if (item.parent && selectedParent !== item.parent) {
-          setSelectedParent(item.parent);
-        }
       }
     }
   };
 
-  const isEnabled = (item: CategoryEntry) => {
-    if (!selectedParent) return true;
-    
-    if (item.type === 'parent') {
-      return item.name === selectedParent;
-    } else {
-      // Category is enabled only if it belongs to the selected parent
-      const allowedCats = parentMap.get(selectedParent);
-      return allowedCats?.has(item.name) || false;
-    }
+  const isEnabled = (entry: CategoryEntry) => {
+    if (!selectedParent && !selectedCategory) return true;
+    if (entry.name === selectedParent || entry.name === selectedCategory) return true;
+
+    return allItems.some(item => {
+      const itemP = item.PARENT || item.parent;
+      const itemC = item.CATEGORY || item.category;
+
+      let match = true;
+      if (selectedParent && itemP !== selectedParent) match = false;
+      if (selectedCategory && itemC !== selectedCategory) match = false;
+
+      if (!match) return false;
+      return itemP === entry.name || itemC === entry.name;
+    });
   };
 
   const handleConfirm = () => {
@@ -161,7 +146,7 @@ export default function BCommerceCategoriesScreen() {
 
   const renderEntryItem = ({ item }: { item: CategoryEntry }) => {
     const enabled = isEnabled(item);
-    const isSelected = item.type === 'parent' ? selectedParent === item.name : selectedCategory === item.name;
+    const isSelected = selectedCategory === item.name || selectedParent === item.name;
     
     return (
       <TouchableOpacity 
@@ -171,12 +156,11 @@ export default function BCommerceCategoriesScreen() {
         disabled={!enabled}
       >
         <View style={[styles.iconCircle, isSelected && styles.iconCircleSelected]}>
-          {getIcon(item)}
+          {getIcon(item, isSelected)}
         </View>
         <Text style={[styles.categoryLabel, isSelected && styles.categoryLabelSelected]} numberOfLines={1}>
           {item.name}
         </Text>
-        {item.type === 'parent' && <View style={styles.parentBadge}><Text style={styles.parentBadgeText}>Group</Text></View>}
       </TouchableOpacity>
     );
   };
@@ -190,10 +174,17 @@ export default function BCommerceCategoriesScreen() {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Icon name="chevron-left" size={28} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Categories & Groups</Text>
-        <TouchableOpacity onPress={() => { setSelectedParent(null); setSelectedCategory(null); }}>
-          <Text style={{ color: '#1f3a89', fontWeight: '600' }}>Reset</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Categories</Text>
+        {(selectedParent || selectedCategory) ? (
+          <TouchableOpacity 
+            onPress={() => { setSelectedParent(null); setSelectedCategory(null); }}
+            style={{ marginRight: 8 }}
+          >
+            <Text style={{ color: '#1f3a89', fontWeight: '600' }}>Reset</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 44 }} />
+        )}
       </View>
 
       {/* Search Bar */}

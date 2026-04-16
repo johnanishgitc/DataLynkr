@@ -247,6 +247,8 @@ export type MainStackParamList = {
   BCommerceCategories: { selectedCategory?: string, selectedParent?: string } | undefined;
   BCommerceItemDetail: { itemData: any };
   BCommerceCart: undefined;
+  BCommerceCheckout: { ledgerValues?: Record<string, string> };
+  BCommerceOrderPlaced: undefined;
   Payments: undefined;
   ExpenseClaims: undefined;
   Collections: undefined;

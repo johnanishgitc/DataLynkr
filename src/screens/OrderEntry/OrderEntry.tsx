@@ -854,7 +854,7 @@ export default function OrderEntry() {
     });
   }, [orderItems]);
 
-  /** Format for single batch/child: "qty*rate(discount%)=₹amount". No "Qty:" prefix (used in expansion). Shows 0% when discount is 0. */
+  /** Format for single batch/child: "qty x rate(discount%) = ₹amount". No "Qty:" prefix (used in expansion). Shows 0% when discount is 0. */
   const formatBatchQtyRateLine = (opts: { enteredQty?: string; qty: string | number; rate?: number | string; discount?: number; total: number }) => {
     const qty = opts.enteredQty || opts.qty;
     const rate = opts.rate != null ? String(opts.rate) : '-';
@@ -862,10 +862,11 @@ export default function OrderEntry() {
       ? `(${Number(opts.discount)}%)`
       : '';
     const amount = `₹${Number(opts.total).toFixed(2)}`;
-    return `${qty}*${rate}${disc}=${amount}`;
+    const discWithSpace = disc ? ` ${disc}` : '';
+    return `${qty} x ${rate}${discWithSpace} = ${amount}`;
   };
 
-  /** Collapsed cart card: qty / rate / discount segments for hyperlinks (same text as former "Qty: qty*rate(disc%)=₹"). */
+  /** Collapsed cart card: qty / rate / discount segments for hyperlinks (same text as former "Qty: qty x rate(disc%) = ₹"). */
   const getParentCartQtyRateParts = (group: (typeof groupedOrderItems)[number]) => {
     const single = group.items.length === 1 ? group.items[0] : undefined;
     const first = group.items[0];
@@ -889,7 +890,7 @@ export default function OrderEntry() {
       permissions.show_disc_Column &&
       discRaw != null &&
       !Number.isNaN(Number(discRaw))
-        ? `(${Number(discRaw)}%)`
+        ? ` (${Number(discRaw)}%)`
         : '';
     const qtyPopupBody =
       single != null
@@ -3000,20 +3001,30 @@ export default function OrderEntry() {
                   })()}
                   <Text style={styles.creditLimitText} numberOfLines={1}>
                     <Text style={styles.creditLimitLabel}>{strings.credit_limit}: </Text>
-                    <Text style={styles.creditLimitValue}>
-                      {creditLimitLoading
-                        ? '...'
-                        : (() => {
-                          const cr = creditLimitInfo?.CREDITLIMIT;
-                          if (cr == null || (typeof cr === 'number' && Number.isNaN(cr))) {
-                            const fallback = ledgerField(selectedLedger, 'CREDITLIMIT', 'creditlimit');
-                            const num = fallback !== '-' ? Number(fallback) : NaN;
-                            return Number.isFinite(num) ? `₹${num.toFixed(2)}` : '₹0.00';
-                          }
-                          return `₹${Number(cr).toFixed(2)}`;
-                        })()}{' '}
-                      Cr
-                    </Text>
+                    {creditLimitLoading ? (
+                      <Text style={styles.creditLimitValue}>...</Text>
+                    ) : (
+                      (() => {
+                        const fromApi = creditLimitInfo?.CREDITLIMIT;
+                        const fromLedger = ledgerField(selectedLedger, 'CREDITLIMIT', 'creditlimit');
+                        const parsedFromApi =
+                          fromApi != null && !(typeof fromApi === 'number' && Number.isNaN(fromApi))
+                            ? Number(fromApi)
+                            : NaN;
+                        const parsedFromLedger = fromLedger !== '-' ? Number(fromLedger) : NaN;
+                        const value = Number.isFinite(parsedFromApi)
+                          ? parsedFromApi
+                          : (Number.isFinite(parsedFromLedger) ? parsedFromLedger : 0);
+                        const isCr = value > 0;
+                        const side = value < 0 ? 'Dr' : 'Cr';
+                        const absValue = Math.abs(value);
+                        return (
+                          <Text style={[styles.creditLimitValue, isCr ? styles.creditLimitValueCr : undefined]}>
+                            {`₹${absValue.toFixed(2)} ${side}`}
+                          </Text>
+                        );
+                      })()
+                    )}
                   </Text>
                 </View>
               ) : null}
@@ -3155,7 +3166,7 @@ export default function OrderEntry() {
                                             </TouchableOpacity>
                                             {p.showRate && p.rateLabel !== '' ? (
                                               <>
-                                                <Text style={styles.orderItemQty}>*</Text>
+                                                <Text style={styles.orderItemQty}> x </Text>
                                                 <TouchableOpacity
                                                   onPress={() =>
                                                     setCartItemQtyRateDetailPopup({
@@ -3173,7 +3184,7 @@ export default function OrderEntry() {
                                               <Text style={styles.orderItemQty}>{p.discStr}</Text>
                                             ) : null}
                                             {p.amountStr !== '' ? (
-                                              <Text style={styles.orderItemQty}>=</Text>
+                                              <Text style={styles.orderItemQty}> = </Text>
                                             ) : null}
                                             <Text style={styles.orderItemTotal}>{p.amountStr}</Text>
                                           </View>
@@ -5480,6 +5491,9 @@ const styles = StyleSheet.create({
   creditLimitValue: {
     fontWeight: '500',
     color: FOOTER_PLACE_BG,
+  },
+  creditLimitValueCr: {
+    color: BALANCE_RED,
   },
   itemBlock: { gap: 4, flex: 1 },
   itemBlockDisabled: { opacity: 0.6 },

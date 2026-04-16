@@ -12,9 +12,9 @@ import {
     Modal,
     ScrollView,
     Dimensions,
-    LayoutAnimation,
+
     Platform,
-    UIManager,
+
     Pressable,
     Animated,
     PanResponder,
@@ -23,9 +23,7 @@ import {
     type KeyboardEvent,
 } from 'react-native';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -88,42 +86,164 @@ function startOfDay(d: Date) {
     return x;
 }
 
-function parseDefaultApprovalsDateRange(permissionValue: unknown): { from: number; to: number } {
-    const today = startOfDay(new Date());
-    const todayMs = today.getTime();
+function parseDefaultApprovalsDateRange(rawValue: unknown): { from: number; to: number } {
+    const today = startOfDay(new Date()).getTime();
+    const fallbackDays = 7;
+    const fallbackFrom = startOfDay(new Date(today - (fallbackDays - 1) * 24 * 60 * 60 * 1000)).getTime();
 
-    // Default: "Last 7-days" inclusive (today minus 6 days → today).
-    const defaultFromMs = (() => {
-        const d = new Date(today);
-        d.setDate(d.getDate() - 6);
-        return d.getTime();
-    })();
-
-    const raw = permissionValue == null ? '' : String(permissionValue).trim();
-    const lc = raw.toLowerCase();
-    if (!raw || lc === 'null') return { from: defaultFromMs, to: todayMs };
-    if (lc === 'today') return { from: todayMs, to: todayMs };
-    if (lc === 'yesterday') {
-        const y = new Date(today);
-        y.setDate(y.getDate() - 1);
-        const yMs = y.getTime();
-        return { from: yMs, to: yMs };
+    const raw = String(rawValue ?? '').trim();
+    if (!raw || raw.toLowerCase() === 'null') {
+        return { from: fallbackFrom, to: today };
     }
 
-    // Matches: "Last 2-days", "Last30-days", "Last 15 days", etc.
-    const m = lc.match(/last\s*(\d+)\s*[- ]?\s*days?/);
+    const normalized = raw.toLowerCase();
+    if (normalized === 'today') {
+        return { from: today, to: today };
+    }
+    if (normalized === 'yesterday') {
+        const y = startOfDay(new Date(today - 24 * 60 * 60 * 1000)).getTime();
+        return { from: y, to: y };
+    }
+
+    const numericOnly = Number(normalized);
+    if (Number.isFinite(numericOnly) && numericOnly >= 0) {
+        const days = Math.max(1, Math.floor(numericOnly));
+        const from = startOfDay(new Date(today - (days - 1) * 24 * 60 * 60 * 1000)).getTime();
+        return { from, to: today };
+    }
+
+    const daysMatch = normalized.match(/(\d+)\s*day/);
+    if (daysMatch) {
+        const days = Math.max(1, parseInt(daysMatch[1], 10));
+        const from = startOfDay(new Date(today - (days - 1) * 24 * 60 * 60 * 1000)).getTime();
+        return { from, to: today };
+    }
+
+    return { from: fallbackFrom, to: today };
+}
+
+/** Parse voucher `DATE` (API) to YYYYMMDD for range compare; mirrors card date parsing. */
+function voucherDateToYyyyMmDd(dateRaw: unknown): number | null {
+    const raw = String(dateRaw ?? '').trim();
+    if (!raw) return null;
+    const datePart = raw.split(/[\sT]/)[0]?.trim() ?? '';
+    if (/^\d{8}$/.test(datePart)) {
+        const n = parseInt(datePart, 10);
+        return Number.isFinite(n) ? n : null;
+    }
+    const maybeIso = Date.parse(raw);
+    if (!Number.isNaN(maybeIso)) {
+        return toYyyyMmDd(maybeIso);
+    }
+    const m = datePart.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
     if (m) {
-        const n = Number(m[1]);
-        if (Number.isFinite(n) && n > 0) {
-            const fromDaysAgo = Math.max(0, n - 1); // inclusive: N days => (N-1) days back
-            const from = new Date(today);
-            from.setDate(from.getDate() - fromDaysAgo);
-            return { from: from.getTime(), to: todayMs };
+        const day = Number(m[1]);
+        const mon = m[2].toLowerCase();
+        let year = Number(m[3]);
+        if (year < 100) year += 2000;
+        const monthMap: Record<string, number> = {
+            jan: 0,
+            feb: 1,
+            mar: 2,
+            apr: 3,
+            may: 4,
+            jun: 5,
+            jul: 6,
+            aug: 7,
+            sep: 8,
+            oct: 9,
+            nov: 10,
+            dec: 11,
+        };
+        const monthIdx = monthMap[mon];
+        if (monthIdx == null) return null;
+        const dt = new Date(year, monthIdx, day);
+        if (Number.isNaN(dt.getTime())) return null;
+        return toYyyyMmDd(dt.getTime());
+    }
+    return null;
+}
+
+
+// --- Parsing Helpers (Static) ---
+
+function parseDate(d: string): number {
+    const raw = String(d ?? '').trim();
+    if (!raw) return 0;
+
+    const datePart = raw.split(' ')[0].trim();
+    const maybeIso = Date.parse(datePart);
+    if (!isNaN(maybeIso)) return maybeIso;
+
+    const m = datePart.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+    if (m) {
+        const day = Number(m[1]);
+        const mon = m[2].toLowerCase();
+        let year = Number(m[3]);
+        if (year < 100) year += 2000;
+
+        const monthMap: Record<string, number> = {
+            jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+            jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+        };
+        const monthIdx = monthMap[mon] ?? 0;
+        const dt = new Date(year, monthIdx, day);
+        const t = dt.getTime();
+        return isNaN(t) ? 0 : t;
+    }
+    return 0;
+}
+
+function parseVoucherDateTime(d: string): number {
+    const raw = String(d ?? '').trim();
+    if (!raw) return 0;
+    const fullTs = Date.parse(raw);
+    if (!isNaN(fullTs)) return fullTs;
+    return parseDate(raw);
+}
+
+function parseMoney(raw: unknown): number {
+    const s0 = String(raw ?? '').trim();
+    if (!s0) return 0;
+    let s = s0.replace(/,/g, '');
+    s = s.replace(/^\(\s*-\s*\)/, '-');
+    s = s.replace(/\(\s*-\s*\)/g, '-');
+    if (/^\(.*\)$/.test(s)) s = `-${s.slice(1, -1)}`;
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+}
+
+function getPersonDisplayValue(it: PendVchAuthItem): string {
+    const history = (it as any)?.VOUCHER_ACTIVITY_HISTORY;
+    if (Array.isArray(history) && history.length > 0) {
+        const created = history.find(
+            (h: any) =>
+                String(h?.activity_type ?? '')
+                    .trim()
+                    .toLowerCase() === 'created',
+        );
+        const pick = created ?? history[0];
+        const nameRaw = typeof pick?.name === 'string' ? pick.name.trim() : '';
+        const emailRaw = typeof pick?.email === 'string' ? pick.email.trim() : '';
+        if (nameRaw) return nameRaw;
+        if (emailRaw) return emailRaw;
+    }
+    return String((it as any)?.SUBMITTER ?? '').trim();
+}
+
+function getNewestOldestTime(item: any): number {
+    const history = item.VOUCHER_ACTIVITY_HISTORY;
+    if (Array.isArray(history) && history.length > 0) {
+        const last = history[history.length - 1];
+        const created = last?.created_at ?? last?.CREATED_AT ?? last?.createdAt;
+        if (created != null && String(created).trim()) {
+            const t = Date.parse(String(created).trim());
+            if (!isNaN(t)) return t;
         }
     }
-
-    return { from: defaultFromMs, to: todayMs };
+    return parseVoucherDateTime(String(item.DATE ?? ''));
 }
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -280,6 +400,14 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
     // Data
     const [allItems, setAllItems] = useState<PendVchAuthItem[]>([]);
+    /** Inclusive bounds of the last successful `getPendVchAuth` load (used to skip refetch on narrower ranges). */
+    const [lastFetchedDateRange, setLastFetchedDateRange] = useState<{
+        from: number;
+        to: number;
+    } | null>(null);
+    /** Brief overlay while narrowing the period client-side so the UI can paint a spinner before heavy derives. */
+    const [periodRescopeOverlay, setPeriodRescopeOverlay] = useState(false);
+    const periodRescopeSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [chunkProgress, setChunkProgress] = useState<{ total: number; done: number } | null>(
@@ -352,8 +480,26 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const [showSearchDivider, setShowSearchDivider] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const canApproveReject = !!(moduleAccess as any).approvals_def_apprvrej;
-    const isDownloading = loading || chunkProgress !== null;
+    const isDownloading = loading || chunkProgress !== null || periodRescopeOverlay;
     const lastSearchDividerRef = useRef(false);
+
+    const voucherInUiDateRange = useCallback(
+        (it: PendVchAuthItem) => {
+            const lr = lastFetchedDateRange;
+            if (!lr || fromDate < lr.from || toDate > lr.to) return true;
+            const d = voucherDateToYyyyMmDd(it.DATE);
+            if (d == null) return false;
+            const fromNum = toYyyyMmDd(fromDate);
+            const toNum = toYyyyMmDd(toDate);
+            return d >= fromNum && d <= toNum;
+        },
+        [lastFetchedDateRange, fromDate, toDate],
+    );
+
+    const scopedAllItems = useMemo(
+        () => allItems.filter(voucherInUiDateRange),
+        [allItems, voucherInUiDateRange],
+    );
     const fetchRunIdRef = useRef(0);
     const selectedIds = selectedIdsByTab[activeTab] ?? new Set<string>();
 
@@ -373,7 +519,6 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
     const handleTabSwitch = useCallback((nextTab: TabKey) => {
         if (nextTab === activeTab) return;
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setActiveTab(nextTab);
     }, [activeTab]);
 
@@ -427,6 +572,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     const fetchData = useCallback(async () => {
         const runId = ++fetchRunIdRef.current;
         const isRunActive = () => fetchRunIdRef.current === runId;
+        const requestFrom = fromDate;
+        const requestTo = toDate;
         try {
             setLoading(true);
             setIsRefreshing(true);
@@ -437,8 +584,8 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             if (!isRunActive()) return;
 
             // Fetch in 2-day chunks for large ranges
-            const start = new Date(fromDate);
-            const end = new Date(toDate);
+            const start = new Date(requestFrom);
+            const end = new Date(requestTo);
             start.setHours(0, 0, 0, 0);
             end.setHours(0, 0, 0, 0);
 
@@ -491,6 +638,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             if (!isRunActive()) return;
             setAllItems(allResults);
+            setLastFetchedDateRange({ from: requestFrom, to: requestTo });
         } catch (e: any) {
             if (!isRunActive()) return;
             if (isUnauthorizedError(e)) return;
@@ -513,11 +661,9 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     );
 
     const handleRefresh = useCallback(() => {
-        // Clear existing vouchers and trigger a fresh load.
         setAllItems([]);
-        setIsRefreshing(true);
-        fetchData();
-    }, [fetchData]);
+        setLastFetchedDateRange(null);
+    }, []);
 
     /** Same API as closing balance / overdue bills (`getCreditDaysLimit`); returns count only, no UI. */
     const getOverdueBillsCount = useCallback(async (ledgerNameRaw: string): Promise<number> => {
@@ -603,7 +749,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
     const handleBulkApprove = useCallback(async () => {
         if (activeTab !== 'pending' || selectedIds.size === 0) return;
-        const itemsToApprove = allItems.filter((it) => selectedIds.has(it.MASTERID));
+        const itemsToApprove = scopedAllItems.filter((it) => selectedIds.has(it.MASTERID));
         const uniqueLedgers = [
             ...new Set(itemsToApprove.map((it) => String((it as any).PARTICULARS ?? '').trim())),
         ].filter(Boolean);
@@ -642,7 +788,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 'Some selected vouchers have overdue bills. Do you want to approve all selected vouchers?',
         };
         setShowOverdueConfirm(true);
-    }, [activeTab, allItems, selectedIds, getOverdueBillsCount, executeBulkApprove]);
+    }, [activeTab, scopedAllItems, selectedIds, getOverdueBillsCount, executeBulkApprove]);
 
     const handleBulkReject = useCallback(() => {
         if (activeTab !== 'pending' || selectedIds.size === 0) return;
@@ -653,8 +799,34 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     }, [activeTab, selectedIds]);
 
     useEffect(() => {
+        const lr = lastFetchedDateRange;
+        if (lr && fromDate >= lr.from && toDate <= lr.to) {
+            return;
+        }
         fetchData();
-    }, [fetchData]);
+    }, [fromDate, toDate, lastFetchedDateRange, fetchData]);
+
+    useEffect(() => {
+        return () => {
+            if (periodRescopeSettleTimerRef.current) {
+                clearTimeout(periodRescopeSettleTimerRef.current);
+                periodRescopeSettleTimerRef.current = null;
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!periodRescopeOverlay) return;
+        if (loading || chunkProgress !== null) return;
+        if (periodRescopeSettleTimerRef.current) {
+            clearTimeout(periodRescopeSettleTimerRef.current);
+        }
+        // Keep overlay for a beat so it reliably paints between period transitions.
+        periodRescopeSettleTimerRef.current = setTimeout(() => {
+            setPeriodRescopeOverlay(false);
+            periodRescopeSettleTimerRef.current = null;
+        }, 150);
+    }, [periodRescopeOverlay, loading, chunkProgress]);
 
     // -----------------------------------------------------------------------
     // Derived data
@@ -666,7 +838,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             approved: [],
             rejected: [],
         };
-        for (const item of allItems) {
+        for (const item of scopedAllItems) {
             let status = (item.STATUS ?? '').toLowerCase();
 
             // Derive status from latest VOUCHER_ACTIVITY_HISTORY entry
@@ -683,12 +855,28 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 }
             }
 
-            const key = (status || 'pending') as TabKey;
-            if (map[key]) map[key].push(item);
-            else map.pending.push(item);
+            // Pre-calculate sort/search info for performance
+            const personName = getPersonDisplayValue(item);
+            const sortDateValue = parseDate(String(item.DATE ?? ''));
+            const sortTimeValue = getNewestOldestTime(item);
+            const sortAmountValue = parseMoney(item.DEBITAMT) + parseMoney(item.CREDITAMT);
+            const hasHistory = Array.isArray(history) && history.length > 0;
+
+            const enriched = {
+                ...item,
+                _status: (status || 'pending') as TabKey,
+                _personName: personName,
+                _sortDate: sortDateValue,
+                _sortTime: sortTimeValue,
+                _sortAmount: sortAmountValue,
+                _hasHistory: hasHistory,
+            };
+
+            if (map[enriched._status]) map[enriched._status].push(enriched);
+            else map.pending.push(enriched);
         }
         return map;
-    }, [allItems]);
+    }, [scopedAllItems]);
 
     const counts = useMemo(
         () => ({
@@ -700,197 +888,51 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
     );
 
     // Unique persons and voucher types for filter dropdowns
-    const getPersonDisplayValue = useCallback((it: PendVchAuthItem): string => {
-        const history = (it as any)?.VOUCHER_ACTIVITY_HISTORY;
-        if (Array.isArray(history) && history.length > 0) {
-            const created = history.find(
-                (h: any) =>
-                    String(h?.activity_type ?? '')
-                        .trim()
-                        .toLowerCase() === 'created',
-            );
-            const pick = created ?? history[0];
-            const nameRaw = typeof pick?.name === 'string' ? pick.name.trim() : '';
-            const emailRaw = typeof pick?.email === 'string' ? pick.email.trim() : '';
-            if (nameRaw) return nameRaw;
-            if (emailRaw) return emailRaw;
-        }
-        return String((it as any)?.SUBMITTER ?? '').trim();
-    }, []);
-
     const uniquePersons = useMemo(() => {
         const set = new Set<string>();
-        allItems.forEach((i) => {
+        scopedAllItems.forEach((i) => {
             const p = getPersonDisplayValue(i);
             if (p) set.add(p);
         });
         return Array.from(set).sort();
-    }, [allItems, getPersonDisplayValue]);
+    }, [scopedAllItems]);
 
     const uniqueVoucherTypes = useMemo(() => {
         const set = new Set<string>();
-        allItems.forEach(i => { if (i.VCHTYPE) set.add(i.VCHTYPE); });
+        scopedAllItems.forEach(i => { if (i.VCHTYPE) set.add(i.VCHTYPE); });
         return Array.from(set).sort();
-    }, [allItems]);
+    }, [scopedAllItems]);
 
     const filteredItems = useMemo(() => {
-        let items = grouped[activeTab];
+        let items = grouped[activeTab] || [];
         if (search.trim()) {
             const q = search.toLowerCase();
             items = items.filter(
                 (i) =>
-                        String(i.VCHNO ?? '')
-                            .toLowerCase()
-                            .includes(q) ||
-                        String((i as any).PARTICULARS ?? '')
-                            .toLowerCase()
-                            .includes(q) ||
-                        String(i.SUBMITTER ?? '')
-                            .toLowerCase()
-                            .includes(q) ||
-                        String((i as any).ORIGINALNARRATION ?? '').toLowerCase().includes(q) ||
-                        String(i.VCHTYPE ?? '')
-                            .toLowerCase()
-                            .includes(q) ||
-                        (Array.isArray((i as any)?.VOUCHER_ACTIVITY_HISTORY) &&
-                            (i as any).VOUCHER_ACTIVITY_HISTORY.some((h: any) => {
-                                const name = String(h?.name ?? '').toLowerCase();
-                                const email = String(h?.email ?? '').toLowerCase();
-                                const at = String(h?.activity_type ?? '')
-                                    .trim()
-                                    .toLowerCase();
-                                if (at !== 'created') return false;
-                                return name.includes(q) || email.includes(q);
-                            })),
+                    String(i.VCHNO ?? '').toLowerCase().includes(q) ||
+                    String(i.PARTICULARS ?? '').toLowerCase().includes(q) ||
+                    String(i.SUBMITTER ?? '').toLowerCase().includes(q) ||
+                    String(i.ORIGINALNARRATION ?? '').toLowerCase().includes(q) ||
+                    String(i.VCHTYPE ?? '').toLowerCase().includes(q) ||
+                    i._personName.toLowerCase().includes(q),
             );
         }
-        // Apply filters
         if (filterPerson) {
-            items = items.filter((i) => getPersonDisplayValue(i) === filterPerson);
+            items = items.filter((i) => i._personName === filterPerson);
         }
         if (filterVoucher) {
-            items = items.filter(i => i.VCHTYPE === filterVoucher);
+            items = items.filter((i) => i.VCHTYPE === filterVoucher);
         }
-        // Apply sort
         if (sortBy) {
-            const parseDate = (d: string) => {
-                const raw = String(d ?? '').trim();
-                if (!raw) return 0;
-
-                const datePart = raw.split(' ')[0].trim();
-                const maybeIso = Date.parse(datePart);
-                if (!isNaN(maybeIso)) return maybeIso;
-
-                // Expected card format like: "20-Mar-26"
-                const m = datePart.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
-                if (m) {
-                    const day = Number(m[1]);
-                    const mon = m[2].toLowerCase();
-                    let year = Number(m[3]);
-                    if (year < 100) year += 2000;
-
-                    const monthMap: Record<string, number> = {
-                        jan: 0,
-                        feb: 1,
-                        mar: 2,
-                        apr: 3,
-                        may: 4,
-                        jun: 5,
-                        jul: 6,
-                        aug: 7,
-                        sep: 8,
-                        oct: 9,
-                        nov: 10,
-                        dec: 11,
-                    };
-                    const monthIdx = monthMap[mon] ?? 0;
-                    const dt = new Date(year, monthIdx, day);
-                    const t = dt.getTime();
-                    return isNaN(t) ? 0 : t;
-                }
-
-                return 0;
-            };
-
-            /** Full voucher DATE string including time when present (else date-only like parseDate). */
-            const parseVoucherDateTime = (d: string) => {
-                const raw = String(d ?? '').trim();
-                if (!raw) return 0;
-                const fullTs = Date.parse(raw);
-                if (!isNaN(fullTs)) return fullTs;
-                return parseDate(raw);
-            };
-
-            /** Tie-break: non-empty history before empty when same day and same activity time. */
-            const hasActivityHistory = (item: (typeof items)[number]) => {
-                const h = (item as any).VOUCHER_ACTIVITY_HISTORY;
-                return Array.isArray(h) && h.length > 0;
-            };
-
-            /** Activity instant: last history `created_at`, else full voucher DATE/time when parseable. */
-            const getNewestOldestTime = (item: (typeof items)[number]) => {
-                const history = (item as any).VOUCHER_ACTIVITY_HISTORY;
-                if (Array.isArray(history) && history.length > 0) {
-                    const last = history[history.length - 1];
-                    const created =
-                        last?.created_at ?? last?.CREATED_AT ?? last?.createdAt;
-                    if (created != null && String(created).trim()) {
-                        const t = Date.parse(String(created).trim());
-                        if (!isNaN(t)) return t;
-                    }
-                }
-                return parseVoucherDateTime(String((item as any).DATE ?? ''));
-            };
-
             items = [...items].sort((a, b) => {
-                if (sortBy === 'newest' || sortBy === 'oldest') {
-                    const dayA = parseDate(String((a as any).DATE ?? ''));
-                    const dayB = parseDate(String((b as any).DATE ?? ''));
-                    if (dayA !== dayB) {
-                        return sortBy === 'newest' ? dayB - dayA : dayA - dayB;
-                    }
-                    const ta = getNewestOldestTime(a);
-                    const tb = getNewestOldestTime(b);
-                    if (ta !== tb) {
-                        return sortBy === 'newest' ? tb - ta : ta - tb;
-                    }
-                    const ha = hasActivityHistory(a);
-                    const hb = hasActivityHistory(b);
-                    if (ha !== hb) {
-                        return ha ? -1 : 1;
-                    }
-                    return String((a as any).MASTERID ?? '').localeCompare(
-                        String((b as any).MASTERID ?? ''),
-                    );
+                if (sortBy === 'newest') {
+                    return b._sortDate - a._sortDate || b._sortTime - a._sortTime || (b._hasHistory ? 1 : -1) || String(b.MASTERID).localeCompare(String(a.MASTERID));
                 }
-
-                const parseMoney = (raw: unknown): number => {
-                    const s0 = String(raw ?? '').trim();
-                    if (!s0) return 0;
-                    // Remove thousand separators
-                    let s = s0.replace(/,/g, '');
-
-                    // Handle "(-)123.45" → "-123.45"
-                    s = s.replace(/^\(\s*-\s*\)/, '-');
-                    // Fallback: convert any "(-)" occurrence to a leading "-"
-                    s = s.replace(/\(\s*-\s*\)/g, '-');
-
-                    // Handle "(123.45)" → "-123.45" (whole number wrapped in parentheses)
-                    if (/^\(.*\)$/.test(s)) s = `-${s.slice(1, -1)}`;
-
-                    const n = parseFloat(s);
-                    return isNaN(n) ? 0 : n;
-                };
-
-                // Use signed values so "(-)X" participates correctly in highest/lowest sorting.
-                const amtA = parseMoney((a as any).DEBITAMT) + parseMoney((a as any).CREDITAMT);
-                const amtB = parseMoney((b as any).DEBITAMT) + parseMoney((b as any).CREDITAMT);
-
-                // Per requirement:
-                // - "Highest Amount" should be decreasing (high → low)
-                // - "Lowest Amount" should be increasing (low → high)
-                if (sortBy === 'highest') return amtB - amtA;
-                if (sortBy === 'lowest') return amtA - amtB;
+                if (sortBy === 'oldest') {
+                    return a._sortDate - b._sortDate || a._sortTime - b._sortTime || (a._hasHistory ? -1 : 1) || String(a.MASTERID).localeCompare(String(b.MASTERID));
+                }
+                if (sortBy === 'highest') return b._sortAmount - a._sortAmount;
+                if (sortBy === 'lowest') return a._sortAmount - b._sortAmount;
                 return 0;
             });
         }
@@ -984,7 +1026,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             const itemsToReject = rejectingItem
                 ? [rejectingItem]
-                : allItems.filter((it) => selectedIds.has(it.MASTERID));
+                : scopedAllItems.filter((it) => selectedIds.has(it.MASTERID));
 
             if (itemsToReject.length === 0) {
                 setShowRejectInput(false);
@@ -1016,7 +1058,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             if (isUnauthorizedError(e)) return;
             Alert.alert('Error', e?.message ?? 'Rejection failed');
         }
-    }, [rejectingItem, rejectComment, allItems, selectedIds, toDate, fetchData, clearSelectedForTab, activeTab]);
+    }, [rejectingItem, rejectComment, scopedAllItems, selectedIds, toDate, fetchData, clearSelectedForTab, activeTab]);
 
     const [showResentModal, setShowResentModal] = useState(false);
 
@@ -1099,7 +1141,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
             const getSelectedInCurrentTab = () => {
                 if (selectedIds.size === 0) return [item];
-                return allItems.filter(
+                return scopedAllItems.filter(
                     (it) =>
                         selectedIds.has(it.MASTERID) &&
                         String(it.STATUS ?? '').toLowerCase() === currentStatus,
@@ -1441,7 +1483,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         },
         [
             activeTab,
-            allItems,
+            scopedAllItems,
             canApproveReject,
             handleApprove,
             handleCardPress,
@@ -1577,7 +1619,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
 
                 {showSearchDivider && <View style={styles.searchDividerLine} />}
 
-                {/* Content – always show FlatList; RefreshControl handles spinner */}
+                {/* Content – spinner while refetching or while client-only period rescope paints */}
                 {chunkProgress ? (
                     // Centered progress bar while chunked loading is in progress
                     <View style={styles.center}>
@@ -1613,6 +1655,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                 />
                             </View>
                         </View>
+                    </View>
+                ) : (loading && !chunkProgress) || periodRescopeOverlay ? (
+                    <View style={styles.center}>
+                        <ActivityIndicator size="large" color={colors.primary_blue} />
                     </View>
                 ) : !loading && error ? (
                     <View style={styles.center}>
@@ -1746,8 +1792,12 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                 toDate={toDate}
                 onApply={(f, t) => {
                     userAdjustedPeriodRef.current = true;
-                    setFromDate(f);
-                    setToDate(t);
+                    if (f === fromDate && t === toDate) return;
+                    setPeriodRescopeOverlay(true);
+                    setTimeout(() => {
+                        setFromDate(f);
+                        setToDate(t);
+                    }, 0);
                 }}
             />
 

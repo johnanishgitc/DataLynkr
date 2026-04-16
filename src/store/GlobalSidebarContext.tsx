@@ -4,13 +4,14 @@
  * so every screen can call openSidebar() without duplicating sidebar state,
  * rendering, and navigation logic.
  */
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { CommonActions } from '@react-navigation/native';
 import { AppSidebar, type AppSidebarMenuItem } from '../components/AppSidebar';
 import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
+import { DEFAULT_REPORT } from '../screens/ledger/utils';
 import { useModuleAccess } from './ModuleAccessContext';
 import { getCompany } from './storage';
 
@@ -54,38 +55,129 @@ export const useGlobalSidebar = () => useContext(GlobalSidebarContext);
 
 // ── Helper: detect active target from navigation state ─────────────────
 
+function mapRouteNameToSidebarTarget(routeName?: string): string | undefined {
+  if (!routeName) return undefined;
+
+  // Direct main-stack routes
+  if (routeName === 'Payments') return 'Payments';
+  if (routeName === 'Collections') return 'Collections';
+  if (routeName === 'ExpenseClaims') return 'ExpenseClaims';
+  if (routeName === 'DataManagement') return 'DataManagement';
+  if (routeName.startsWith('BCommerce')) return 'BCommerce';
+
+  // Orders stack
+  if (
+    routeName === 'OrderEntry' ||
+    routeName === 'OrderEntryItemDetail' ||
+    routeName === 'OrderSuccess' ||
+    routeName === 'AddCustomer'
+  ) {
+    return 'OrderEntry';
+  }
+
+  // Home stack
+  if (routeName === 'SalesDashboard') return 'SalesDashboard';
+
+  // Ledger stack
+  if (
+    routeName === 'LedgerMain' ||
+    routeName === 'LedgerEntries' ||
+    routeName === 'SalesOrderVoucherDetails' ||
+    routeName === 'SalesOrderLineDetail' ||
+    routeName === 'SalesOrderOrderDetails' ||
+    routeName === 'ClearedOrderDetails' ||
+    routeName === 'VoucherDetails' ||
+    routeName === 'BillAllocations' ||
+    routeName === 'MoreDetails'
+  ) {
+    return 'LedgerTab';
+  }
+
+  // Approvals stack
+  if (routeName === 'ApprovalsScreen') return 'ApprovalsTab';
+
+  // Summary stack
+  if (
+    routeName === 'StockSummary' ||
+    routeName === 'StockGroupSummary' ||
+    routeName === 'StockItemMonthly' ||
+    routeName === 'StockItemVouchers'
+  ) {
+    return 'SummaryTab';
+  }
+
+  // Tab routes
+  if (routeName === 'HomeTab') return 'SalesDashboard';
+  if (routeName === 'OrdersTab') return 'OrderEntry';
+  if (routeName === 'LedgerTab') return 'LedgerTab';
+  if (routeName === 'ApprovalsTab') return 'ApprovalsTab';
+  if (routeName === 'SummaryTab') return 'SummaryTab';
+
+  return undefined;
+}
+
 function getActiveTargetFromNavigation(): string | undefined {
   if (!navigationRef.isReady()) return undefined;
-  const state = navigationRef.getState();
-  if (!state) return undefined;
 
-  // MainStack → MainTabs route
-  const currentMainRoute = state.routes[state.index];
-  if (currentMainRoute?.name === 'Payments') return 'Payments';
-  if (currentMainRoute?.name === 'Collections') return 'Collections';
-  if (currentMainRoute?.name === 'ExpenseClaims') return 'ExpenseClaims';
-  if (currentMainRoute?.name === 'DataManagement') return 'DataManagement';
+  // Most reliable on initial app load: the currently focused leaf route.
+  const activeLeafName = navigationRef.getCurrentRoute()?.name;
+  const fromLeaf = mapRouteNameToSidebarTarget(activeLeafName);
+  if (fromLeaf) return fromLeaf;
 
-  // Inside MainTabs, look at which tab is active
-  const tabState = (currentMainRoute as any)?.state;
-  if (!tabState) return undefined;
-  const activeTab = tabState.routes?.[tabState.index];
-  if (!activeTab) return undefined;
+  // Fallback to root state route when leaf route is unavailable.
+  const state = navigationRef.getState() as any;
+  const currentMainRoute = state?.routes?.[state?.index ?? 0];
+  return mapRouteNameToSidebarTarget(currentMainRoute?.name);
+}
 
-  switch (activeTab.name) {
-    case 'HomeTab':
-      return 'SalesDashboard';
-    case 'OrdersTab':
-      return 'OrderEntry';
-    case 'LedgerTab':
-      return 'LedgerTab';
-    case 'ApprovalsTab':
-      return 'ApprovalsTab';
-    case 'SummaryTab':
-      return 'SummaryTab';
-    default:
-      return activeTab.name;
+function getActiveLedgerReportFromNavigation(): string | undefined {
+  if (!navigationRef.isReady()) return undefined;
+  const currentRouteParams = navigationRef.getCurrentRoute()?.params as
+    | { report_name?: string; params?: { report_name?: string } }
+    | undefined;
+  if (typeof currentRouteParams?.report_name === 'string' && currentRouteParams.report_name.length > 0) {
+    return currentRouteParams.report_name;
   }
+  if (
+    typeof currentRouteParams?.params?.report_name === 'string' &&
+    currentRouteParams.params.report_name.length > 0
+  ) {
+    return currentRouteParams.params.report_name;
+  }
+
+  const state = navigationRef.getState() as any;
+  if (!state?.routes?.length) return undefined;
+
+  // Handle being inside MainTabs -> LedgerTab stack
+  const rootRoute = state.routes[state.index ?? 0];
+  const mainTabsState = rootRoute?.name === 'MainTabs' ? rootRoute?.state : undefined;
+  const activeTabRoute = mainTabsState?.routes?.[mainTabsState.index ?? 0];
+  if (activeTabRoute?.name === 'LedgerTab') {
+    const ledgerState = activeTabRoute?.state;
+    const activeLedgerRoute = ledgerState?.routes?.[ledgerState.index ?? 0];
+    const directParam = activeLedgerRoute?.params?.report_name;
+    if (typeof directParam === 'string' && directParam.length > 0) return directParam;
+    const nestedParam = activeLedgerRoute?.params?.params?.report_name;
+    if (typeof nestedParam === 'string' && nestedParam.length > 0) return nestedParam;
+  }
+
+  // Fallback: scan deepest active route params
+  let route = rootRoute;
+  while (route?.state?.routes?.length) {
+    const nested = route.state;
+    route = nested.routes[nested.index ?? 0];
+  }
+  const deepDirect = route?.params?.report_name;
+  if (typeof deepDirect === 'string' && deepDirect.length > 0) return deepDirect;
+  const deepNested = route?.params?.params?.report_name;
+  if (typeof deepNested === 'string' && deepNested.length > 0) return deepNested;
+
+  // First open of LedgerEntries may not carry params yet; keep sidebar in sync
+  // with Ledger screen default selection.
+  const activeTarget = getActiveTargetFromNavigation();
+  if (activeTarget === 'LedgerTab') return DEFAULT_REPORT;
+
+  return undefined;
 }
 
 function getDeepestActiveRouteName(state: any): string | undefined {
@@ -205,6 +297,7 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
 
 export function GlobalSidebarProvider({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [closingDarkThemeOverride, setClosingDarkThemeOverride] = useState<boolean | null>(null);
   const [company, setCompany] = useState('');
   const [menuItems, setMenuItems] = useState<AppSidebarMenuItem[]>(SIDEBAR_MENU_SALES);
   const [restrictAccess, setRestrictAccess] = useState(false); // Default false for root screens
@@ -218,7 +311,11 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
     }
   }, [sidebarOpen]);
 
-  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const openSidebar = useCallback(() => {
+    // Reset any prior close-animation theme override when opening.
+    setClosingDarkThemeOverride(null);
+    setSidebarOpen(true);
+  }, []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   const EdgeSwipe = useEdgeSwipeToOpenSidebar(openSidebar);
@@ -251,6 +348,10 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
     }
 
     const defaultHandler = () => {
+      // Keep B-Commerce dark theme while closing only when navigating within B-Commerce.
+      // For other targets, switch to normal theme immediately during close animation.
+      const isBCommerceTarget = item.target.startsWith('BCommerce');
+      setClosingDarkThemeOverride(isBCommerceTarget);
       setSidebarOpen(false);
       handleSidebarItemPress(item);
     };
@@ -272,6 +373,16 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
   }, [refreshModuleAccess]);
 
   const activeTarget = sidebarOpen ? getActiveTargetFromNavigation() : undefined;
+  const activeLedgerReport = sidebarOpen ? getActiveLedgerReportFromNavigation() : undefined;
+
+  // Detect if sidebar was opened from a BCommerce screen
+  const isBCommerceDarkTheme = useMemo(() => {
+    if (!navigationRef.isReady()) return false;
+    const state = navigationRef.getState();
+    const deepRoute = getDeepestActiveRouteName(state);
+    if (!deepRoute) return false;
+    return deepRoute.startsWith('BCommerce');
+  }, [sidebarOpen]);
 
   const contextValue: GlobalSidebarContextValue = {
     openSidebar,
@@ -290,10 +401,12 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
         menuItems={menuItems}
         restrictAccess={restrictAccess}
         activeTarget={activeTarget}
+        activeLedgerReport={activeLedgerReport}
         companyName={company || undefined}
         onItemPress={onItemPress}
         onConnectionsPress={goToAdminDashboard}
         onCompanyChange={onCompanyChange}
+        darkTheme={closingDarkThemeOverride ?? isBCommerceDarkTheme}
       />
       <EdgeSwipe />
     </GlobalSidebarContext.Provider>

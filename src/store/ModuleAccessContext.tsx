@@ -1,10 +1,11 @@
 import React, { createContext, useContext, ReactNode } from 'react';
-import { useUserAccess, type ModuleAccess, type PlaceOrderPermissions, type PlaceOrderTransConfig } from '../hooks/useUserAccess';
+import { useUserAccess, type ModuleAccess, type PlaceOrderPermissions, type PlaceOrderTransConfig, type EcommercePlaceOrderAccess } from '../hooks/useUserAccess';
 
 type ModuleAccessContextValue = {
     moduleAccess: ModuleAccess;
     permissions: PlaceOrderPermissions;
     transConfig: PlaceOrderTransConfig;
+    ecommercePlaceOrderAccess: EcommercePlaceOrderAccess;
     loading: boolean;
     refresh: (resetAccess?: boolean) => void;
     refreshAndWait: (resetAccess?: boolean) => Promise<void>;
@@ -14,9 +15,9 @@ const ModuleAccessContext = createContext<ModuleAccessContextValue | null>(null)
 
 /** Provides module-level access flags and place-order permissions to the whole tab tree. */
 export function ModuleAccessProvider({ children }: { children: ReactNode }) {
-    const { moduleAccess, permissions, transConfig, loading, refresh, refreshAndWait } = useUserAccess();
+    const { moduleAccess, permissions, transConfig, ecommercePlaceOrderAccess, loading, refresh, refreshAndWait } = useUserAccess();
     return (
-        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, transConfig, loading, refresh, refreshAndWait }}>
+        <ModuleAccessContext.Provider value={{ moduleAccess, permissions, transConfig, ecommercePlaceOrderAccess, loading, refresh, refreshAndWait }}>
             {children}
         </ModuleAccessContext.Provider>
     );
@@ -43,6 +44,13 @@ export function useModuleAccess(): ModuleAccessContextValue {
                 enable_batchGodown: false,
             },
             transConfig: {},
+            ecommercePlaceOrderAccess: {
+                show_itemdesc: false,
+                show_rateamt_Column: true,
+                show_image: false,
+                defaultQty: undefined,
+                saveOptionalForPlaceOrder: false,
+            },
             loading: false,
             refresh: () => { },
             refreshAndWait: async () => { },
