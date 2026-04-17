@@ -150,6 +150,19 @@ export default function BCommerceCheckoutScreen() {
   const [zipCode, setZipCode] = useState('');
   const [confirmAddressVisible, setConfirmAddressVisible] = useState(false);
 
+  // Sync system bars with modal visibility by updating React Navigation options.
+  // This is required because MainStack enforces options={{ navigationBarColor: '#ffffff' }},
+  // which overrides SystemNavigationBar if we try to set it manually.
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      navigation.setOptions({
+        navigationBarColor: confirmAddressVisible ? '#808080' : '#ffffff',
+        statusBarColor: confirmAddressVisible ? '#808080' : '#ffffff',
+        statusBarStyle: confirmAddressVisible ? 'light' : 'dark',
+      });
+    }
+  }, [confirmAddressVisible, navigation]);
+
   const [selectedCountry, setSelectedCountry] = useState<ICountry | null>(null);
   const [selectedState, setSelectedState] = useState<IState | null>(null);
 
@@ -736,8 +749,8 @@ export default function BCommerceCheckoutScreen() {
   ]);
 
   return (
+    <>
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
       {/* Header */}
       <View style={styles.header}>
@@ -925,14 +938,11 @@ export default function BCommerceCheckoutScreen() {
           }
         }}
       />
+    </View>
 
-      {/* Address Confirmation Modal */}
-      <Modal
-        visible={confirmAddressVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setConfirmAddressVisible(false)}
-      >
+    {/* Address Confirmation Overlay (replaces Modal for system bar sync) */}
+    {confirmAddressVisible && (
+      <View style={[StyleSheet.absoluteFill, { zIndex: 9999, elevation: 999 }]}>
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModalContent}>
             <Text style={styles.confirmModalTitle}>Is this the correct Delivery Address?</Text>
@@ -958,8 +968,9 @@ export default function BCommerceCheckoutScreen() {
             </View>
           </View>
         </View>
-      </Modal>
-    </View>
+      </View>
+    )}
+    </>
   );
 }
 

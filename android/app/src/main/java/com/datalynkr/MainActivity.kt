@@ -1,5 +1,7 @@
 package com.datalynkr
 
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -13,6 +15,13 @@ class MainActivity : ReactActivity() {
    * rendering of the component.
    */
   override fun getMainComponentName(): String = "DataLynkr"
+
+  override fun attachBaseContext(newBase: Context) {
+    val overrideConfig = Configuration(newBase.resources.configuration)
+    overrideConfig.fontScale = 1.0f
+    val context = newBase.createConfigurationContext(overrideConfig)
+    super.attachBaseContext(context)
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     // Prevents Fragment state restoration crashes with react-native-screens.

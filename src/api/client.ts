@@ -480,6 +480,10 @@ export const apiService = {
   /** S3 attachment: step 3 – confirm upload and get viewUrl */
   confirmImageUpload: (body: import('./models').ImageConfirmRequest) =>
     getApi().post<import('./models').ImageConfirmResponse>('api/images/confirm', body),
+
+  /** S3 attachment: delete image */
+  deleteImage: (body: { s3Key: string }) =>
+    getApi().post<{ success?: boolean; message?: string }>('api/images/delete', body),
 };
 
 export default apiService;

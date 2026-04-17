@@ -357,16 +357,23 @@ export default function StockItemVouchers() {
     }, [fetchData]);
 
     /** Closing balance from last voucher's closing.amt or closing.value */
-    const closingBalanceDisplay = useMemo(() => {
+    const closingBalance = useMemo(() => {
         const last = vouchers.length > 0 ? vouchers[vouchers.length - 1] : null;
-        const closing = last?.closing;
-        if (!closing) return '- - - -';
-        if (typeof (closing as { amt?: string }).amt === 'string' && (closing as { amt?: string }).amt !== '') {
-            return fmtAmt((closing as { amt: string }).amt);
+        const closing = last?.closing ?? opening;
+        if (!closing) return { qty: '', value: '- - - -' };
+
+        let valStr = '- - - -';
+        if (typeof (closing as any).amt === 'string' && (closing as any).amt !== '') {
+            valStr = fmtAmt((closing as any).amt);
+        } else if (typeof closing.value === 'number') {
+            valStr = fmtValue(closing.value);
         }
-        if (typeof closing.value === 'number') return fmtValue(closing.value);
-        return '- - - -';
-    }, [vouchers]);
+
+        return {
+            qty: closing.qty || '',
+            value: valStr
+        };
+    }, [vouchers, opening]);
 
     const onScroll = useMemo(
         () =>
@@ -379,7 +386,7 @@ export default function StockItemVouchers() {
 
     const renderInwardOutward = (label: string, type: 'inward' | 'outward', data: StockQtyValue) => (
         <View style={s.ioRow}>
-            <View style={s.ioLabelWrap}>
+            <View style={s.openingLabel}>
                 {type === 'inward' ? <InwardIcon /> : <OutwardIcon />}
                 <Text style={s.ioLabel}>{label}</Text>
             </View>
@@ -415,13 +422,13 @@ export default function StockItemVouchers() {
                         <View style={s.ioQty}>
                             <Text style={s.openingValText} numberOfLines={1}>{fmtQty(opening?.qty)}</Text>
                         </View>
-                <View style={s.ioValue}>
-                    <Text style={s.openingValText} numberOfLines={1}>
-                        {typeof opening?.amt === 'string' && opening.amt !== ''
-                            ? fmtAmt(opening.amt)
-                            : fmtValue(opening?.value)}
-                    </Text>
-                </View>
+                        <View style={s.ioValue}>
+                            <Text style={s.openingValText} numberOfLines={1}>
+                                {typeof opening?.amt === 'string' && opening.amt !== ''
+                                    ? fmtAmt(opening.amt)
+                                    : fmtValue(opening?.value)}
+                            </Text>
+                        </View>
                     </View>
                 </View>
             );
@@ -577,9 +584,18 @@ export default function StockItemVouchers() {
                     },
                 ]}
             >
-                <View style={s.closingBalanceBar}>
-                    <Text style={s.closingBalanceLabel}>{strings.closing_balance.toUpperCase()}</Text>
-                    <Text style={s.closingBalanceValue}>{closingBalanceDisplay}</Text>
+                <View style={[s.closingBalanceBar, { paddingVertical: 0, height: '100%' }]}>
+                    <View style={{ width: 186 }}>
+                        <Text style={s.closingBalanceLabel}>{'BALANCE'}</Text>
+                    </View>
+                    <View style={s.ioValCols}>
+                        <View style={s.ioQty}>
+                            <Text style={s.closingBalanceValue} numberOfLines={1}>{closingBalance.qty}</Text>
+                        </View>
+                        <View style={s.ioValue}>
+                            <Text style={s.closingBalanceValue} numberOfLines={1}>{closingBalance.value}</Text>
+                        </View>
+                    </View>
                 </View>
             </Animated.View>
 

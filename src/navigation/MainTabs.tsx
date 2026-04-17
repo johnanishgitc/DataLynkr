@@ -47,7 +47,9 @@ function ordersTabBarStyle({ route }: { route: Parameters<typeof getFocusedRoute
  *  height:0 prevents react-navigation from adding bottom padding to the screen content. */
 function approvalsTabBarStyle({ route }: { route: Parameters<typeof getFocusedRouteNameFromRoute>[0] }) {
   const routeName = getFocusedRouteNameFromRoute(route);
-  if (routeName === 'VoucherDetailView') return { display: 'none' as const, height: 0 };
+  if (routeName === 'VoucherDetailView' || routeName === 'BillAllocations' || routeName === 'MoreDetails') {
+    return { display: 'none' as const, height: 0 };
+  }
   return undefined;
 }
 

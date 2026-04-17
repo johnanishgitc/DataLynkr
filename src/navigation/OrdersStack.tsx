@@ -11,7 +11,7 @@ const Stack = createNativeStackNavigator<OrdersStackParamList>();
 
 export default function OrdersStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="OrderEntry">
+    <Stack.Navigator screenOptions={{ headerShown: false, navigationBarColor: '#ffffff' } as any} initialRouteName="OrderEntry">
       <Stack.Screen name="OrderEntry" component={OrderEntry} />
       <Stack.Screen name="OrderEntryItemDetail" component={OrderEntryItemDetail} />
       <Stack.Screen name="OrderSuccess" component={OrderSuccess} />

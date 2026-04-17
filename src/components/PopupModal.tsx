@@ -9,6 +9,7 @@ import {
     Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import DeletePopupIcon from '../assets/DeletePopupIcon';
 import { colors } from '../constants/colors';
 
@@ -63,6 +64,13 @@ export function PopupModal({
     const isSuccess = variant === 'success';
     const isCenter = placement === 'center' || isSuccess;
 
+    useEffect(() => {
+        if (visible) {
+            SystemNavigationBar.setNavigationColor('#ffffff');
+            SystemNavigationBar.setBarMode('dark');
+        }
+    }, [visible]);
+
     const effectiveTitle =
         title ??
         (variant === 'success' ? 'Request Sent' : 'Are you sure you want to delete this?');
@@ -83,9 +91,9 @@ export function PopupModal({
     return (
         <>
             <Modal
-                statusBarTranslucent
                 visible={visible}
                 transparent
+                statusBarTranslucent
                 animationType={isCenter ? 'fade' : 'slide'}
                 onRequestClose={onCancel}
             >

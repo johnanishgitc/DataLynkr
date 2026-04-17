@@ -33,4 +33,4 @@ This project enforces 16KB ELF segment alignment for all native (`.so`) librarie
 - **Compose Disabled**: Avoid adding Compose dependencies as they force Kotlin 2.0 compiler plugins.
 
 
-dont make any changes to the git
+dont make any changes to the git nor pull any changes from it

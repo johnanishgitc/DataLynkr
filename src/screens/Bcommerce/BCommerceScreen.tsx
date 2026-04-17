@@ -223,6 +223,10 @@ export default function BCommerceScreen() {
   }, [showRateAmt, sortBy]);
 
   const loadCachedItems = useCallback(async () => {
+    // Clear stale in-memory data immediately so old items never flash while
+    // the async DB read is in progress.
+    setItems([]);
+    setLoading(true);
     try {
       const cache = await getStockItemsFromDataManagementCache();
       const data = (cache?.data as StockItem[]) || [];
@@ -246,20 +250,19 @@ export default function BCommerceScreen() {
       refreshVoucherTypes();
       // Always reload latest cached stock items when returning to B-Commerce.
       // This picks up manual Data Management refreshes done while away.
-      void loadCachedItems();
+      // If the user cleared the cache in Data Management, we auto-download immediately.
+      loadCachedItems().then((hasData) => {
+        if (!hasData) {
+          console.log('[BCommerceScreen] Cache empty on focus, starting automatic download...');
+          setIsSyncing(true);
+          refreshAllDataManagementData();
+        }
+      });
     }, [refreshVoucherTypes, loadCachedItems])
   );
 
   useEffect(() => {
-    loadCachedItems().then((hasData) => {
-      // If no items found in cache, start a background refresh from API
-      if (!hasData) {
-        console.log('[BCommerceScreen] No items in cache, triggering background sync...');
-        refreshAllDataManagementData();
-      }
-    });
-
-    // Subscribe to background sync status changes
+    // Subscribe to background sync status changes first
     // When a sync completes (isSyncing false), reload the cache items
     let lastSyncingState = false;
     const unsubscribe = subscribeToDataManagementSync((syncing) => {
@@ -269,6 +272,16 @@ export default function BCommerceScreen() {
         loadCachedItems();
       }
       lastSyncingState = syncing;
+    });
+
+    loadCachedItems().then((hasData) => {
+      if (!hasData) {
+        console.log('[BCommerceScreen] No items in cache, starting automatic download...');
+        // Set syncing state immediately to show spinner right away
+        // This avoids the flash of "No items found" message
+        setIsSyncing(true);
+        refreshAllDataManagementData();
+      }
     });
 
     return unsubscribe;
@@ -306,9 +319,11 @@ export default function BCommerceScreen() {
 
   const renderTopBar = () => (
     <View style={styles.topBar}>
-      <TouchableOpacity style={styles.topBarBack} onPress={openSidebar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-        <Icon name="menu" size={28} color="#0E172B" />
-      </TouchableOpacity>
+      <View style={{ width: 60, alignItems: 'flex-start' }}>
+        <TouchableOpacity style={styles.topBarBack} onPress={openSidebar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Icon name="menu" size={28} color="#0E172B" />
+        </TouchableOpacity>
+      </View>
 
       {/* Customer name display */}
       <TouchableOpacity
@@ -323,16 +338,18 @@ export default function BCommerceScreen() {
         <Icon name="chevron-down" size={18} color="#0E172B" />
       </TouchableOpacity>
 
-      <View style={styles.topBarRight}>
-        <TouchableOpacity style={styles.iconButtonSolid} onPress={() => (navigation as any).navigate('BCommerceCart')}>
-          <CartIcon width={20} height={20} />
-          {/* Cart item count badge */}
-          {cartCount > 0 && (
-            <View style={styles.cartBadge}>
-              <Text style={styles.cartBadgeText}>{cartCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      <View style={{ width: 60, alignItems: 'flex-end' }}>
+        <View style={styles.topBarRight}>
+          <TouchableOpacity style={styles.iconButtonSolid} onPress={() => (navigation as any).navigate('BCommerceCart')}>
+            <CartIcon width={20} height={20} />
+            {/* Cart item count badge */}
+            {cartCount > 0 && (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{cartCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -435,11 +452,10 @@ export default function BCommerceScreen() {
     if (uniqueCats.length === 0) return null;
 
     // Responsive category count calculation
-    // Card width (70) + Gap (16) = 86px per item
-    // Available width = Screen width - (Horizontal padding 16 * 2)
-    const horizontalPadding = 32;
-    const itemFullWidth = 86;
-    const maxVisible = Math.max(4, Math.floor((width - horizontalPadding + 16) / itemFullWidth));
+    // Calculate exactly how many complete items can fit without scrolling
+    // Item width = 68, minimum gap = 12
+    // Formula: n * 80 <= width - 20
+    const maxVisible = Math.max(4, Math.floor((width - 20) / 80));
 
     const displayedCats = uniqueCats.slice(0, maxVisible);
     const hasMore = uniqueCats.length > maxVisible;
@@ -457,7 +473,7 @@ export default function BCommerceScreen() {
             </TouchableOpacity>
           )}
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesList}>
+        <View style={styles.categoriesList}>
           {displayedCats.map((catName, index) => {
             const isSelected = selectedCategory === catName;
             return (
@@ -475,7 +491,7 @@ export default function BCommerceScreen() {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
     );
   };
@@ -709,23 +725,18 @@ export default function BCommerceScreen() {
                 <>
                   <ActivityIndicator size="large" color="#0E172B" />
                   <Text style={[styles.emptyText, { marginTop: 16 }]}>
-                    Refreshing data in background...
+                    Loading stock items...
                   </Text>
                   <Text style={{ fontFamily: 'WorkSans-VariableFont_wght', textAlign: 'center', fontSize: 13, color: '#888', marginTop: 8 }}>
-                    Please wait while we sync with the server. Items will appear once complete.
+                    Please wait while we download your data. This may take a moment.
                   </Text>
                 </>
               ) : (
                 <>
                   <Icon name={searchQuery ? "magnify" : "package-variant"} size={48} color="#ccc" />
                   <Text style={styles.emptyText}>
-                    {searchQuery ? `No items matching "${searchQuery}"` : "No items found in Data Management Cache."}
+                    {searchQuery ? `No items matching "${searchQuery}"` : "No items found. Try refreshing from Data Management."}
                   </Text>
-                  {!searchQuery && (
-                    <Text style={{ fontFamily: 'WorkSans-VariableFont_wght', textAlign: 'center', fontSize: 13, color: '#888', marginTop: 8 }}>
-                      Background refresh triggered. If you still see this, try manual 'Refresh Data' in Data Management.
-                    </Text>
-                  )}
                 </>
               )}
             </View>
@@ -860,21 +871,33 @@ export default function BCommerceScreen() {
             initialNumToRender={20}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 40 }}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.customerModalItem}
-                onPress={() => {
-                  setSelectedCustomer(item);
-                  setCustomerSearch('');
-                  setCustomerModalVisible(false);
-                }}
-              >
-                <View style={styles.customerModalItemContent}>
-                  <Text style={styles.customerModalItemText}>{item.NAME || item.name}</Text>
-                </View>
-                <Icon name="chevron-right" size={20} color="#efefef" />
-              </TouchableOpacity>
-            )}
+            renderItem={({ item }) => {
+              const itemID = item.NAME || item.name;
+              const selectedID = (selectedCustomer as any)?.NAME || (selectedCustomer as any)?.name;
+              const isSelected = selectedID && itemID && selectedID === itemID;
+              
+              return (
+                <TouchableOpacity
+                  style={[styles.customerModalItem, isSelected && styles.customerModalItemActive]}
+                  onPress={() => {
+                    setSelectedCustomer(item);
+                    setCustomerSearch('');
+                    setCustomerModalVisible(false);
+                  }}
+                >
+                  <View style={styles.customerModalItemContent}>
+                    <Text style={[styles.customerModalItemText, isSelected && styles.customerModalItemTextActive]}>
+                      {itemID}
+                    </Text>
+                  </View>
+                  {isSelected ? (
+                    <Icon name="check-circle" size={20} color="#1f3a89" />
+                  ) : (
+                    <Icon name="chevron-right" size={20} color="#efefef" />
+                  )}
+                </TouchableOpacity>
+              );
+            }}
             ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: '#f5f5f5', marginHorizontal: 16 }} />}
           />
         </View>
@@ -1214,12 +1237,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   categoriesList: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    gap: 16,
   },
   categoryCard: {
     alignItems: 'center',
-    width: 70,
+    width: 68,
   },
   categoryIconCircle: {
     width: 60,
@@ -1488,7 +1512,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 8,
     paddingVertical: 6,
@@ -1560,5 +1584,12 @@ const styles = StyleSheet.create({
     fontFamily: 'WorkSans-VariableFont_wght',
     fontSize: 15,
     color: '#121111',
+  },
+  customerModalItemActive: {
+    backgroundColor: '#f0f4ff',
+  },
+  customerModalItemTextActive: {
+    color: '#1f3a89',
+    fontWeight: '600',
   },
 });

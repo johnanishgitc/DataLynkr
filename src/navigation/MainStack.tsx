@@ -53,12 +53,14 @@ function MainStackInner() {
         listeners={{
           focus: () => {
             if (Platform.OS === 'android') {
-              SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
+              SystemNavigationBar.setNavigationColor('#ffffff');
+              SystemNavigationBar.setBarMode('dark');
             }
           },
           blur: () => {
             if (Platform.OS === 'android') {
-              SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
+              SystemNavigationBar.setNavigationColor('#ffffff');
+              SystemNavigationBar.setBarMode('dark');
             }
           },
         }}

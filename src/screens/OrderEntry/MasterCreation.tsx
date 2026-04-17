@@ -263,10 +263,11 @@ export default function MasterCreation() {
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
-    SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
-    const t1 = setTimeout(() => SystemNavigationBar.setNavigationColor('#ffffff', 'dark'), 100);
-    const t2 = setTimeout(() => SystemNavigationBar.setNavigationColor('#ffffff', 'dark'), 350);
-    const t3 = setTimeout(() => SystemNavigationBar.setNavigationColor('#ffffff', 'dark'), 700);
+    SystemNavigationBar.setNavigationColor('#ffffff');
+    SystemNavigationBar.setBarMode('dark');
+    const t1 = setTimeout(() => { SystemNavigationBar.setNavigationColor('#ffffff'); SystemNavigationBar.setBarMode('dark'); }, 100);
+    const t2 = setTimeout(() => { SystemNavigationBar.setNavigationColor('#ffffff'); SystemNavigationBar.setBarMode('dark'); }, 350);
+    const t3 = setTimeout(() => { SystemNavigationBar.setNavigationColor('#ffffff'); SystemNavigationBar.setBarMode('dark'); }, 700);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, []);
 

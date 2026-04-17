@@ -23,12 +23,13 @@ export default function LedgerStack() {
   return (
     <View style={{ flex: 1 }}>
       <Stack.Navigator
-        screenOptions={{ headerShown: true }}
+        screenOptions={{ headerShown: false }}
         initialRouteName="LedgerEntries"
         screenListeners={{
           focus: () => {
             if (Platform.OS === 'android') {
-              SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
+              SystemNavigationBar.setNavigationColor('#ffffff');
+              SystemNavigationBar.setBarMode('dark');
             }
           },
         }}

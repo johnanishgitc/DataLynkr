@@ -6,6 +6,8 @@ import SystemNavigationBar from 'react-native-system-navigation-bar';
 import type { ApprovalsStackParamList } from './types';
 import ApprovalsScreen from '../screens/approvals/ApprovalsScreen';
 import VoucherDetailView from '../screens/VoucherDetails/VoucherDetailView';
+import BillAllocations from '../screens/VoucherDetails/BillAllocations';
+import MoreDetails from '../screens/VoucherDetails/MoreDetails';
 
 const Stack = createNativeStackNavigator<ApprovalsStackParamList>();
 
@@ -20,7 +22,8 @@ export default function ApprovalsStack() {
         screenListeners={{
           focus: () => {
             if (Platform.OS === 'android') {
-              SystemNavigationBar.setNavigationColor('#ffffff', 'dark');
+              SystemNavigationBar.setNavigationColor('#ffffff');
+              SystemNavigationBar.setBarMode('dark');
             }
           },
         }}
@@ -32,6 +35,16 @@ export default function ApprovalsStack() {
         <Stack.Screen
           name="VoucherDetailView"
           component={VoucherDetailView}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="BillAllocations"
+          component={BillAllocations}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="MoreDetails"
+          component={MoreDetails}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

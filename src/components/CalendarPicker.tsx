@@ -25,6 +25,9 @@ export interface CalendarPickerProps {
   /** Restrict selectable dates to this range (timestamps). */
   minDate?: number;
   maxDate?: number;
+  /** Optional lower/upper bounds for year picker/navigation. */
+  minYear?: number;
+  maxYear?: number;
 }
 
 function getDaysInMonth(year: number, month: number): number {
@@ -39,9 +42,15 @@ function startOfDayMs(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
-export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minDate, maxDate }: CalendarPickerProps) {
+export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minDate, maxDate, minYear, maxYear }: CalendarPickerProps) {
   const initial = value ?? new Date();
-  const [year, setYear] = useState(initial.getFullYear());
+  const initialYear = (() => {
+    const y = initial.getFullYear();
+    if (minYear != null && y < minYear) return minYear;
+    if (maxYear != null && y > maxYear) return maxYear;
+    return y;
+  })();
+  const [year, setYear] = useState(initialYear);
   const [month, setMonth] = useState(initial.getMonth());
   const [selected, setSelected] = useState<Date | null>(value ? new Date(value.getFullYear(), value.getMonth(), value.getDate()) : null);
   const [showPicker, setShowPicker] = useState<'year' | 'month' | null>(null);
@@ -54,6 +63,7 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minD
   };
 
   const prev = () => {
+    if (minYear != null && year === minYear && month === 0) return;
     if (month === 0) {
       setMonth(11);
       setYear((y) => y - 1);
@@ -61,6 +71,7 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minD
   };
 
   const next = () => {
+    if (maxYear != null && year === maxYear && month === 11) return;
     if (month === 11) {
       setMonth(0);
       setYear((y) => y + 1);
@@ -118,6 +129,8 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minD
     selected && selected.getFullYear() === cellYear && selected.getMonth() === cellMonth && selected.getDate() === day;
 
   const handleYearSelect = (selectedYear: number) => {
+    if (minYear != null && selectedYear < minYear) return;
+    if (maxYear != null && selectedYear > maxYear) return;
     setYear(selectedYear);
     setShowPicker('month');
   };
@@ -127,14 +140,25 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minD
     setShowPicker(null);
   };
 
-  // Generate year range (current year going back 100 years)
+  // Generate year range. Default remains current year going back 100 years.
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 101 }, (_, i) => currentYear - i);
+  const years =
+    minYear != null || maxYear != null
+      ? (() => {
+          const start = minYear ?? currentYear - 100;
+          const end = maxYear ?? start + 100;
+          if (end >= start) return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+          return Array.from({ length: start - end + 1 }, (_, i) => start - i);
+        })()
+      : Array.from({ length: 101 }, (_, i) => currentYear - i);
+
+  const prevDisabled = minYear != null && year === minYear && month === 0;
+  const nextDisabled = maxYear != null && year === maxYear && month === 11;
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={prev} style={styles.chevron} hitSlop={12}>
+        <TouchableOpacity onPress={prev} style={styles.chevron} hitSlop={12} disabled={prevDisabled}>
           <Icon name="chevron-left" size={24} color={CHEVRON} />
         </TouchableOpacity>
         <TouchableOpacity 
@@ -145,7 +169,7 @@ export function CalendarPicker({ value, onSelect, onDone, hideDone = false, minD
           <Text style={styles.monthYear}>{`${MONTHS_SHORT[month]} ${year}`}</Text>
           <Icon name="chevron-down" size={16} color={CHEVRON} style={styles.dropdownIcon} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={next} style={styles.chevron} hitSlop={12}>
+        <TouchableOpacity onPress={next} style={styles.chevron} hitSlop={12} disabled={nextDisabled}>
           <Icon name="chevron-right" size={24} color={CHEVRON} />
         </TouchableOpacity>
       </View>

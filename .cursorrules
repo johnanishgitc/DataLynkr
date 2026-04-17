@@ -94,4 +94,4 @@ libraries with 4KB alignment are acceptable (emulator-only architecture).
 
 
 
-dont make any changes to the git
+dont make any changes to the git nor pull any changes from git

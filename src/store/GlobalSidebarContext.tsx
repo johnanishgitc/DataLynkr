@@ -11,6 +11,7 @@ import { SIDEBAR_MENU_SALES } from '../components/appSidebarMenu';
 import { useEdgeSwipeToOpenSidebar } from '../hooks/useEdgeSwipeToOpenSidebar';
 import { navigationRef } from '../navigation/navigationRef';
 import { resetNavigationOnCompanyChange } from '../navigation/companyChangeNavigation';
+import { clearBCommerceCartOnCompanyChange } from './BCommerceCartContext';
 import { DEFAULT_REPORT } from '../screens/ledger/utils';
 import { useModuleAccess } from './ModuleAccessContext';
 import { getCompany } from './storage';
@@ -369,6 +370,8 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
     // Pass `true` to immediately reset moduleAccess to defaults so sidebar tabs
     // update right away instead of showing the old company's access until the API responds.
     refreshModuleAccess(true);
+    // Clear BCommerce cart and selected customer for the old company.
+    clearBCommerceCartOnCompanyChange();
     resetNavigationOnCompanyChange();
   }, [refreshModuleAccess]);
 

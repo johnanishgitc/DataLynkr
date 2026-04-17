@@ -298,12 +298,20 @@ export default function StockItemMonthly() {
             setLoading(false);
         }
     }, [selectedStockItem, setSharedDateRange]);
-    
-    const closingBalanceDisplay = useMemo(() => {
-        if (!opening && months.length === 0) return '- - - -';
-        const totalValue = (opening?.value ?? 0) + 
+
+    const closingBalance = useMemo(() => {
+        const last = months.length > 0 ? months[months.length - 1] : null;
+        const closing = last?.closing ?? opening;
+        if (!closing) return { qty: '', value: '- - - -' };
+
+        // Manual sum for value consistency
+        const totalValue = (opening?.value ?? 0) +
             months.reduce((acc, m) => acc + (m.inward?.value ?? 0) - (m.outward?.value ?? 0), 0);
-        return fmtValue(totalValue);
+
+        return {
+            qty: closing.qty || '',
+            value: fmtValue(totalValue)
+        };
     }, [opening, months]);
 
     const onPeriodApply = useCallback((fromMs: number, toMs: number) => {
@@ -328,7 +336,7 @@ export default function StockItemMonthly() {
 
     const renderInwardOutward = (label: string, type: 'inward' | 'outward', data: StockQtyValue) => (
         <View style={s.ioRow}>
-            <View style={s.ioLabelWrap}>
+            <View style={s.openingLabel}>
                 {type === 'inward' ? <InwardIcon /> : <OutwardIcon />}
                 <Text style={s.ioLabel}>{label}</Text>
             </View>
@@ -487,26 +495,46 @@ export default function StockItemMonthly() {
                     },
                 ]}
             >
-                <Text
-                    style={{
-                        fontFamily: 'Roboto',
-                        fontSize: 14,
-                        fontWeight: '700',
-                        color: colors.white,
-                    }}
-                >
-                    {strings.closing_balance.toUpperCase()}
-                </Text>
-                <Text
-                    style={{
-                        fontFamily: 'Roboto',
-                        fontSize: 14,
-                        fontWeight: '700',
-                        color: colors.white,
-                    }}
-                >
-                    {closingBalanceDisplay}
-                </Text>
+                <View style={{ width: 186 }}>
+                    <Text
+                        style={{
+                            fontFamily: 'Roboto',
+                            fontSize: 14,
+                            fontWeight: '700',
+                            color: colors.white,
+                        }}
+                    >
+                        {'BALANCE'}
+                    </Text>
+                </View>
+                <View style={s.ioValCols}>
+                    <View style={s.ioQty}>
+                        <Text
+                            style={{
+                                fontFamily: 'Roboto',
+                                fontSize: 13,
+                                fontWeight: '700',
+                                color: colors.white,
+                            }}
+                            numberOfLines={1}
+                        >
+                            {closingBalance.qty}
+                        </Text>
+                    </View>
+                    <View style={s.ioValue}>
+                        <Text
+                            style={{
+                                fontFamily: 'Roboto',
+                                fontSize: 13,
+                                fontWeight: '700',
+                                color: colors.white,
+                            }}
+                            numberOfLines={1}
+                        >
+                            {closingBalance.value}
+                        </Text>
+                    </View>
+                </View>
             </Animated.View>
 
             <PeriodSelection

@@ -211,6 +211,14 @@ export type ApprovalsStackParamList = {
     fromApprovals?: boolean;
     approvalsActiveTab?: string;
   };
+  BillAllocations: {
+    voucher: object;
+    ledger_name?: string;
+  };
+  MoreDetails: {
+    voucher?: object;
+    ledger_name?: string;
+  };
 };
 
 export type SummaryStackParamList = {

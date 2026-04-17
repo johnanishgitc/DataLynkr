@@ -113,7 +113,7 @@ export default function AdminDashboard() {
               await saveCompanyInfo(toCompanyInfo(match));
               await refreshModuleAccessAndWait(true);
               nav.navigate('MainTabs');
-              refreshAllDataManagementData().catch(() => {});
+              refreshAllDataManagementData().catch(() => { });
               return;
             }
           }
@@ -335,12 +335,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#ff383c',
+    borderColor: colors.reject_red,
     alignItems: 'center',
   },
   logoutBtnText: {
     fontSize: 16,
-    color: '#ff383c',
+    color: colors.reject_red,
   },
   empty: {
     color: '#697282',

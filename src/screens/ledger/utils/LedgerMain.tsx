@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { Platform } from 'react-native';
 import { CommonActions } from '@react-navigation/native';
 import { getTallylocId, getCompany, getGuid } from '../../../store/storage';
 import { getLedgerListNamesFromDataManagementCache } from '../../../cache';
@@ -118,6 +120,10 @@ export default function LedgerMain() {
   useFocusEffect(
     useCallback(() => {
       fetchLedgers();
+      if (Platform.OS === 'android') {
+        SystemNavigationBar.setNavigationColor('#ffffff');
+        SystemNavigationBar.setBarMode('dark');
+      }
     }, [fetchLedgers])
   );
 
@@ -235,11 +241,18 @@ function BankUpiDetailsModal({
   const bankCount = data?.bankCount ?? data?.banks?.length ?? 0;
   const upiCount = data?.upiCount ?? data?.upis?.length ?? 0;
   const summary = `${bankCount} Bank${bankCount !== 1 ? 's' : ''} • ${upiCount} UPI${upiCount !== 1 ? 's' : ''}`;
+  useEffect(() => {
+    if (visible) {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [visible]);
 
   return (
     <Modal
       visible={visible}
       transparent
+      statusBarTranslucent
       animationType="slide"
       onRequestClose={onClose}
     >

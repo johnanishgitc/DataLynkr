@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
+
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 
 type Props = {
   visible: boolean;
@@ -12,6 +14,12 @@ type Props = {
 };
 
 export default function ExportMenu({ visible, onClose, onPdf, onExcel, onPrint }: Props) {
+  useEffect(() => {
+    if (visible) {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [visible]);
   const opt = (label: string, onPress: () => void) => (
     <TouchableOpacity
       style={styles.opt}
@@ -25,7 +33,7 @@ export default function ExportMenu({ visible, onClose, onPdf, onExcel, onPrint }
   );
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent statusBarTranslucent animationType="fade">
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <View style={styles.menu} onStartShouldSetResponder={() => true}>
           <Text style={styles.title}>{strings.export}</Text>

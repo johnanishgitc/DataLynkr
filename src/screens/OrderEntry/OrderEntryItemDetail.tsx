@@ -21,6 +21,7 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 
 // Enable LayoutAnimation on Android for smooth expand/selection (match voucher details)
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -132,8 +133,8 @@ function formatCartStyleQtyLine(
   const rate = perms.show_rateamt_Column ? (line.rate != null ? String(line.rate) : '-') : '';
   const disc =
     perms.show_disc_Column &&
-    line.discount != null &&
-    !Number.isNaN(Number(line.discount))
+      line.discount != null &&
+      !Number.isNaN(Number(line.discount))
       ? `(${Number(line.discount)}%)`
       : '';
   const parts: string[] = [`Qty: ${qty}`];
@@ -171,10 +172,27 @@ export default function OrderEntryItemDetail() {
   const footerCollapseVal = useRef(new Animated.Value(1)).current;
   useFocusEffect(
     useCallback(() => {
+      if (Platform.OS === 'android') {
+        SystemNavigationBar.setNavigationColor('#ffffff');
+        SystemNavigationBar.setBarMode('dark');
+      }
       setFooterCollapseValue(footerCollapseVal);
       return () => setFooterCollapseValue(null);
     }, [setFooterCollapseValue, footerCollapseVal])
   );
+
+  const isAnyPickerVisible =
+    dueDatePickerVisible || mfgDatePickerVisible || expiryDatePickerVisible;
+
+  useEffect(() => {
+    if (isAnyPickerVisible && Platform.OS === 'android') {
+      SystemNavigationBar.setNavigationColor('#1a1a1a');
+      SystemNavigationBar.setBarMode('light');
+    } else if (Platform.OS === 'android') {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [isAnyPickerVisible]);
 
   const name = itemDisplayName(item);
   const isToBeAllocated = isItemToBeAllocated(name);
@@ -1105,10 +1123,25 @@ export default function OrderEntryItemDetail() {
         });
         setSelectedLineId(null);
       }
+
+      const line = lineItems.find((l) => l.id === lineItemToDeleteId);
+      if (line && (isToBeAllocated || isQuickOrder)) {
+        const links = line.attachmentLinks ?? [];
+        links.forEach((viewUrl) => {
+          let s3Key = s3Attachment.attachments.find((a) => a.viewUrl === viewUrl)?.s3Key;
+          if (!s3Key && viewUrl.includes('uploads/')) {
+            s3Key = viewUrl.substring(viewUrl.indexOf('uploads/'));
+          }
+          if (s3Key) {
+            apiService.deleteImage({ s3Key }).catch((err) => console.warn('[OrderEntryItemDetail] deleteImage failed', err));
+          }
+        });
+      }
+
       handleRemoveLineItem(lineItemToDeleteId);
       setLineItemToDeleteId(null);
     }
-  }, [lineItemToDeleteId, selectedLineId, handleRemoveLineItem]);
+  }, [lineItemToDeleteId, selectedLineId, handleRemoveLineItem, lineItems, isToBeAllocated, isQuickOrder, s3Attachment.attachments]);
 
   const handleItemMenuEditDueDate = useCallback((line: OrderLineItem) => {
     setItemMenuLineId(null);
@@ -1902,7 +1935,7 @@ export default function OrderEntryItemDetail() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={dueDatePickerVisible} transparent animationType="slide">
+      <Modal visible={dueDatePickerVisible} transparent statusBarTranslucent animationType="slide">
         <View style={styles.calendarOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -1924,12 +1957,13 @@ export default function OrderEntryItemDetail() {
               onSelect={handleDueDateSelect}
               hideDone
               minDate={new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime()}
+              minYear={new Date().getFullYear()}
             />
           </View>
         </View>
       </Modal>
 
-      <Modal visible={mfgDatePickerVisible} transparent animationType="slide">
+      <Modal visible={mfgDatePickerVisible} transparent statusBarTranslucent animationType="slide">
         <View style={styles.calendarOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -1946,7 +1980,7 @@ export default function OrderEntryItemDetail() {
         </View>
       </Modal>
 
-      <Modal visible={expiryDatePickerVisible} transparent animationType="slide">
+      <Modal visible={expiryDatePickerVisible} transparent statusBarTranslucent animationType="slide">
         <View style={styles.calendarOverlay}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
@@ -2477,14 +2511,24 @@ const styles = StyleSheet.create({
   calendarOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingBottom: 50,
   },
   calendarSheet: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    paddingBottom: 24,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingBottom: 0,
+    width: '100%',
     alignItems: 'center',
+    // Added shadow/elevation
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
   },
   stockRow: {
     flexDirection: 'row',

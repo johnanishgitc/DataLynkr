@@ -291,10 +291,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
         const targetTab = moduleAccess.ledger_book
             ? 'LedgerTab'
             : moduleAccess.place_order
-              ? 'OrdersTab'
-              : moduleAccess.stock_summary
-                ? 'SummaryTab'
-                : null;
+                ? 'OrdersTab'
+                : moduleAccess.stock_summary
+                    ? 'SummaryTab'
+                    : null;
 
         if (!targetTab) return;
 
@@ -1186,10 +1186,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
             return (
                 <TouchableOpacity
                     style={styles.card}
-                        onPress={() => {
-                            if (suppressNextCardPressRef.current) return;
-                            handleCardPress(item);
-                        }}
+                    onPress={() => {
+                        if (suppressNextCardPressRef.current) return;
+                        handleCardPress(item);
+                    }}
                     activeOpacity={0.9}
                 >
                     {/* Row 1: checkbox + type badge + amount */}
@@ -1229,255 +1229,262 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                         </Text>
                     </View>
 
-                {/* Row 2: code, first ledger name, date */}
-                {(() => {
-                    const createdEntry = Array.isArray((item as any).VOUCHER_ACTIVITY_HISTORY)
-                        ? (item as any).VOUCHER_ACTIVITY_HISTORY.find(
-                              (e: any) =>
-                                  ['created', 'modified'].includes(
-                                      String(e?.activity_type ?? '').trim().toLowerCase(),
-                                  ),
-                          )
-                        : null;
-                    const hasCreated = !!createdEntry;
-                    // Always show the "From" line in the card.
-                    // If name/email is missing (or activity history is blank), we display a fallback.
-                    const showFromRow = true;
-                    const pickStr = (v: any) => (typeof v === 'string' ? v.trim() : '');
-                    const fromName =
-                        pickStr(createdEntry?.user_name) ||
-                        pickStr(createdEntry?.USER_NAME);
-                    const fromEmail =
-                        pickStr(createdEntry?.email) || pickStr(createdEntry?.EMAIL);
-                    const fromVal = fromName || fromEmail || '';
+                    {/* Row 2: code, first ledger name, date */}
+                    {(() => {
+                        const createdEntry = Array.isArray((item as any).VOUCHER_ACTIVITY_HISTORY)
+                            ? (item as any).VOUCHER_ACTIVITY_HISTORY.find(
+                                (e: any) =>
+                                    ['created', 'modified'].includes(
+                                        String(e?.activity_type ?? '').trim().toLowerCase(),
+                                    ),
+                            )
+                            : null;
+                        const hasCreated = !!createdEntry;
+                        // Always show the "From" line in the card.
+                        // If name/email is missing (or activity history is blank), we display a fallback.
+                        const showFromRow = true;
+                        const pickStr = (v: any) => (typeof v === 'string' ? v.trim() : '');
+                        const fromName =
+                            pickStr(createdEntry?.user_name) ||
+                            pickStr(createdEntry?.USER_NAME);
+                        const fromEmail =
+                            pickStr(createdEntry?.email) || pickStr(createdEntry?.EMAIL);
+                        const fromVal = fromName || fromEmail || '';
 
-                    const historyArr: any[] = Array.isArray((item as any).VOUCHER_ACTIVITY_HISTORY)
-                        ? (item as any).VOUCHER_ACTIVITY_HISTORY
-                        : [];
+                        const historyArr: any[] = Array.isArray((item as any).VOUCHER_ACTIVITY_HISTORY)
+                            ? (item as any).VOUCHER_ACTIVITY_HISTORY
+                            : [];
 
-                    const getLastNameOrEmailByActivityType = (activityType: string) => {
-                        const target = String(activityType ?? '').trim().toLowerCase();
-                        if (!target || historyArr.length === 0) return '';
-                        const matches = historyArr.filter((h: any) => {
-                            const at = String(h?.activity_type ?? '').trim().toLowerCase();
-                            return at === target;
-                        });
-                        const last = matches.length > 0 ? matches[matches.length - 1] : null;
+                        const getLastNameOrEmailByActivityType = (activityType: string) => {
+                            const target = String(activityType ?? '').trim().toLowerCase();
+                            if (!target || historyArr.length === 0) return '';
+                            const matches = historyArr.filter((h: any) => {
+                                const at = String(h?.activity_type ?? '').trim().toLowerCase();
+                                return at === target;
+                            });
+                            const last = matches.length > 0 ? matches[matches.length - 1] : null;
+                            return (
+                                pickStr(last?.user_name) ||
+                                pickStr(last?.USER_NAME) ||
+                                pickStr(last?.email) ||
+                                pickStr(last?.EMAIL) ||
+                                ''
+                            );
+                        };
+
+                        const approvedByVal = getLastNameOrEmailByActivityType('Authorization');
+                        const rejectedByVal = getLastNameOrEmailByActivityType('Rejection');
                         return (
-                            pickStr(last?.user_name) ||
-                            pickStr(last?.USER_NAME) ||
-                            pickStr(last?.email) ||
-                            pickStr(last?.EMAIL) ||
-                            ''
-                        );
-                    };
-
-                    const approvedByVal = getLastNameOrEmailByActivityType('Authorization');
-                    const rejectedByVal = getLastNameOrEmailByActivityType('Rejection');
-                    return (
-                        <>
-                            <View style={styles.cardRow}>
-                                <Text style={styles.cardText} numberOfLines={1}>
-                                    {item.VCHNO}, {getFirstLedgerName(item)}
-                                </Text>
-                                {!showFromRow && (
-                                    <Text style={styles.cardTextLight}>{item.DATE}</Text>
-                                )}
-                            </View>
-                            {showFromRow ? (
-                                <>
-                                    <View style={styles.cardRow}>
-                                        <Text style={styles.cardTextLight} numberOfLines={1}>
-                                            From {fromVal || '[User Not Found]'}
-                                        </Text>
+                            <>
+                                <View style={styles.cardRow}>
+                                    <Text style={styles.cardText} numberOfLines={1}>
+                                        {item.VCHNO}, {getFirstLedgerName(item)}
+                                    </Text>
+                                    {!showFromRow && (
                                         <Text style={styles.cardTextLight}>{item.DATE}</Text>
-                                    </View>
-                                    {isApprovedTab ? (
+                                    )}
+                                </View>
+                                {showFromRow ? (
+                                    <>
                                         <View style={styles.cardRow}>
                                             <Text style={styles.cardTextLight} numberOfLines={1}>
-                                                Approved By {approvedByVal || '[User Not Found]'}
+                                                From {fromVal || '[User Not Found]'}
                                             </Text>
+                                            <Text style={styles.cardTextLight}>{item.DATE}</Text>
                                         </View>
-                                    ) : null}
-                                    {isRejectedTab ? (
-                                        <View style={styles.cardRow}>
-                                            <Text style={styles.cardTextLight} numberOfLines={1}>
-                                                Rejected By {rejectedByVal || '[User Not Found]'}
-                                            </Text>
-                                        </View>
-                                    ) : null}
-                                </>
+                                        {String(item.TYPE ?? '').trim().length > 0 ? (
+                                            <View style={styles.cardRow}>
+                                                <Text style={styles.cardTextLight} numberOfLines={1}>
+                                                    For {String(item.TYPE).trim()}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                        {isApprovedTab ? (
+                                            <View style={styles.cardRow}>
+                                                <Text style={styles.cardTextLight} numberOfLines={1}>
+                                                    Approved By {approvedByVal || '[User Not Found]'}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                        {isRejectedTab ? (
+                                            <View style={styles.cardRow}>
+                                                <Text style={styles.cardTextLight} numberOfLines={1}>
+                                                    Rejected By {rejectedByVal || '[User Not Found]'}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                    </>
+                                ) : null}
+                            </>
+                        );
+                    })()}
+
+                    {/* Row 3: description (hidden in Pending tab) */}
+                    {null}
+
+                    {/* View history link (must be above Reject/Approve for Pending) */}
+                    {isPendingTab ? (
+                        <View style={styles.cardHistoryRow}>
+                            {/* Receivable / Advance pill */}
+                            {showClosingBalance ? (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.closingBalancePill,
+                                        { backgroundColor: closingBalanceBg, borderColor: closingBalanceColor },
+                                    ]}
+                                    onPress={(e) => {
+                                        e.stopPropagation();
+                                        suppressNextCardPressRef.current = true;
+                                        setTimeout(() => {
+                                            suppressNextCardPressRef.current = false;
+                                        }, 150);
+                                        fetchOverdueBills(String((item as any).PARTICULARS ?? ''));
+                                    }}
+                                    hitSlop={10}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={styles.closingBalanceLabel}>Balance:</Text>
+                                    <Text
+                                        style={[styles.closingBalanceValue, { color: closingBalanceColor }]}
+                                        numberOfLines={1}
+                                    >
+                                        {closingBalanceParsed.text}
+                                    </Text>
+                                </TouchableOpacity>
                             ) : null}
-                        </>
-                    );
-                })()}
+                            {!showClosingBalance ? <View style={{ flex: 1 }} /> : null}
 
-                {/* Row 3: description (hidden in Pending tab) */}
-                {null}
-
-                {/* View history link (must be above Reject/Approve for Pending) */}
-                {isPendingTab ? (
-                    <View style={styles.cardHistoryRow}>
-                        {/* Receivable / Advance pill */}
-                        {showClosingBalance ? (
                             <TouchableOpacity
-                                style={[
-                                    styles.closingBalancePill,
-                                    { backgroundColor: closingBalanceBg, borderColor: closingBalanceColor },
-                                ]}
                                 onPress={(e) => {
                                     e.stopPropagation();
                                     suppressNextCardPressRef.current = true;
                                     setTimeout(() => {
                                         suppressNextCardPressRef.current = false;
                                     }, 150);
-                                    fetchOverdueBills(String((item as any).PARTICULARS ?? ''));
+                                    setHistoryVoucher(item);
+                                    setShowHistoryModal(true);
+                                }}
+                                hitSlop={10}
+                                activeOpacity={0.7}
+                                style={styles.historyBtn}
+                            >
+                                <Text style={styles.historyBtnText}>View History</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : null}
+
+                    {/* Pending tab: per-voucher quick actions (hide when bulk select starts) */}
+                    {isPendingTab && canApproveReject && selectedIds.size === 0 ? (
+                        <View style={styles.actionRow}>
+                            <TouchableOpacity
+                                style={styles.rejectBtn}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    suppressNextCardPressRef.current = true;
+                                    setTimeout(() => {
+                                        suppressNextCardPressRef.current = false;
+                                    }, 150);
+                                    handleReject(item);
                                 }}
                                 hitSlop={10}
                                 activeOpacity={0.8}
                             >
-                                <Text style={styles.closingBalanceLabel}>Balance:</Text>
-                                <Text
-                                    style={[styles.closingBalanceValue, { color: closingBalanceColor }]}
-                                    numberOfLines={1}
-                                >
-                                    {closingBalanceParsed.text}
-                                </Text>
+                                <Text style={styles.rejectBtnText}>Reject</Text>
                             </TouchableOpacity>
-                        ) : null}
-                        {!showClosingBalance ? <View style={{ flex: 1 }} /> : null}
-
-                        <TouchableOpacity
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                suppressNextCardPressRef.current = true;
-                                setTimeout(() => {
-                                    suppressNextCardPressRef.current = false;
-                                }, 150);
-                                setHistoryVoucher(item);
-                                setShowHistoryModal(true);
-                            }}
-                            hitSlop={10}
-                            activeOpacity={0.7}
-                            style={styles.historyBtn}
-                        >
-                            <Text style={styles.historyBtnText}>View History</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : null}
-
-                {/* Pending tab: per-voucher quick actions (hide when bulk select starts) */}
-                {isPendingTab && canApproveReject && selectedIds.size === 0 ? (
-                    <View style={styles.actionRow}>
-                        <TouchableOpacity
-                            style={styles.rejectBtn}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                suppressNextCardPressRef.current = true;
-                                setTimeout(() => {
-                                    suppressNextCardPressRef.current = false;
-                                }, 150);
-                                handleReject(item);
-                            }}
-                            hitSlop={10}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.rejectBtnText}>Reject</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.approveBtn}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                suppressNextCardPressRef.current = true;
-                                setTimeout(() => {
-                                    suppressNextCardPressRef.current = false;
-                                }, 150);
-                                handleApprove(item);
-                            }}
-                            hitSlop={10}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.approveBtnText}>Approve</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : null}
-
-                {/* Rejected tab: rejection reason */}
-                {activeTab === 'rejected' && item.REJECTION_REASON ? (
-                    <View style={styles.rejectionBox}>
-                        <Text style={styles.rejectionLabel}>Rejection Reason:</Text>
-                        <Text style={styles.rejectionText}>{item.REJECTION_REASON}</Text>
-                    </View>
-                ) : null}
-
-                {/* View history link */}
-                {!isPendingTab ? (
-                    <View style={styles.cardHistoryRow}>
-                    {/* Receivable / Advance pill */}
-                    {showClosingBalance ? (
-                        <TouchableOpacity
-                            style={[
-                                styles.closingBalancePill,
-                                { backgroundColor: closingBalanceBg, borderColor: closingBalanceColor },
-                            ]}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                suppressNextCardPressRef.current = true;
-                                setTimeout(() => {
-                                    suppressNextCardPressRef.current = false;
-                                }, 150);
-                                fetchOverdueBills(String((item as any).PARTICULARS ?? ''));
-                            }}
-                            hitSlop={10}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.closingBalanceLabel}>Balance:</Text>
-                            <Text style={[styles.closingBalanceValue, { color: closingBalanceColor }]} numberOfLines={1}>
-                                {closingBalanceParsed.text}
-                            </Text>
-                        </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.approveBtn}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    suppressNextCardPressRef.current = true;
+                                    setTimeout(() => {
+                                        suppressNextCardPressRef.current = false;
+                                    }, 150);
+                                    handleApprove(item);
+                                }}
+                                hitSlop={10}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={styles.approveBtnText}>Approve</Text>
+                            </TouchableOpacity>
+                        </View>
                     ) : null}
-                    {!showClosingBalance ? <View style={{ flex: 1 }} /> : null}
 
-                    <TouchableOpacity
-                        onPress={(e) => {
-                            e.stopPropagation();
-                            suppressNextCardPressRef.current = true;
-                            setTimeout(() => {
-                                suppressNextCardPressRef.current = false;
-                            }, 150);
-                            setHistoryVoucher(item);
-                            setShowHistoryModal(true);
-                        }}
-                        hitSlop={10}
-                        activeOpacity={0.7}
-                        style={styles.historyBtn}
-                    >
-                        <Text style={styles.historyBtnText}>View History</Text>
-                    </TouchableOpacity>
-                    </View>
-                ) : null}
+                    {/* Rejected tab: rejection reason */}
+                    {activeTab === 'rejected' && item.REJECTION_REASON ? (
+                        <View style={styles.rejectionBox}>
+                            <Text style={styles.rejectionLabel}>Rejection Reason:</Text>
+                            <Text style={styles.rejectionText}>{item.REJECTION_REASON}</Text>
+                        </View>
+                    ) : null}
 
-                {/* Approved/Rejected tabs: per-voucher resend (hide when bulk select starts) */}
-                {(isApprovedTab || isRejectedTab) && canApproveReject && selectedIds.size === 0 ? (
-                    <View style={styles.actionRow}>
-                        <TouchableOpacity
-                            style={styles.resendBtn}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                suppressNextCardPressRef.current = true;
-                                setTimeout(() => {
-                                    suppressNextCardPressRef.current = false;
-                                }, 150);
-                                handleResendMany([item]);
-                            }}
-                            hitSlop={10}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.resendBtnText}>Resend</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : null}
+                    {/* View history link */}
+                    {!isPendingTab ? (
+                        <View style={styles.cardHistoryRow}>
+                            {/* Receivable / Advance pill */}
+                            {showClosingBalance ? (
+                                <TouchableOpacity
+                                    style={[
+                                        styles.closingBalancePill,
+                                        { backgroundColor: closingBalanceBg, borderColor: closingBalanceColor },
+                                    ]}
+                                    onPress={(e) => {
+                                        e.stopPropagation();
+                                        suppressNextCardPressRef.current = true;
+                                        setTimeout(() => {
+                                            suppressNextCardPressRef.current = false;
+                                        }, 150);
+                                        fetchOverdueBills(String((item as any).PARTICULARS ?? ''));
+                                    }}
+                                    hitSlop={10}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={styles.closingBalanceLabel}>Balance:</Text>
+                                    <Text style={[styles.closingBalanceValue, { color: closingBalanceColor }]} numberOfLines={1}>
+                                        {closingBalanceParsed.text}
+                                    </Text>
+                                </TouchableOpacity>
+                            ) : null}
+                            {!showClosingBalance ? <View style={{ flex: 1 }} /> : null}
+
+                            <TouchableOpacity
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    suppressNextCardPressRef.current = true;
+                                    setTimeout(() => {
+                                        suppressNextCardPressRef.current = false;
+                                    }, 150);
+                                    setHistoryVoucher(item);
+                                    setShowHistoryModal(true);
+                                }}
+                                hitSlop={10}
+                                activeOpacity={0.7}
+                                style={styles.historyBtn}
+                            >
+                                <Text style={styles.historyBtnText}>View History</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : null}
+
+                    {/* Approved/Rejected tabs: per-voucher resend (hide when bulk select starts) */}
+                    {(isApprovedTab || isRejectedTab) && canApproveReject && selectedIds.size === 0 ? (
+                        <View style={styles.actionRow}>
+                            <TouchableOpacity
+                                style={styles.resendBtn}
+                                onPress={(e) => {
+                                    e.stopPropagation();
+                                    suppressNextCardPressRef.current = true;
+                                    setTimeout(() => {
+                                        suppressNextCardPressRef.current = false;
+                                    }, 150);
+                                    handleResendMany([item]);
+                                }}
+                                hitSlop={10}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={styles.resendBtnText}>Resend</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : null}
                 </TouchableOpacity>
             );
         },
@@ -1644,12 +1651,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                     style={[
                                         styles.progressFill,
                                         {
-                                            width: `${
-                                                (Math.max(
-                                                    0,
-                                                    Math.min(chunkProgress.done, chunkProgress.total),
-                                                ) / Math.max(1, chunkProgress.total)) * 100
-                                            }%`,
+                                            width: `${(Math.max(
+                                                0,
+                                                Math.min(chunkProgress.done, chunkProgress.total),
+                                            ) / Math.max(1, chunkProgress.total)) * 100
+                                                }%`,
                                         },
                                     ]}
                                 />
@@ -1986,7 +1992,7 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                             showsVerticalScrollIndicator={true}
                         >
                             {Array.isArray((historyVoucher as any)?.VOUCHER_ACTIVITY_HISTORY) &&
-                            (historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.length > 0 ? (
+                                (historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.length > 0 ? (
                                 <View style={styles.overdueBillsList}>
                                     {(historyVoucher as any).VOUCHER_ACTIVITY_HISTORY.map(
                                         (entry: any, idx: number) => {
@@ -2020,10 +2026,10 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                             const entryDate = entry.created_at ? new Date(entry.created_at) : null;
                                             const entryDateStr = entryDate
                                                 ? `${entryDate.toLocaleDateString('en-GB')}, ${entryDate.toLocaleTimeString('en-GB', {
-                                                      hour: '2-digit',
-                                                      minute: '2-digit',
-                                                      second: '2-digit',
-                                                  })}`
+                                                    hour: '2-digit',
+                                                    minute: '2-digit',
+                                                    second: '2-digit',
+                                                })}`
                                                 : '—';
 
                                             const isCreatedEntry =
@@ -2069,11 +2075,11 @@ export default function ApprovalsScreen({ navigation }: { navigation: any }) {
                                                             style={[
                                                                 historyStyles.statusPill,
                                                                 statusType === 'approved' &&
-                                                                    historyStyles.statusApproved,
+                                                                historyStyles.statusApproved,
                                                                 statusType === 'rejected' &&
-                                                                    historyStyles.statusRejected,
+                                                                historyStyles.statusRejected,
                                                                 statusType === 'resend' &&
-                                                                    historyStyles.statusResend,
+                                                                historyStyles.statusResend,
                                                             ]}
                                                         >
                                                             <Text style={historyStyles.statusText}>
@@ -2640,7 +2646,7 @@ const styles = StyleSheet.create({
     list: {
         gap: 12,
         // Extra bottom padding so last voucher is visible above bulk action bar + footer
-        paddingBottom: (Dimensions.get('window').width >= 768 ? 60 : 49) + 47 + 20, 
+        paddingBottom: (Dimensions.get('window').width >= 768 ? 60 : 49) + 47 + 20,
     },
     card: {
         backgroundColor: colors.white,

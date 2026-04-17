@@ -16,6 +16,8 @@ import { Alert, Platform } from 'react-native';
 import { useNavigation, useRoute, CommonActions, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { getStockSummaryFromDataManagementCache } from '../../cache';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
 import * as XLSX from 'xlsx';
@@ -866,6 +868,13 @@ export default function StockSummary() {
             </TouchableOpacity>
         );
     };
+
+    useEffect(() => {
+        if (shareExportLoading) {
+            SystemNavigationBar.setNavigationColor('#ffffff');
+            SystemNavigationBar.setBarMode('dark');
+        }
+    }, [shareExportLoading]);
 
     return (
         <View style={s.root}>

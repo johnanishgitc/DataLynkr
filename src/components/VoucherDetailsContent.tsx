@@ -4,6 +4,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, Pressable, Switch, ActivityIndicator, LayoutAnimation, Platform, UIManager } from 'react-native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
 import { IconAccountVector4 } from '../assets/bill-allocations';
@@ -479,10 +480,18 @@ export interface DetailPopupProps {
 }
 
 export function DetailPopup({ visible, title, body, onClose }: DetailPopupProps) {
+  useEffect(() => {
+    if (visible) {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [visible]);
+
   return (
     <Modal
       visible={visible}
       transparent
+      statusBarTranslucent
       animationType="fade"
       onRequestClose={onClose}
     >
@@ -1720,6 +1729,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 8,
     overflow: 'hidden',
+    // Shadow for iOS
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    // Elevation for Android
+    elevation: 8,
   },
   detailPopupHeader: {
     flexDirection: 'row',

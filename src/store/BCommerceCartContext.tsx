@@ -4,6 +4,16 @@ import { apiService } from '../api/client';
 import { getTallylocId, getCompany, getGuid, getUserEmail } from './storage';
 import type { VoucherTypeItem } from '../api/models/misc';
 
+// Module-level callback so GlobalSidebarContext can clear the cart on company change
+// without a circular context dependency.
+let _onCompanyChangeClearCart: (() => void) | null = null;
+export function registerClearCartOnCompanyChange(fn: () => void): void {
+  _onCompanyChangeClearCart = fn;
+}
+export function clearBCommerceCartOnCompanyChange(): void {
+  _onCompanyChangeClearCart?.();
+}
+
 export type CartItem = {
   /** The raw stock item object from cache */
   stockItem: Record<string, unknown>;
@@ -66,7 +76,11 @@ export function BCommerceCartProvider({ children }: { children: React.ReactNode 
   const [isLoaded, setIsLoaded] = useState(false);
   const [voucherTypes, setVoucherTypes] = useState<VoucherTypeItem[]>([]);
   const [voucherTypesLoading, setVoucherTypesLoading] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Record<string, unknown> | null>(null);
+  const [selectedCustomer, setSelectedCustomerState] = useState<Record<string, unknown> | null>(null);
+
+  const setSelectedCustomer = useCallback((customer: Record<string, unknown> | null) => {
+    setSelectedCustomerState(customer);
+  }, []);
 
   const [currentIdentity, setCurrentIdentity] = useState<string>('');
 
@@ -169,6 +183,15 @@ export function BCommerceCartProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const clearCart = useCallback(() => setCartItems([]), []);
+
+  // Register the company-change handler so GlobalSidebarContext can clear the cart
+  // and selected customer whenever the user switches companies.
+  useEffect(() => {
+    registerClearCartOnCompanyChange(() => {
+      setCartItems([]);
+      setSelectedCustomerState(null);
+    });
+  }, []);
 
   const toggleFavorite = useCallback((item: CartItem) => {
     setFavorites(prev => {
