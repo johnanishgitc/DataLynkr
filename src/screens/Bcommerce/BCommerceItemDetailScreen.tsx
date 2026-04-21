@@ -14,6 +14,13 @@ import {
   Alert,
   FlatList,
   Linking,
+  ActivityIndicator,
+  Pressable,
+  Animated,
+  PanResponder,
+  LayoutAnimation,
+  UIManager,
+  Vibration,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -23,14 +30,18 @@ import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useBCommerceCart } from '../../store/BCommerceCartContext';
 import { useModuleAccess } from '../../store/ModuleAccessContext';
 
-
+import { ClipDocsPopup, ClipDocsOptionId } from '../../components/ClipDocsPopup';
+import { useS3Attachment } from '../../hooks/useS3Attachment';
+import { getTallylocId, getCompany, getGuid } from '../../store/storage';
+import { apiService } from '../../api/client';
+import { refreshStockItemsOnly } from '../../cache/dataManagementAutoSync';
 
 import CartIcon from '../../assets/bcomm_img/carticon.svg';
 
 const { width } = Dimensions.get('window');
 /** Thumbnail tile width + `popupThumbList` gap for modal strip scroll alignment */
 const MODAL_THUMB_STRIDE = 64 + 10;
-type MediaItem = { url: string; isVideo: boolean };
+type MediaItem = { url: string; isVideo: boolean; originalIndex?: number };
 
 export default function BCommerceItemDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -66,7 +77,36 @@ export default function BCommerceItemDetailScreen() {
   const mediaIndexRef = useRef(0);
   const [mediaSliderWidth, setMediaSliderWidth] = useState(width);
 
-  const mediaItems = useMemo<MediaItem[]>(() => {
+  const [isUploadPopupVisible, setIsUploadPopupVisible] = useState(false);
+  const { pickAndUpload, uploading: isS3Uploading } = useS3Attachment({ type: 'BCommerce' });
+  const [isLocalUploading, setIsLocalUploading] = useState(false);
+  const isUploading = isS3Uploading || isLocalUploading;
+  const canUploadImages = ecommercePlaceOrderAccess.upload_images;
+
+  // Track all image URLs (initially from stockItem, then updated by user)
+  const [activeImageUrls, setActiveImageUrls] = useState<string[]>([]);
+  const [originalImageUrls, setOriginalImageUrls] = useState<string[]>([]);
+  const [pendingDeletedUrls, setPendingDeletedUrls] = useState<string[]>([]);
+  const [uploadedSessionImages, setUploadedSessionImages] = useState<string[]>([]);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [urlToDelete, setUrlToDelete] = useState<string | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const dragX = useRef(new Animated.Value(0)).current;
+  const dragTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const currentHoverIndexRef = useRef<number | null>(null);
+  const currentDragIndexRef = useRef<number | null>(null);
+  const dragOffsetRef = useRef<number>(0);
+
+  // Enable LayoutAnimation on Android
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
+
+  useEffect(() => {
     const rawPath =
       (stockItem?.IMAGEPATH as string | undefined) ??
       (stockItem?.imagePath as string | undefined) ??
@@ -77,14 +117,280 @@ export default function BCommerceItemDetailScreen() {
       .filter(Boolean);
     const urls = tokens.length > 0 ? tokens : (imagePath ? [String(imagePath)] : []);
     const uniqueUrls = Array.from(new Set(urls));
-    const videoExt = /\.(mp4|mov|m4v|webm|avi|mkv)(\?|#|$)/i;
-    return uniqueUrls.map((url) => ({ url, isVideo: videoExt.test(url) }));
+    setActiveImageUrls(uniqueUrls);
+    setOriginalImageUrls(uniqueUrls);
+    setPendingDeletedUrls([]);
+    setUploadedSessionImages([]);
   }, [stockItem, imagePath]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return JSON.stringify(activeImageUrls) !== JSON.stringify(originalImageUrls);
+  }, [activeImageUrls, originalImageUrls]);
+
+  const mediaItems = useMemo<MediaItem[]>(() => {
+    const videoExt = /\.(mp4|mov|m4v|webm|avi|mkv)(\?|#|$)/i;
+    return activeImageUrls.map((url, i) => ({ url, isVideo: videoExt.test(url), originalIndex: i }));
+  }, [activeImageUrls]);
+
+  const sortedMediaItems = useMemo(() => {
+    if (draggedIndex === null || hoverIndex === null || draggedIndex === hoverIndex) return mediaItems;
+    const list = [...mediaItems];
+    const itemIdx = list.findIndex(m => m.originalIndex === draggedIndex);
+    if (itemIdx === -1) return list;
+    
+    const [moved] = list.splice(itemIdx, 1);
+    list.splice(hoverIndex, 0, moved);
+    return list;
+  }, [mediaItems, draggedIndex, hoverIndex]);
+
+  const extractS3Key = (url: string): string | null => {
+    // Matches "uploads/..." until the first "?" or the end of the string
+    const match = url.match(/uploads\/[^?]+/);
+    return match ? match[0] : null;
+  };
+
+  const syncImagesToTally = async (newList: string[]) => {
+    try {
+      const [tId, comp, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+      if (!tId || !comp || !g) return;
+
+      const payload = {
+        tallyloc_id: Number(tId),
+        company: comp,
+        guid: g,
+        name: name,
+        imagepaths: newList
+      };
+      
+      console.log('Sending itemimageupload payload:', JSON.stringify(payload, null, 2));
+
+      const response = await apiService.uploadItemImages(payload);
+
+      if (response.data?.success) {
+        refreshStockItemsOnly().catch(e => console.warn('Failed to refresh data', e));
+      } else {
+        console.warn('Failed to sync images to Tally:', response.data?.message);
+      }
+    } catch (e) {
+      console.warn('Error syncing images to Tally:', e);
+    }
+  };
+
+  const handleUploadOptionClick = async (optionId: ClipDocsOptionId) => {
+    setIsUploadPopupVisible(false);
+    try {
+      const results = await pickAndUpload(optionId);
+      if (!results || results.length === 0) return;
+
+      setIsLocalUploading(true);
+      const newPaths: string[] = [];
+
+      for (const res of results) {
+        if (res.viewUrl) {
+          newPaths.push(res.viewUrl);
+        }
+      }
+
+      if (newPaths.length > 0) {
+        const updatedList = Array.from(new Set([...activeImageUrls, ...newPaths]));
+        setActiveImageUrls(updatedList);
+        setUploadedSessionImages(prev => [...prev, ...newPaths]);
+      }
+    } catch (err) {
+      console.warn('Image upload error:', err);
+      Alert.alert('Error', 'An error occurred while uploading. Please try again.');
+    } finally {
+      setIsLocalUploading(false);
+    }
+  };
+
+  const handleDeleteImage = (url: string) => {
+    setUrlToDelete(url);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!urlToDelete) return;
+    const url = urlToDelete;
+    const s3Key = extractS3Key(url);
+    setShowDeleteConfirm(false);
+    setUrlToDelete(null);
+
+    // Track for deferred deletion
+    if (s3Key) {
+      setPendingDeletedUrls(prev => [...prev, s3Key]);
+    }
+    
+    // Remove from list (does not delete from AWS or Tally yet)
+    const updatedList = activeImageUrls.filter(u => u !== url);
+    setActiveImageUrls(updatedList);
+    
+    // Update index if needed so we don't point to out of bounds
+    if (currentMediaIndex >= updatedList.length && updatedList.length > 0) {
+      const newIdx = updatedList.length - 1;
+      setCurrentMediaIndex(newIdx);
+      mediaIndexRef.current = newIdx;
+    }
+  };
 
   const primaryImagePath = useMemo(() => {
     const firstImage = mediaItems.find((m) => !m.isVideo)?.url;
     return firstImage || imagePath || undefined;
   }, [mediaItems, imagePath]);
+
+  const handleMoveImage = (fromIndex: number, toIndex: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    
+    setActiveImageUrls(prevList => {
+      if (toIndex < 0 || toIndex >= prevList.length) return prevList;
+      
+      const updatedList = [...prevList];
+      const [movedItem] = updatedList.splice(fromIndex, 1);
+      updatedList.splice(toIndex, 0, movedItem);
+      return updatedList;
+    });
+
+    // Update viewer index if the active image moved
+    setCurrentMediaIndex(prevIndex => {
+      if (prevIndex === fromIndex) {
+        mediaIndexRef.current = toIndex;
+        return toIndex;
+      } else if (prevIndex === toIndex) {
+        mediaIndexRef.current = fromIndex;
+        return fromIndex;
+      }
+      return prevIndex;
+    });
+  };
+
+  const handleUpdateChanges = async () => {
+    setIsLocalUploading(true);
+    try {
+      // 1. Delete removed images from AWS
+      for (const s3Key of pendingDeletedUrls) {
+        try {
+          await apiService.deleteImage({ s3Key });
+        } catch (s3Err) {
+          console.warn('Deferred S3 deletion failed:', s3Err);
+        }
+      }
+      
+      // 2. Sync final list to Tally
+      await syncImagesToTally(activeImageUrls);
+
+      // 3. Commit locally
+      setOriginalImageUrls(activeImageUrls);
+      setPendingDeletedUrls([]);
+      setUploadedSessionImages([]);
+    } catch (err) {
+      console.warn('Update changes error:', err);
+      Alert.alert('Error', 'Failed to commit updates. Please try again.');
+    } finally {
+      setIsLocalUploading(false);
+    }
+  };
+
+  const handleDiscardChanges = async () => {
+    setShowDiscardConfirm(false);
+    setIsLocalUploading(true);
+    try {
+      // Delete abandoned newly uploaded session files from S3
+      for (const url of uploadedSessionImages) {
+        const s3Key = extractS3Key(url);
+        if (s3Key) {
+          try {
+             await apiService.deleteImage({ s3Key });
+          } catch(err) {
+             console.warn('Cleanup of abandoned S3 upload failed:', err);
+          }
+        }
+      }
+      
+      // Revert state
+      setActiveImageUrls(originalImageUrls);
+      setPendingDeletedUrls([]);
+      setUploadedSessionImages([]);
+      
+      closeImageModal();
+    } finally {
+      setIsLocalUploading(false);
+    }
+  };
+
+  const closeImageModalWithCheck = () => {
+    if (hasUnsavedChanges) {
+      setShowDiscardConfirm(true);
+    } else {
+      closeImageModal();
+    }
+  };
+
+  const createDragResponder = (index: number) => {
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+        dragTimerRef.current = setTimeout(() => {
+          setDraggedIndex(index);
+          currentHoverIndexRef.current = index;
+          setHoverIndex(index);
+          dragX.setValue(0);
+          Vibration.vibrate(50); // Haptic feedback for "picked up"
+        }, 500);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (draggedIndex === null) {
+          if (Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10) {
+            if (dragTimerRef.current) {
+              clearTimeout(dragTimerRef.current);
+              dragTimerRef.current = null;
+            }
+          }
+          return;
+        }
+        
+        let newHoverIndex = index + Math.round(gestureState.dx / 74);
+        newHoverIndex = Math.max(0, Math.min(newHoverIndex, activeImageUrls.length - 1));
+
+        if (newHoverIndex !== currentHoverIndexRef.current) {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          currentHoverIndexRef.current = newHoverIndex;
+          setHoverIndex(newHoverIndex);
+        }
+
+        const layoutOffset = (currentHoverIndexRef.current ?? index) - index;
+        dragX.setValue(gestureState.dx - (layoutOffset * 74));
+      },
+      onPanResponderRelease: () => {
+        if (dragTimerRef.current) {
+          clearTimeout(dragTimerRef.current);
+          dragTimerRef.current = null;
+        }
+
+        if (draggedIndex !== null) {
+          const finalHover = currentHoverIndexRef.current;
+          if (finalHover !== null && finalHover !== index) {
+            handleMoveImage(index, finalHover);
+          }
+          setDraggedIndex(null);
+          currentHoverIndexRef.current = null;
+          setHoverIndex(null);
+          dragX.setValue(0);
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (dragTimerRef.current) {
+          clearTimeout(dragTimerRef.current);
+          dragTimerRef.current = null;
+        }
+        setDraggedIndex(null);
+        currentHoverIndexRef.current = null;
+        setHoverIndex(null);
+        dragX.setValue(0);
+      },
+    });
+  };
 
   React.useEffect(() => {
     if (cartItem) {
@@ -465,13 +771,13 @@ export default function BCommerceItemDetailScreen() {
           visible={isImageModalVisible}
           transparent={true}
           animationType="fade"
-          onRequestClose={closeImageModal}
+          onRequestClose={closeImageModalWithCheck}
         >
           <SafeAreaView style={styles.popupSafeArea}>
             <View style={styles.popupContainer}>
               <TouchableOpacity
                 style={styles.popupCloseBtn}
-                onPress={closeImageModal}
+                onPress={closeImageModalWithCheck}
               >
                 <Icon name="close" size={24} color="#fff" />
               </TouchableOpacity>
@@ -498,7 +804,7 @@ export default function BCommerceItemDetailScreen() {
                       mediaIndexRef.current = safeIndex;
                       setCurrentMediaIndex(safeIndex);
                     }}
-                    renderItem={({ item }) => (
+                    renderItem={({ item, index }) => (
                       <View style={{ width: mediaSliderWidth, height: '100%' }}>
                         {item.isVideo ? (
                           <View style={styles.videoSlide}>
@@ -506,20 +812,22 @@ export default function BCommerceItemDetailScreen() {
                             <Text style={styles.popupVideoText}>Video link</Text>
                           </View>
                         ) : (
-                          <ReactNativeZoomableView
-                            maxZoom={30}
-                            minZoom={1}
-                            zoomStep={0.5}
-                            initialZoom={1}
-                            bindToBorders={true}
-                            style={{ width: '100%', height: '100%' }}
-                          >
-                            <Image
-                              source={{ uri: item.url }}
+                          <>
+                            <ReactNativeZoomableView
+                              maxZoom={30}
+                              minZoom={1}
+                              zoomStep={0.5}
+                              initialZoom={1}
+                              bindToBorders={true}
                               style={{ width: '100%', height: '100%' }}
-                              resizeMode="contain"
-                            />
-                          </ReactNativeZoomableView>
+                            >
+                              <Image
+                                source={{ uri: item.url }}
+                                style={{ width: '100%', height: '100%' }}
+                                resizeMode="contain"
+                              />
+                            </ReactNativeZoomableView>
+                          </>
                         )}
                       </View>
                     )}
@@ -544,29 +852,65 @@ export default function BCommerceItemDetailScreen() {
                     style={styles.popupThumbRow}
                     contentContainerStyle={styles.popupThumbList}
                   >
-                    {mediaItems.map((item, index) => {
-                      const active = currentMediaIndex === index;
+                    {sortedMediaItems.map((item, sortedIndex) => {
+                      const active = currentMediaIndex === item.originalIndex;
+                      const isDragging = draggedIndex === item.originalIndex;
+                      const panResponder = createDragResponder(item.originalIndex ?? sortedIndex);
+                      
                       return (
-                        <TouchableOpacity
-                          key={`thumb-${item.url}-${index}`}
-                          style={[styles.popupThumbItem, active && styles.popupThumbItemActive]}
-                          onPress={() => {
-                            setAutoSlidePaused(true);
-                            mediaIndexRef.current = index;
-                            setCurrentMediaIndex(index);
-                            scrollModalToIndex(index);
-                          }}
+                        <Animated.View
+                          key={`thumb-${item.url}-${item.originalIndex}`}
+                          {...panResponder.panHandlers}
+                          style={[
+                            styles.popupThumbItem,
+                            active && styles.popupThumbItemActive,
+                            isDragging && {
+                              zIndex: 999,
+                              transform: [{ translateX: dragX }, { scale: 1.1 }],
+                              opacity: 0.8,
+                            }
+                          ]}
                         >
+                          <TouchableOpacity
+                            activeOpacity={0.9}
+                            style={{ flex: 1 }}
+                            onPress={() => {
+                              setAutoSlidePaused(true);
+                              mediaIndexRef.current = index;
+                              setCurrentMediaIndex(index);
+                              scrollModalToIndex(index);
+                            }}
+                          >
                           {item.isVideo ? (
                             <View style={styles.popupThumbVideo}>
                               <Icon name="play-circle-outline" size={16} color="#fff" />
                             </View>
                           ) : (
-                            <Image source={{ uri: item.url }} style={styles.popupThumbImage} resizeMode="cover" />
+                            <>
+                              <Image source={{ uri: item.url }} style={styles.popupThumbImage} resizeMode="cover" />
+                              {canUploadImages && (
+                                <TouchableOpacity 
+                                  style={styles.thumbDeleteBtn}
+                                  onPress={() => handleDeleteImage(item.url)}
+                                >
+                                  <Icon name="close-circle" size={18} color="#ff4d4d" />
+                                </TouchableOpacity>
+                              )}
+                            </>
                           )}
-                        </TouchableOpacity>
+                          </TouchableOpacity>
+                        </Animated.View>
                       );
                     })}
+                    
+                    {canUploadImages && (
+                      <TouchableOpacity
+                        style={[styles.popupThumbItem, styles.popupThumbAddBtn]}
+                        onPress={() => setIsUploadPopupVisible(true)}
+                      >
+                        <Icon name="plus" size={24} color="#ffffff" />
+                      </TouchableOpacity>
+                    )}
                   </ScrollView>
                 ) : null}
               </View>
@@ -583,23 +927,104 @@ export default function BCommerceItemDetailScreen() {
                     {formatPrice(price || 0)}
                   </Text>
                 ) : null}
-                <TouchableOpacity
-                  style={[
-                    styles.popupAddBtn,
-                    !ecommercePlaceOrderAccess.show_rateamt_Column && styles.popupAddBtnFull,
-                  ]}
-                  onPress={() => {
-                    closeImageModal();
-                    handleCartAction();
-                  }}
-                >
-                  <Text style={styles.popupAddBtnText}>Add to cart</Text>
-                </TouchableOpacity>
+
+                {hasUnsavedChanges ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.popupAddBtn,
+                      { backgroundColor: '#F5A623' },
+                      !ecommercePlaceOrderAccess.show_rateamt_Column && styles.popupAddBtnFull,
+                    ]}
+                    onPress={handleUpdateChanges}
+                  >
+                    <Text style={styles.popupAddBtnText}>Update Changes</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[
+                      styles.popupAddBtn,
+                      !ecommercePlaceOrderAccess.show_rateamt_Column && styles.popupAddBtnFull,
+                    ]}
+                    onPress={() => {
+                      closeImageModalWithCheck();
+                      handleCartAction();
+                    }}
+                  >
+                    <Text style={styles.popupAddBtnText}>Add to cart</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
+            
+            <ClipDocsPopup
+              visible={isUploadPopupVisible}
+              onClose={() => setIsUploadPopupVisible(false)}
+              onOptionClick={handleUploadOptionClick}
+            />
+
+            {isUploading ? (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator size="large" color="#ffffff" />
+                <Text style={styles.uploadText}>Uploading Images...</Text>
+              </View>
+            ) : null}
           </SafeAreaView>
         </Modal>
       ) : null}
+
+      <Modal
+        transparent
+        statusBarTranslucent
+        visible={showDeleteConfirm}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowDeleteConfirm(false)}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalHeaderTitle}>Delete Image</Text>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={styles.modalMessage}>Are you sure you want to permanently delete this image?</Text>
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.actionBtn, styles.cancelBtn]} onPress={() => setShowDeleteConfirm(false)} activeOpacity={0.8}>
+                <Text style={styles.cancelBtnTxt}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, styles.deleteBtn]} onPress={confirmDelete} activeOpacity={0.8}>
+                <Text style={styles.deleteBtnTxt}>DELETE</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        transparent
+        statusBarTranslucent
+        visible={showDiscardConfirm}
+        animationType="fade"
+        onRequestClose={() => setShowDiscardConfirm(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowDiscardConfirm(false)}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalHeaderTitle}>Discard Changes?</Text>
+            </View>
+            <View style={styles.modalBody}>
+              <Text style={styles.modalMessage}>You have unsaved image updates. Are you sure you want to discard them?</Text>
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.actionBtn, styles.cancelBtn]} onPress={() => setShowDiscardConfirm(false)} activeOpacity={0.8}>
+                <Text style={styles.cancelBtnTxt}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, styles.deleteBtn]} onPress={handleDiscardChanges} activeOpacity={0.8}>
+                <Text style={styles.deleteBtnTxt}>DISCARD</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
     </View>
   );
@@ -853,6 +1278,63 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  floatingUpdateImagesBtn: {
+    position: 'absolute',
+    bottom: 15,
+    right: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  uploadText: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    fontSize: 16,
+    color: '#ffffff',
+    marginTop: 12,
+  },
+  modalDeleteBtn: {
+    position: 'absolute',
+    top: 16,
+    left: 16, // Opposite the close btn
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  popupThumbAddBtn: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderWidth: 1.5,
+  },
+  thumbDeleteBtn: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    zIndex: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 0,
+  },
   contentContainer: {
     padding: 16,
     paddingTop: 16,
@@ -1073,6 +1555,70 @@ const styles = StyleSheet.create({
   addToCartText: {
     fontFamily: 'WorkSans-VariableFont_wght',
     fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 8,
+  },
+  modalHeaderTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000000',
+    fontFamily: 'Inter',
+  },
+  modalBody: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: '#4b5563',
+    fontFamily: 'Inter',
+    lineHeight: 22,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 8,
+  },
+  actionBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  cancelBtn: {
+    backgroundColor: '#f3f4f6',
+  },
+  deleteBtn: {
+    backgroundColor: '#ff4444',
+  },
+  cancelBtnTxt: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4b5563',
+  },
+  deleteBtnTxt: {
+    fontSize: 13,
     fontWeight: '600',
     color: '#ffffff',
   },

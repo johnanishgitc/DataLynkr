@@ -481,6 +481,16 @@ export const apiService = {
   confirmImageUpload: (body: import('./models').ImageConfirmRequest) =>
     getApi().post<import('./models').ImageConfirmResponse>('api/images/confirm', body),
 
+  /** Push newly uploaded image URLs to Tally for a stock item */
+  uploadItemImages: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    name: string;
+    imagepaths: string[];
+  }) =>
+    getApi().post<{ success?: boolean; message?: string }>('api/tally/masterdata/itemimageupload', body),
+
   /** S3 attachment: delete image */
   deleteImage: (body: { s3Key: string }) =>
     getApi().post<{ success?: boolean; message?: string }>('api/images/delete', body),

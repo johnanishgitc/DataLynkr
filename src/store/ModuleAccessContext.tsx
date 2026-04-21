@@ -48,6 +48,7 @@ export function useModuleAccess(): ModuleAccessContextValue {
                 show_itemdesc: false,
                 show_rateamt_Column: true,
                 show_image: false,
+                upload_images: false,
                 defaultQty: undefined,
                 saveOptionalForPlaceOrder: false,
             },
