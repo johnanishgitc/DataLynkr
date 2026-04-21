@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { colors } from '../constants/colors';
 import { formatDate } from '../utils/dateUtils';
 import CalendarPicker from './CalendarPicker';
@@ -94,6 +95,8 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
       setTo(toDate);
       setSelectedPreset(null);
       setPickerWhich(null);
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
     }
   }, [visible, fromDate, toDate]);
 
@@ -142,7 +145,7 @@ export function PeriodSelection({ visible, onClose, fromDate, toDate, onApply }:
   const toStr = to ? formatDate(to) : 'dd/mm/yyyy';
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal visible={visible} transparent statusBarTranslucent animationType="slide">
       <View style={styles.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
         <View style={styles.sheet}>

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, StatusBar, Animated } from 'react-native';
+import { View, StyleSheet, StatusBar, Animated, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useAuth } from '../store';
 import { navigationRef } from './navigationRef';
 import AuthStack from './AuthStack';
@@ -14,6 +15,16 @@ export default function RootNavigator() {
 
   const splashOpacity = useRef(new Animated.Value(1)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
+
+  // Set Android system navigation bar to white + dark icons on app startup.
+  // Without this, the bar defaults to transparent with white buttons — invisible
+  // on the app's white background.
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, []);
 
   useEffect(() => {
     if (splashFinished) {

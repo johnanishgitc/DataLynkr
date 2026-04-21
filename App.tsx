@@ -1,11 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { BackHandler, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { BackHandler, Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, ScrollProvider } from './src/store';
 import RootNavigator from './src/navigation/RootNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 
 export default function App() {
+  if (Text.defaultProps == null) {
+    Text.defaultProps = {};
+  }
+  Text.defaultProps.allowFontScaling = false;
+
+  if (TextInput.defaultProps == null) {
+    TextInput.defaultProps = {};
+  }
+  TextInput.defaultProps.allowFontScaling = false;
+
   const [showExitModal, setShowExitModal] = useState(false);
 
   useEffect(() => {
@@ -30,6 +41,13 @@ export default function App() {
     return () => sub.remove();
   }, [showExitModal]);
 
+  useEffect(() => {
+    if (showExitModal) {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [showExitModal]);
+
   return (
     <SafeAreaProvider>
       <AuthProvider>
@@ -37,6 +55,7 @@ export default function App() {
           <RootNavigator />
           <Modal
             transparent
+            statusBarTranslucent
             visible={showExitModal}
             animationType="fade"
             onRequestClose={() => setShowExitModal(false)}

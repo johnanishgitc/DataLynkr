@@ -1,6 +1,8 @@
 import { CommonActions } from '@react-navigation/native';
+import { Platform } from 'react-native';
 import { navigationRef } from './navigationRef';
 import { refreshAllDataManagementData } from '../cache';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 
 /**
  * Resets the navigation stack to MainTabs > HomeTab > SalesDashboard when the user
@@ -22,6 +24,16 @@ export function resetNavigationOnCompanyChange(): void {
       ],
     }),
   );
+
+  // Force the Android nav bar to white + dark icons immediately.
+  // The sidebar close animation takes ~280ms and keeps light (white) icons during
+  // that window, so we also fire delayed follow-ups to override it.
+  if (Platform.OS === 'android') {
+    SystemNavigationBar.setNavigationColor('#ffffff');
+    SystemNavigationBar.setBarMode('dark');
+    setTimeout(() => { SystemNavigationBar.setNavigationColor('#ffffff'); SystemNavigationBar.setBarMode('dark'); }, 350);
+    setTimeout(() => { SystemNavigationBar.setNavigationColor('#ffffff'); SystemNavigationBar.setBarMode('dark'); }, 700);
+  }
 
   // Sync stock items, customers, and stock groups in background
   refreshAllDataManagementData().catch(() => { });

@@ -18,6 +18,7 @@ import {
   Platform,
   UIManager,
   BackHandler,
+  Linking,
 } from 'react-native';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match order/invoice voucher)
@@ -27,8 +28,10 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import WebView from 'react-native-webview';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { PhoneIcon, MailIcon, WhatsappIcon } from '../../assets/contactdetails';
 import type { LedgerStackParamList } from '../../navigation/types';
 import { normalizeToArray, isUnauthorizedError } from '../../api';
 import type {
@@ -160,6 +163,9 @@ export default function VoucherDetailView() {
   const fetchDone = useRef(false);
   const { width: winWidth, height: winHeight } = useWindowDimensions();
   const isTablet = winWidth >= 600;
+  const [ledgerInfo, setLedgerInfo] = useState<Record<string, string> | null>(null);
+  const [contactDetailsVisible, setContactDetailsVisible] = useState(false);
+  const [showNoContactAlert, setShowNoContactAlert] = useState(false);
 
   /** Header bar height (compact) ≈ 47 + padding */
   const headerBarHeight = 47;
@@ -202,9 +208,22 @@ export default function VoucherDetailView() {
         if (__DEV__ && body && !cancelled) {
           console.log('[VoucherDetailView] getVoucherData response keys:', Object.keys(body));
         }
+        /** Unified unwrapping for ledgerinfo and vouchers */
+        const unwrapped = (body?.result != null && typeof body.result === 'object') ? (body.result as Record<string, unknown>) : body;
+        const dataVal = unwrapped?.data ?? unwrapped?.Data;
+
+        // Extract ledgerinfo from various possible levels
+        const li = unwrapped?.ledgerinfo ?? unwrapped?.LEDGERINFO ??
+          (dataVal && typeof dataVal === 'object' && !Array.isArray(dataVal) ? ((dataVal as any).ledgerinfo ?? (dataVal as any).LEDGERINFO) : undefined) ??
+          body?.ledgerinfo ?? body?.LEDGERINFO;
+
+        if (li && typeof li === 'object') {
+          setLedgerInfo(li as Record<string, string>);
+        }
+
         /** Extract voucher: API returns { vouchers: [ {...} ] } – handle that and other shapes */
         let full: Record<string, unknown> | undefined;
-        let vouchersRaw = body?.vouchers ?? body?.Vouchers;
+        let vouchersRaw = body?.vouchers ?? body?.Vouchers ?? unwrapped?.vouchers ?? unwrapped?.Vouchers;
         if (typeof vouchersRaw === 'string') {
           try { vouchersRaw = JSON.parse(vouchersRaw) as unknown[]; } catch { vouchersRaw = undefined; }
         }
@@ -212,8 +231,6 @@ export default function VoucherDetailView() {
           full = vouchersRaw[0] as Record<string, unknown>;
         } else {
           /** Support wrapper like { result: { data: [...] } } and other shapes */
-          const unwrapped = (body?.result != null && typeof body.result === 'object') ? (body.result as Record<string, unknown>) : body;
-          const dataVal = unwrapped?.data ?? unwrapped?.Data;
           const vouchersVal = unwrapped?.vouchers ?? unwrapped?.Vouchers ?? (dataVal && typeof dataVal === 'object' && !Array.isArray(dataVal) ? (dataVal as Record<string, unknown>).vouchers ?? (dataVal as Record<string, unknown>).Vouchers : undefined);
           const hasVoucherKeys = (o: unknown) => {
             if (typeof o !== 'object' || o === null) return false;
@@ -235,6 +252,12 @@ export default function VoucherDetailView() {
             (typeof body?.data === 'object' && body.data !== null && !Array.isArray(body.data) ? (body.data as Record<string, unknown>) : undefined);
         }
         if (!cancelled && full && typeof full === 'object') {
+          // If ledgerInfo wasn't found at the root, check inside the extracted voucher
+          const nestedLi = (full as any).ledgerinfo ?? (full as any).LEDGERINFO;
+          if (nestedLi && typeof nestedLi === 'object') {
+            setLedgerInfo(nestedLi as Record<string, string>);
+          }
+
           const initR = (initialVoucher as Record<string, unknown>).REJECTION_REASON
             ?? (initialVoucher as Record<string, unknown>).rejection_reason;
           if (initR != null && String(initR).trim() !== '') {
@@ -306,14 +329,14 @@ export default function VoucherDetailView() {
   const showRejectionReasonBtn = showApprovalsInvoiceDock && approvalsTabNorm === 'rejected';
   const rejectionReasonText = String(
     (v as Record<string, unknown>).REJECTION_REASON ??
-      (v as Record<string, unknown>).rejection_reason ??
-      ''
+    (v as Record<string, unknown>).rejection_reason ??
+    ''
   ).trim();
   const [rejectionReasonModalVisible, setRejectionReasonModalVisible] = useState(false);
 
   useEffect(() => {
-    if (!showApprovalsInvoiceDock) setModifyOrderDockMeasured(0);
-  }, [showApprovalsInvoiceDock]);
+    if (!showRejectionReasonBtn) setModifyOrderDockMeasured(0);
+  }, [showRejectionReasonBtn]);
 
   const voucherAmt = getLedgerEntryAmount(v as LedgerEntryDetail);
   let isDebit = voucherAmt.isDebit;
@@ -542,17 +565,17 @@ export default function VoucherDetailView() {
 
   const modifyOrderSafeBottom = Math.max(insets.bottom, 12);
   /** Conservative until onLayout: paddingTop 12 + border + one row of btn(s) + safe inset */
-  const modifyOrderDockFallback = showApprovalsInvoiceDock
+  const modifyOrderDockFallback = showRejectionReasonBtn
     ? 12 + 1 + 52 + modifyOrderSafeBottom
     : 0;
-  const modifyOrderDockHeight = showApprovalsInvoiceDock
+  const modifyOrderDockHeight = showRejectionReasonBtn
     ? Math.max(modifyOrderDockMeasured, modifyOrderDockFallback)
     : 0;
 
   // Accounting: footer via translateY (native driver); Order/Invoice: fixed bottom + translateY
   const footerBottomStyle = isAccountingView
     ? 0
-    : showApprovalsInvoiceDock
+    : showRejectionReasonBtn
       ? modifyOrderDockHeight
       : orderInvoiceFooterBottom;
   const footerTransform = isAccountingView
@@ -561,8 +584,26 @@ export default function VoucherDetailView() {
 
   const closeMenu = () => setMenuVisible(false);
 
-  const handleMenuOption = (action: 'bill_allocations' | 'more_details' | 'view_full_details') => {
+  const handleMenuOption = (action: 'modify_order' | 'bill_allocations' | 'more_details' | 'view_full_details' | 'contact_details') => {
     closeMenu();
+    if (action === 'modify_order') {
+      handleModifyOrder();
+      return;
+    }
+    if (action === 'contact_details') {
+      const p = (ledgerInfo?.LEDGERPHONE || ledgerInfo?.ledgerphone || '').trim();
+      const m = (ledgerInfo?.LEDGERMOBILE || ledgerInfo?.ledgermobile || '').trim();
+      const e = (ledgerInfo?.EMAIL || ledgerInfo?.email || '').trim();
+
+      const hasAny = p !== '' || m !== '' || e !== '';
+
+      if (!hasAny) {
+        setShowNoContactAlert(true);
+      } else {
+        setContactDetailsVisible(true);
+      }
+      return;
+    }
     if (action === 'bill_allocations') {
       (nav.navigate as (a: string, b: object) => void)('BillAllocations', {
         voucher: v,
@@ -987,14 +1028,14 @@ export default function VoucherDetailView() {
   );
 
   return (
-    <View style={[styles.root, { paddingBottom: showApprovalsInvoiceDock ? 0 : 10 }]}>
+    <View style={[styles.root, { paddingBottom: showRejectionReasonBtn ? 0 : 10 }]}>
       <StatusBarTopBar
         title="Voucher Details"
         leftIcon="back"
         onLeftPress={handleBack}
-        rightIcons={isAccountingView ? 'share' : 'share-kebab'}
+        rightIcons="share-kebab"
         onSharePress={openShareMenu}
-        onRightIconsPress={isAccountingView ? undefined : () => setMenuVisible(true)}
+        onRightIconsPress={() => setMenuVisible(true)}
         compact
       />
 
@@ -1038,35 +1079,59 @@ export default function VoucherDetailView() {
         variant="voucher"
       />
 
-      {!isAccountingView && (
-        <Modal
-          visible={menuVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={closeMenu}
-        >
-          <View style={styles.menuWrapper}>
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeMenu}
+      >
+        <View style={styles.menuWrapper}>
+          <TouchableOpacity
+            style={styles.menuOverlay}
+            activeOpacity={1}
+            onPress={closeMenu}
+          />
+          <View style={[styles.menuDropdown, { top: dropdownTop }]}>
+            {showApprovalsInvoiceDock && (
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => handleMenuOption('modify_order')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.menuItemText}>Modify Order</Text>
+                </TouchableOpacity>
+                <View style={styles.menuDivider} />
+              </>
+            )}
+            {!isAccountingView && (
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => handleMenuOption('more_details')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.menuItemText}>{strings.more_details}</Text>
+                </TouchableOpacity>
+                <View style={styles.menuDivider} />
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => handleMenuOption('bill_allocations')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.menuItemText}>{strings.bill_allocations}</Text>
+                </TouchableOpacity>
+                <View style={styles.menuDivider} />
+              </>
+            )}
             <TouchableOpacity
-              style={styles.menuOverlay}
-              activeOpacity={1}
-              onPress={closeMenu}
-            />
-            <View style={[styles.menuDropdown, { top: dropdownTop }]}>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => handleMenuOption('bill_allocations')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.menuItemText}>{strings.bill_allocations}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => handleMenuOption('more_details')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.menuItemText}>{strings.more_details}</Text>
-              </TouchableOpacity>
-              {/* View full details – commented out
+              style={styles.menuItem}
+              onPress={() => handleMenuOption('contact_details')}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.menuItemText}>Contact Details</Text>
+            </TouchableOpacity>
+            {/* View full details – commented out
               <TouchableOpacity
                 style={styles.menuItem}
                 onPress={() => handleMenuOption('view_full_details')}
@@ -1075,10 +1140,9 @@ export default function VoucherDetailView() {
                 <Text style={styles.menuItemText}>{strings.view_full_details}</Text>
               </TouchableOpacity>
               */}
-            </View>
           </View>
-        </Modal>
-      )}
+        </View>
+      </Modal>
 
       <Modal
         visible={htmlModalVisible}
@@ -1310,7 +1374,7 @@ export default function VoucherDetailView() {
                   {
                     paddingTop: 0,
                     paddingBottom:
-                      (showApprovalsInvoiceDock ? modifyOrderDockHeight : orderInvoiceFooterBottom) +
+                      (showRejectionReasonBtn ? modifyOrderDockHeight : orderInvoiceFooterBottom) +
                       75 +
                       ledgerExpandedFooterExtraScrollPad,
                   },
@@ -1366,7 +1430,7 @@ export default function VoucherDetailView() {
         </>
       )}
 
-      {showApprovalsInvoiceDock && (
+      {showRejectionReasonBtn && (
         <View
           style={[styles.modifyOrderFooter, { paddingBottom: modifyOrderSafeBottom }]}
           accessibilityRole="toolbar"
@@ -1375,36 +1439,13 @@ export default function VoucherDetailView() {
             if (h > 0) setModifyOrderDockMeasured(h);
           }}
         >
-          {showRejectionReasonBtn ? (
-            <View style={styles.approvalsInvoiceDockRow}>
-              <TouchableOpacity
-                style={[styles.rejectionReasonBtn, styles.approvalsInvoiceDockBtnHalf]}
-                onPress={() => setRejectionReasonModalVisible(true)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.rejectionReasonBtnText} numberOfLines={1}>
-                  Rejected Reason
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modifyOrderBtn, styles.approvalsInvoiceDockBtnHalf]}
-                onPress={handleModifyOrder}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.modifyOrderBtnText} numberOfLines={1}>
-                  Modify Order
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.modifyOrderBtn}
-              onPress={handleModifyOrder}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modifyOrderBtnText}>Modify Order</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.rejectionReasonBtn}
+            onPress={() => setRejectionReasonModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.rejectionReasonBtnText}>Rejected Reason</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -1437,9 +1478,268 @@ export default function VoucherDetailView() {
           </View>
         </View>
       </Modal>
+      <ContactDetailsModal
+        visible={contactDetailsVisible}
+        onClose={() => setContactDetailsVisible(false)}
+        data={ledgerInfo}
+      />
+
+      <Modal
+        visible={showNoContactAlert}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNoContactAlert(false)}
+      >
+        <View style={styles.rejectionReasonModalRoot}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            activeOpacity={1}
+            onPress={() => setShowNoContactAlert(false)}
+          />
+          <View style={styles.rejectionReasonModalCard}>
+            <Text style={styles.rejectionReasonModalTitle}>Contact Details</Text>
+            <View style={styles.rejectionReasonModalScroll}>
+              <Text style={styles.rejectionReasonModalBody}>
+                Contact Details not Updated
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.rejectionReasonModalOk, { borderColor: '#d1d5dc' }]}
+              onPress={() => setShowNoContactAlert(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.rejectionReasonModalOkText, { color: '#6b7a8c' }]}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+/**
+ * Contact Details Popup Modal - Adapts "Bank & UPI Details" design from LedgerEntries
+ * and makes phone/mobile/email/whatsapp interactive via Linking.
+ */
+function ContactDetailsModal({
+  visible,
+  onClose,
+  data,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  data: Record<string, string> | null;
+}) {
+  const contactName = data?.LEDGERCONTACT || 'Contact Name not Updated';
+  const phone = data?.LEDGERPHONE || 'Phone not Updated';
+  const mobile = (data?.LEDGERMOBILE || '').trim();
+  const email = data?.EMAIL || 'Email not Updated';
+  const whatsapp = data?.LEDGERMOBILE || 'Whatsapp not Updated';
+
+  useEffect(() => {
+    if (visible && Platform.OS === 'android') {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [visible]);
+
+  const onCall = (num: string) => {
+    if (num.includes('not Updated')) return;
+    Linking.openURL(`tel:${num.replace(/\s/g, '')}`).catch(() => Alert.alert('Error', 'Could not open dialer.'));
+  };
+
+  const onEmail = (mail: string) => {
+    if (mail.includes('not Updated')) return;
+    Linking.openURL(`mailto:${mail}`).catch(() => Alert.alert('Error', 'Could not open email app.'));
+  };
+
+  const onWhatsapp = (num: string) => {
+    if (num.includes('not Updated')) return;
+    const cleanNum = num.replace(/\D/g, '');
+    /** Standard web link for WhatsApp */
+    Linking.openURL(`https://wa.me/${cleanNum}`).catch(() => Alert.alert('Error', 'Could not open WhatsApp.'));
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <View style={contactStyles.overlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={contactStyles.sheet}>
+          <View style={contactStyles.header}>
+            <View>
+              <Text style={contactStyles.title}>Contact Details</Text>
+              <Text style={contactStyles.summary}>{contactName}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={contactStyles.closeBtn} hitSlop={12}>
+              <Icon name="close" size={24} color="#0e172b" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={contactStyles.scroll}
+            contentContainerStyle={contactStyles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <ContactRow
+              label="Call"
+              value={phone}
+              IconComponent={PhoneIcon}
+              onPress={() => onCall(phone)}
+              isLink={!phone.includes('not Updated')}
+            />
+            {mobile !== '' && (
+              <ContactRow
+                label="Call"
+                value={mobile}
+                IconComponent={PhoneIcon}
+                onPress={() => onCall(mobile)}
+                isLink={true}
+              />
+            )}
+            <ContactRow
+              label="Email"
+              value={email}
+              IconComponent={MailIcon}
+              iconSize={42}
+              onPress={() => onEmail(email)}
+              isLink={!email.includes('not Updated')}
+            />
+            <ContactRow
+              label="Whatsapp"
+              value={whatsapp}
+              IconComponent={WhatsappIcon}
+              onPress={() => onWhatsapp(whatsapp)}
+              isLink={!whatsapp.includes('not Updated')}
+            />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ContactRow({
+  label,
+  value,
+  IconComponent,
+  onPress,
+  isLink,
+  iconSize = 32,
+}: {
+  label: string;
+  value: string;
+  IconComponent: React.ComponentType<any>;
+  onPress?: () => void;
+  isLink?: boolean;
+  iconSize?: number;
+}) {
+  const isAvailable = !value.includes('not Updated');
+  const showLink = isLink && isAvailable;
+
+  const Container = showLink ? TouchableOpacity : View;
+  const containerProps = showLink ? { onPress, activeOpacity: 0.6 } : {};
+
+  return (
+    <Container style={contactStyles.row} {...containerProps}>
+      <View style={contactStyles.labelWrap}>
+        <View style={{ width: 45, alignItems: 'center', marginRight: 10 }}>
+          <IconComponent width={iconSize} height={iconSize} />
+        </View>
+        <Text style={contactStyles.label}>{label}</Text>
+      </View>
+      <View style={contactStyles.valueWrap}>
+        <Text
+          style={[
+            contactStyles.value,
+            !isAvailable && contactStyles.missingText,
+          ]}>
+          {value}
+        </Text>
+      </View>
+    </Container>
+  );
+}
+
+const contactStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.bg_page,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '90%',
+    minHeight: 500,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border_light,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0e172b',
+    fontFamily: 'Roboto',
+  },
+  summary: {
+    fontSize: 15,
+    color: '#6b7a8c',
+    marginTop: 4,
+    fontFamily: 'Roboto',
+  },
+  closeBtn: { padding: 4 },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 80 },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ebeef2',
+    borderRadius: 12,
+    paddingLeft: 8,
+    paddingRight: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  labelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  label: {
+    fontSize: 15,
+    color: '#6b7a8c',
+    fontFamily: 'Roboto',
+  },
+  valueWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  value: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.primary_blue,
+    textAlign: 'right',
+    fontFamily: 'Roboto',
+  },
+  missingText: {
+    color: '#9ca3af',
+    fontWeight: '400',
+  },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
@@ -1448,7 +1748,7 @@ const styles = StyleSheet.create({
   },
   menuOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'transparent',
   },
   menuDropdown: {
     position: 'absolute',
@@ -1466,6 +1766,11 @@ const styles = StyleSheet.create({
   menuItem: {
     paddingVertical: 12,
     paddingHorizontal: 16,
+  },
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#d1d5db',
+    marginHorizontal: 12,
   },
   menuItemText: {
     fontSize: 15,

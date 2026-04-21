@@ -39,6 +39,7 @@ import {
   getLastVoucherDate,
 } from '../store/storage';
 import { PeriodSelection } from '../components/PeriodSelection';
+import { PopupModal } from '../components';
 import { syncVouchersToNativeDB } from '../services/SyncService';
 import { getDB, getDashboardCacheDatabase, DASHBOARD_CACHE_TABLE } from '../database/SQLiteManager';
 import { getString, getField, normalizeDate } from '../utils/salesTransformer';
@@ -1012,6 +1013,29 @@ interface InterruptedDownloadState {
   email: string;
 }
 
+type ConfirmationPopupVariant = 'delete' | 'warning' | 'info';
+
+interface ConfirmationPopupState {
+  visible: boolean;
+  title: string;
+  subtitle: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  variant: ConfirmationPopupVariant;
+  onConfirm: (() => void | Promise<void>) | null;
+  onCancelAction: (() => void) | null;
+}
+
+interface ConfirmationPopupConfig {
+  title: string;
+  subtitle: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  variant?: ConfirmationPopupVariant;
+  onConfirm: () => void | Promise<void>;
+  onCancelAction?: () => void;
+}
+
 // Helper: Get the start date of the current financial year (April 1st)
 // Financial year in India runs from April 1 to March 31
 function getCurrentFinancialYearStart(): Date {
@@ -1065,6 +1089,38 @@ export default function DataManagement() {
   // State for global Data Management background sync
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const wasSyncingRef = useRef(false);
+  const [confirmationPopup, setConfirmationPopup] = useState<ConfirmationPopupState>({
+    visible: false,
+    title: '',
+    subtitle: '',
+    confirmLabel: 'Confirm',
+    cancelLabel: 'Cancel',
+    variant: 'warning',
+    onConfirm: null,
+    onCancelAction: null,
+  });
+
+  const closeConfirmationPopup = useCallback(() => {
+    setConfirmationPopup((prev) => ({
+      ...prev,
+      visible: false,
+      onConfirm: null,
+      onCancelAction: null,
+    }));
+  }, []);
+
+  const showConfirmationPopup = useCallback((config: ConfirmationPopupConfig) => {
+    setConfirmationPopup({
+      visible: true,
+      title: config.title,
+      subtitle: config.subtitle,
+      confirmLabel: config.confirmLabel,
+      cancelLabel: config.cancelLabel ?? 'Cancel',
+      variant: config.variant ?? 'warning',
+      onConfirm: config.onConfirm,
+      onCancelAction: config.onCancelAction ?? null,
+    });
+  }, []);
 
   const refreshEntries = useCallback(async () => {
     try {
@@ -1295,30 +1351,21 @@ export default function DataManagement() {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (err as any)?.isNetworkError === true;
 
-        // Show alert with options to continue or start over
-        Alert.alert(
-          isNetworkError ? 'Network Error' : 'Download Interrupted',
-          `Download paused at chunk ${i + 1} of ${chunks.length} after ${maxRetries + 1} attempts.\n\nError: ${errorMsg}\n\nYou can continue from where you left off or start over.`,
-          [
-            {
-              text: 'Start Over',
-              style: 'destructive',
-              onPress: () => {
-                setInterruptedDownload(null);
-                setErrorMessage('');
-                setStatusMessage('Download cancelled. Press Download to start fresh.');
-              },
-            },
-            {
-              text: 'Continue',
-              style: 'default',
-              onPress: () => {
-                handleResumeDownload();
-              },
-            },
-          ],
-          { cancelable: false }
-        );
+        showConfirmationPopup({
+          title: isNetworkError ? 'Network Error' : 'Download Interrupted',
+          subtitle: `Download paused at chunk ${i + 1} of ${chunks.length} after ${maxRetries + 1} attempts.\n\nError: ${errorMsg}\n\nYou can continue from where you left off or start over.`,
+          cancelLabel: 'Start Over',
+          confirmLabel: 'Continue',
+          variant: 'warning',
+          onCancelAction: () => {
+            setInterruptedDownload(null);
+            setErrorMessage('');
+            setStatusMessage('Download cancelled. Press Download to start fresh.');
+          },
+          onConfirm: () => {
+            handleResumeDownload();
+          },
+        });
 
         return; // Exit the function, don't continue with saving
       }
@@ -1510,28 +1557,20 @@ export default function DataManagement() {
   const handleDownload = async () => {
     // Check if there's an interrupted download
     if (interruptedDownload) {
-      Alert.alert(
-        'Interrupted Download Found',
-        `You have an interrupted download (${interruptedDownload.completedChunkIndex + 1}/${interruptedDownload.chunks.length} chunks completed).\n\nWould you like to continue from where you left off or start a fresh download?`,
-        [
-          {
-            text: 'Start Fresh',
-            style: 'destructive',
-            onPress: () => {
-              setInterruptedDownload(null);
-              startFreshDownload();
-            },
-          },
-          {
-            text: 'Continue',
-            style: 'default',
-            onPress: () => {
-              handleResumeDownload();
-            },
-          },
-        ],
-        { cancelable: true }
-      );
+      showConfirmationPopup({
+        title: 'Interrupted Download Found',
+        subtitle: `You have an interrupted download (${interruptedDownload.completedChunkIndex + 1}/${interruptedDownload.chunks.length} chunks completed).\n\nWould you like to continue from where you left off or start a fresh download?`,
+        cancelLabel: 'Start Fresh',
+        confirmLabel: 'Continue',
+        variant: 'warning',
+        onCancelAction: () => {
+          setInterruptedDownload(null);
+          startFreshDownload();
+        },
+        onConfirm: () => {
+          handleResumeDownload();
+        },
+      });
       return;
     }
 
@@ -2271,21 +2310,16 @@ export default function DataManagement() {
 
       const fileExists = await RNFS.exists(entry.json_path);
       if (!fileExists) {
-        Alert.alert(
-          'File Not Found',
-          'The JSON file no longer exists. Would you like to remove this entry?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Remove Entry',
-              style: 'destructive',
-              onPress: async () => {
-                await deleteCacheEntry(entry.id);
-                await refreshEntries();
-              },
-            },
-          ]
-        );
+        showConfirmationPopup({
+          title: 'File Not Found',
+          subtitle: 'The JSON file no longer exists. Would you like to remove this entry?',
+          confirmLabel: 'Remove Entry',
+          variant: 'delete',
+          onConfirm: async () => {
+            await deleteCacheEntry(entry.id);
+            await refreshEntries();
+          },
+        });
         return;
       }
 
@@ -2367,21 +2401,16 @@ export default function DataManagement() {
 
       const fileExists = await RNFS.exists(entry.json_path);
       if (!fileExists) {
-        Alert.alert(
-          'File Not Found',
-          'The JSON file no longer exists. Would you like to remove this entry?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Remove Entry',
-              style: 'destructive',
-              onPress: async () => {
-                await deleteCacheEntry(entry.id);
-                await refreshEntries();
-              },
-            },
-          ]
-        );
+        showConfirmationPopup({
+          title: 'File Not Found',
+          subtitle: 'The JSON file no longer exists. Would you like to remove this entry?',
+          confirmLabel: 'Remove Entry',
+          variant: 'delete',
+          onConfirm: async () => {
+            await deleteCacheEntry(entry.id);
+            await refreshEntries();
+          },
+        });
         return;
       }
 
@@ -2583,150 +2612,135 @@ export default function DataManagement() {
   const handleClearAllCache = () => {
     if (!entries.length) {
       // Cache list is empty but sales_cache.db and cache2 (customers, items, stock groups) may still have data.
-      Alert.alert(
-        'Clear all data?',
-        'This will clear the sales database and remove any cached customers, items, and stock groups from the database.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Clear',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                const database = await getDatabase();
-                await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
-                await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE}`);
-                await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
-                await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
-                await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
-                await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
-                invalidateLedgerListCache();
-                await clearSalesCacheForGuid('');
-                await refreshEntries();
-                setCustomerCount(0);
-                setItemCount(0);
-                setStockGroupCount(0);
-                setStatusMessage('All data cleared (customers, items, stock groups, and sales).');
-                setErrorMessage('');
-              } catch (e) {
-                console.error('Failed to clear data:', e);
-                Alert.alert('Error', 'Failed to clear data.');
-              }
-            },
-          },
-        ]
-      );
+      showConfirmationPopup({
+        title: 'Clear all data?',
+        subtitle: 'This will clear the sales database and remove any cached customers, items, and stock groups from the database.',
+        confirmLabel: 'Clear',
+        variant: 'delete',
+        onConfirm: async () => {
+          try {
+            const database = await getDatabase();
+            await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
+            await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE}`);
+            await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
+            await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
+            await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
+            await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
+            invalidateLedgerListCache();
+            await clearSalesCacheForGuid('');
+            await refreshEntries();
+            setCustomerCount(0);
+            setItemCount(0);
+            setStockGroupCount(0);
+            setStatusMessage('All data cleared (customers, items, stock groups, and sales).');
+            setErrorMessage('');
+          } catch (e) {
+            console.error('Failed to clear data:', e);
+            Alert.alert('Error', 'Failed to clear data.');
+          }
+        },
+      });
       return;
     }
 
-    Alert.alert(
-      'Clear all cache?',
-      'This will delete all downloaded cache files and entries for Cache Management 2.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const database = await getDatabase();
+    showConfirmationPopup({
+      title: 'Clear all cache?',
+      subtitle: 'This will clear all the Data downloaded in DataLynkr',
+      confirmLabel: 'Clear',
+      variant: 'delete',
+      onConfirm: async () => {
+        try {
+          const database = await getDatabase();
 
-              // Read all json paths first so we can delete files
-              const [results] = await database.executeSql(
-                `SELECT json_path FROM ${TABLE_NAME}`
-              );
-              const paths: string[] = [];
-              for (let i = 0; i < results.rows.length; i++) {
-                const row = results.rows.item(i) as { json_path?: string | null };
-                if (row.json_path) {
-                  paths.push(row.json_path);
-                }
-              }
-
-              // Delete all rows (main cache, stock items, customers, stock groups, and indexed tables)
-              await database.executeSql(`DELETE FROM ${TABLE_NAME}`);
-              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
-              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE}`);
-              await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
-              await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
-              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
-              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
-              invalidateLedgerListCache();
-
-              // Delete files on disk (ignore individual errors)
-              await Promise.all(
-                paths.map(async (p) => {
-                  try {
-                    const exists = await RNFS.exists(p);
-                    if (exists) {
-                      await RNFS.unlink(p);
-                    }
-                  } catch (e) {
-                    console.warn('Failed to delete cache file', p, e);
-                  }
-                })
-              );
-
-              // Clear native sales_cache.db so the dashboard shows no data
-              await clearSalesCacheForGuid('');
-
-              // Refresh list and reset ledger data counts
-              await refreshEntries();
-              setCustomerCount(0);
-              setItemCount(0);
-              setStockGroupCount(0);
-              setStatusMessage('All cache entries cleared.');
-              setErrorMessage('');
-            } catch (e) {
-              console.error('Failed to clear cache2 entries:', e);
-              Alert.alert('Error', 'Failed to clear cache. Please try again.');
+          // Read all json paths first so we can delete files
+          const [results] = await database.executeSql(
+            `SELECT json_path FROM ${TABLE_NAME}`
+          );
+          const paths: string[] = [];
+          for (let i = 0; i < results.rows.length; i++) {
+            const row = results.rows.item(i) as { json_path?: string | null };
+            if (row.json_path) {
+              paths.push(row.json_path);
             }
-          },
-        },
-      ]
-    );
+          }
+
+          // Delete all rows (main cache, stock items, customers, stock groups, and indexed tables)
+          await database.executeSql(`DELETE FROM ${TABLE_NAME}`);
+          await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE}`);
+          await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE}`);
+          await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE}`);
+          await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE}`);
+          await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE}`);
+          await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE}`);
+          invalidateLedgerListCache();
+
+          // Delete files on disk (ignore individual errors)
+          await Promise.all(
+            paths.map(async (p) => {
+              try {
+                const exists = await RNFS.exists(p);
+                if (exists) {
+                  await RNFS.unlink(p);
+                }
+              } catch (e) {
+                console.warn('Failed to delete cache file', p, e);
+              }
+            })
+          );
+
+          // Clear native sales_cache.db so the dashboard shows no data
+          await clearSalesCacheForGuid('');
+
+          // Refresh list and reset ledger data counts
+          await refreshEntries();
+          setCustomerCount(0);
+          setItemCount(0);
+          setStockGroupCount(0);
+          setStatusMessage('All cache entries cleared.');
+          setErrorMessage('');
+        } catch (e) {
+          console.error('Failed to clear cache2 entries:', e);
+          Alert.alert('Error', 'Failed to clear cache. Please try again.');
+        }
+      },
+    });
   };
 
   const handleDeleteCacheEntry = (entry: CacheEntry) => {
-    Alert.alert(
-      'Delete cache?',
-      `Remove cache "${entry.key}" (${entry.from_date} â†’ ${entry.to_date})? This will delete the entry and its file.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const jsonPath = entry.json_path;
-              await deleteCacheEntry(entry.id);
-              try {
-                const exists = await RNFS.exists(jsonPath);
-                if (exists) {
-                  await RNFS.unlink(jsonPath);
-                }
-              } catch (e) {
-                console.warn('Failed to delete cache file', jsonPath, e);
-              }
-              sessionCache.delete(jsonPath);
-              fileSizeCache.delete(jsonPath);
-              await deleteDashboardCacheEntry(entry.key);
-              // Also clear native sales_cache.db so dashboard shows no data
-              console.log('[CacheManagement2] >>> Delete handler: about to clear sales_cache.db');
-              const currentGuid = await getGuid();
-              console.log('[CacheManagement2] >>> Delete handler: got guid =', currentGuid);
-              await clearSalesCacheForGuid(currentGuid || 'none');
-              await refreshEntries();
-              setStatusMessage('Cache entry deleted.');
-              setErrorMessage('');
-            } catch (e) {
-              console.error('Failed to delete cache entry:', e);
-              Alert.alert('Error', 'Failed to delete cache entry. Please try again.');
+    showConfirmationPopup({
+      title: 'Delete cache?',
+      subtitle: `Remove cache "${entry.key}" (${entry.from_date} â†’ ${entry.to_date})? This will delete the entry and its file.`,
+      confirmLabel: 'Delete',
+      variant: 'delete',
+      onConfirm: async () => {
+        try {
+          const jsonPath = entry.json_path;
+          await deleteCacheEntry(entry.id);
+          try {
+            const exists = await RNFS.exists(jsonPath);
+            if (exists) {
+              await RNFS.unlink(jsonPath);
             }
-          },
-        },
-      ]
-    );
+          } catch (e) {
+            console.warn('Failed to delete cache file', jsonPath, e);
+          }
+          sessionCache.delete(jsonPath);
+          fileSizeCache.delete(jsonPath);
+          await deleteDashboardCacheEntry(entry.key);
+          // Also clear native sales_cache.db so dashboard shows no data
+          console.log('[CacheManagement2] >>> Delete handler: about to clear sales_cache.db');
+          const currentGuid = await getGuid();
+          console.log('[CacheManagement2] >>> Delete handler: got guid =', currentGuid);
+          await clearSalesCacheForGuid(currentGuid || 'none');
+          await refreshEntries();
+          setStatusMessage('Cache entry deleted.');
+          setErrorMessage('');
+        } catch (e) {
+          console.error('Failed to delete cache entry:', e);
+          Alert.alert('Error', 'Failed to delete cache entry. Please try again.');
+        }
+      },
+    });
   };
 
   // Render cache entry row
@@ -3090,94 +3104,84 @@ export default function DataManagement() {
 
   // Clear company data handler
   const handleClearCompanyData = async () => {
-    Alert.alert(
-      'Clear Company Data?',
-      'Remove all data for the currently selected company. This includes sales data.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const [email, tallylocId, , guid] = await Promise.all([
-                getUserEmail(), getTallylocId(), getCompany(), getGuid(),
-              ]);
-              if (!email || !guid || !tallylocId) return;
-              const cacheKey = generateCacheKey(email, guid, tallylocId);
-              const ledgerKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
-              const stockKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
-              const stockGroupsKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
-              const database = await getDatabase();
-              // Delete main cache entries for this company
-              const [results2] = await database.executeSql(
-                `SELECT json_path FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]
-              );
-              for (let i = 0; i < results2.rows.length; i++) {
-                const p = results2.rows.item(i)?.json_path;
-                if (p) { try { const exists = await RNFS.exists(p); if (exists) await RNFS.unlink(p); } catch (_) { } }
-              }
-              await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
-              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ?`, [stockKey]);
-              await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE} WHERE cache_key = ?`, [stockKey]);
-              await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE} WHERE cache_key = ?`, [ledgerKey]);
-              await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE} WHERE cache_key = ?`, [ledgerKey]);
-              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
-              await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
-              invalidateLedgerListCache();
-              await clearSalesCacheForGuid(guid);
-              await refreshEntries();
-              setCustomerCount(0);
-              setItemCount(0);
-              setStockGroupCount(0);
-              setStatusMessage('Company data cleared.');
-            } catch (e) {
-              console.error('Clear company data failed:', e);
-              Alert.alert('Error', 'Failed to clear company data.');
-            }
-          },
-        },
-      ]
-    );
+    showConfirmationPopup({
+      title: 'Clear Company Data?',
+      subtitle: 'Remove all data for the currently selected company. This includes sales data.',
+      confirmLabel: 'Clear',
+      variant: 'delete',
+      onConfirm: async () => {
+        try {
+          const [email, tallylocId, , guid] = await Promise.all([
+            getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+          ]);
+          if (!email || !guid || !tallylocId) return;
+          const cacheKey = generateCacheKey(email, guid, tallylocId);
+          const ledgerKey = generateCacheKey(email, guid, tallylocId, 'ledger_list');
+          const stockKey = generateCacheKey(email, guid, tallylocId, 'stock_items');
+          const stockGroupsKey = generateCacheKey(email, guid, tallylocId, 'stock_groups');
+          const database = await getDatabase();
+          // Delete main cache entries for this company
+          const [results2] = await database.executeSql(
+            `SELECT json_path FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]
+          );
+          for (let i = 0; i < results2.rows.length; i++) {
+            const p = results2.rows.item(i)?.json_path;
+            if (p) { try { const exists = await RNFS.exists(p); if (exists) await RNFS.unlink(p); } catch (_) { } }
+          }
+          await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
+          await database.executeSql(`DELETE FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ?`, [stockKey]);
+          await database.executeSql(`DELETE FROM ${STOCK_ITEMS_INDEXED_TABLE} WHERE cache_key = ?`, [stockKey]);
+          await database.executeSql(`DELETE FROM ${CUSTOMERS_TABLE} WHERE cache_key = ?`, [ledgerKey]);
+          await database.executeSql(`DELETE FROM ${LEDGERS_INDEXED_TABLE} WHERE cache_key = ?`, [ledgerKey]);
+          await database.executeSql(`DELETE FROM ${STOCK_GROUPS_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
+          await database.executeSql(`DELETE FROM ${STOCK_GROUPS_INDEXED_TABLE} WHERE cache_key = ?`, [stockGroupsKey]);
+          invalidateLedgerListCache();
+          await clearSalesCacheForGuid(guid);
+          await refreshEntries();
+          setCustomerCount(0);
+          setItemCount(0);
+          setStockGroupCount(0);
+          setStatusMessage('Company data cleared.');
+        } catch (e) {
+          console.error('Clear company data failed:', e);
+          Alert.alert('Error', 'Failed to clear company data.');
+        }
+      },
+    });
   };
 
   // Clear sales data handler
   const handleClearSalesData = async () => {
-    Alert.alert(
-      'Clear Sales Data?',
-      'Remove only sales data cache for the currently selected company.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const [email, tallylocId, , guid] = await Promise.all([
-                getUserEmail(), getTallylocId(), getCompany(), getGuid(),
-              ]);
-              if (!email || !guid || !tallylocId) return;
-              const cacheKey = generateCacheKey(email, guid, tallylocId);
-              const database = await getDatabase();
-              const [results2] = await database.executeSql(
-                `SELECT json_path FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]
-              );
-              for (let i = 0; i < results2.rows.length; i++) {
-                const p = results2.rows.item(i)?.json_path;
-                if (p) { try { const exists = await RNFS.exists(p); if (exists) await RNFS.unlink(p); } catch (_) { } }
-              }
-              await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
-              await clearSalesCacheForGuid(guid);
-              await refreshEntries();
-              setStatusMessage('Sales data cleared.');
-            } catch (e) {
-              console.error('Clear sales data failed:', e);
-              Alert.alert('Error', 'Failed to clear sales data.');
-            }
-          },
-        },
-      ]
-    );
+    showConfirmationPopup({
+      title: 'Clear Sales Data?',
+      subtitle: 'Remove only sales data cache for the currently selected company.',
+      confirmLabel: 'Clear',
+      variant: 'delete',
+      onConfirm: async () => {
+        try {
+          const [email, tallylocId, , guid] = await Promise.all([
+            getUserEmail(), getTallylocId(), getCompany(), getGuid(),
+          ]);
+          if (!email || !guid || !tallylocId) return;
+          const cacheKey = generateCacheKey(email, guid, tallylocId);
+          const database = await getDatabase();
+          const [results2] = await database.executeSql(
+            `SELECT json_path FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]
+          );
+          for (let i = 0; i < results2.rows.length; i++) {
+            const p = results2.rows.item(i)?.json_path;
+            if (p) { try { const exists = await RNFS.exists(p); if (exists) await RNFS.unlink(p); } catch (_) { } }
+          }
+          await database.executeSql(`DELETE FROM ${TABLE_NAME} WHERE key = ?`, [cacheKey]);
+          await clearSalesCacheForGuid(guid);
+          await refreshEntries();
+          setStatusMessage('Sales data cleared.');
+        } catch (e) {
+          console.error('Clear sales data failed:', e);
+          Alert.alert('Error', 'Failed to clear sales data.');
+        }
+      },
+    });
   };
 
   // Build a time range label
@@ -3908,6 +3912,28 @@ export default function DataManagement() {
           </View>
         </View>
       </Modal>
+
+      <PopupModal
+        visible={confirmationPopup.visible}
+        onCancel={() => {
+          const onCancelAction = confirmationPopup.onCancelAction;
+          closeConfirmationPopup();
+          onCancelAction?.();
+        }}
+        onConfirm={async () => {
+          const onConfirmAction = confirmationPopup.onConfirm;
+          closeConfirmationPopup();
+          if (onConfirmAction) {
+            await onConfirmAction();
+          }
+        }}
+        title={confirmationPopup.title}
+        subtitle={confirmationPopup.subtitle}
+        confirmLabel={confirmationPopup.confirmLabel}
+        cancelLabel={confirmationPopup.cancelLabel}
+        variant={confirmationPopup.variant}
+        placement="center"
+      />
 
     </View >
   );

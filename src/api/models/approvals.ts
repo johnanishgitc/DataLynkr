@@ -26,6 +26,7 @@ export interface PendVchAuthItem {
     DEBITAMT?: string;
     CREDITAMT?: string;
     STATUS: string;      // "pending", "waiting", "approved", "rejected"
+    TYPE?: string;       // voucher type label from pend-vch-auth API
     REJECTION_REASON?: string;
     VOUCHER_ACTIVITY_HISTORY?: VoucherActivityEntry[];
     [key: string]: unknown;

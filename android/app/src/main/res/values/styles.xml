@@ -4,8 +4,10 @@
     <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
-        <!-- Transparent navigation bar (bottom system bar) -->
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Force app-bundled Roboto regardless of device system-font setting -->
+        <item name="android:fontFamily">@font/app_roboto</item>
+        <!-- White navigation bar (bottom system bar) with dark icons -->
+        <item name="android:navigationBarColor">#FFFFFF</item>
         <item name="android:windowLightNavigationBar">true</item>
         <!-- Prevent black screen before React/JS loads - match splash background -->
         <item name="android:windowBackground">@drawable/launch_screen_background</item>

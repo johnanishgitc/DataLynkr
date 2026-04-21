@@ -91,3 +91,7 @@ When upgrading any React Native or native Android dependency:
 The project builds for `arm64-v8a` and `x86_64` (set in
 `android/gradle.properties`). Only arm64-v8a requires 16KB alignment; x86_64
 libraries with 4KB alignment are acceptable (emulator-only architecture).
+
+
+
+dont make any changes to the git nor pull any changes from git

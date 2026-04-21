@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "709803081244",
+    "project_id": "datalynkritc",
+    "storage_bucket": "datalynkritc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:709803081244:android:5aeb12573842e54699e9d9",
+        "android_client_info": {
+          "package_name": "com.datalynkr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDSulYBNjJhhZfILbwNAGM7Kb2MN3hS_cs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -357,16 +357,23 @@ export default function StockItemVouchers() {
     }, [fetchData]);
 
     /** Closing balance from last voucher's closing.amt or closing.value */
-    const closingBalanceDisplay = useMemo(() => {
+    const closingBalance = useMemo(() => {
         const last = vouchers.length > 0 ? vouchers[vouchers.length - 1] : null;
-        const closing = last?.closing;
-        if (!closing) return '- - - -';
-        if (typeof (closing as { amt?: string }).amt === 'string' && (closing as { amt?: string }).amt !== '') {
-            return fmtAmt((closing as { amt: string }).amt);
+        const closing = last?.closing ?? opening;
+        if (!closing) return { qty: '', value: '- - - -' };
+
+        let valStr = '- - - -';
+        if (typeof (closing as any).amt === 'string' && (closing as any).amt !== '') {
+            valStr = fmtAmt((closing as any).amt);
+        } else if (typeof closing.value === 'number') {
+            valStr = fmtValue(closing.value);
         }
-        if (typeof closing.value === 'number') return fmtValue(closing.value);
-        return '- - - -';
-    }, [vouchers]);
+
+        return {
+            qty: closing.qty || '',
+            value: valStr
+        };
+    }, [vouchers, opening]);
 
     const onScroll = useMemo(
         () =>
@@ -385,10 +392,10 @@ export default function StockItemVouchers() {
             </View>
             <View style={s.ioValCols}>
                 <View style={s.ioQty}>
-                    <Text style={s.ioValText} numberOfLines={1}>{fmtQty(data.qty)}</Text>
+                    <Text style={s.ioValText} numberOfLines={1} adjustsFontSizeToFit>{fmtQty(data.qty)}</Text>
                 </View>
                 <View style={s.ioValue}>
-                    <Text style={s.ioValText} numberOfLines={1}>
+                    <Text style={s.ioValText} numberOfLines={1} adjustsFontSizeToFit>
                         {typeof data.amt === 'string' && data.amt !== ''
                             ? fmtAmt(data.amt)
                             : fmtValue(data.value)}
@@ -413,15 +420,15 @@ export default function StockItemVouchers() {
                     </View>
                     <View style={s.ioValCols}>
                         <View style={s.ioQty}>
-                            <Text style={s.openingValText} numberOfLines={1}>{fmtQty(opening?.qty)}</Text>
+                            <Text style={s.openingValText} numberOfLines={1} adjustsFontSizeToFit>{fmtQty(opening?.qty)}</Text>
                         </View>
-                <View style={s.ioValue}>
-                    <Text style={s.openingValText} numberOfLines={1}>
-                        {typeof opening?.amt === 'string' && opening.amt !== ''
-                            ? fmtAmt(opening.amt)
-                            : fmtValue(opening?.value)}
-                    </Text>
-                </View>
+                        <View style={s.ioValue}>
+                            <Text style={s.openingValText} numberOfLines={1} adjustsFontSizeToFit>
+                                {typeof opening?.amt === 'string' && opening.amt !== ''
+                                    ? fmtAmt(opening.amt)
+                                    : fmtValue(opening?.value)}
+                            </Text>
+                        </View>
                     </View>
                 </View>
             );
@@ -459,10 +466,10 @@ export default function StockItemVouchers() {
                     <Text style={s.vchTypeText}>{v.vouchertype?.toUpperCase()}</Text>
                     <View style={s.ioValCols}>
                         <View style={s.ioQty}>
-                            <Text style={s.ioValText} numberOfLines={1}>{fmtQty(v.closing?.qty)}</Text>
+                            <Text style={s.ioValText} numberOfLines={1} adjustsFontSizeToFit>{fmtQty(v.closing?.qty)}</Text>
                         </View>
                         <View style={s.ioValue}>
-                            <Text style={s.ioValText} numberOfLines={1}>
+                            <Text style={s.ioValText} numberOfLines={1} adjustsFontSizeToFit>
                                 {typeof (v.closing as { amt?: string })?.amt === 'string'
                                     ? fmtAmt((v.closing as { amt: string }).amt)
                                     : fmtValue(v.closing?.value)}
@@ -572,14 +579,23 @@ export default function StockItemVouchers() {
                     s.footerWrapper,
                     {
                         bottom: stockClosingBarBottom,
-                        height: FOOTER_HEIGHT,
+                        minHeight: FOOTER_HEIGHT,
                         transform: [{ translateY: footerTranslateY }],
                     },
                 ]}
             >
-                <View style={s.closingBalanceBar}>
-                    <Text style={s.closingBalanceLabel}>{strings.closing_balance.toUpperCase()}</Text>
-                    <Text style={s.closingBalanceValue}>{closingBalanceDisplay}</Text>
+                <View style={[s.closingBalanceBar, { paddingVertical: 10, minHeight: '100%' }]}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={s.closingBalanceLabel}>{'BALANCE'}</Text>
+                    </View>
+                    <View style={s.ioValCols}>
+                        <View style={s.ioQty}>
+                            <Text style={s.closingBalanceValue} numberOfLines={1} adjustsFontSizeToFit>{closingBalance.qty}</Text>
+                        </View>
+                        <View style={s.ioValue}>
+                            <Text style={s.closingBalanceValue} numberOfLines={1} adjustsFontSizeToFit>{closingBalance.value}</Text>
+                        </View>
+                    </View>
                 </View>
             </Animated.View>
 
@@ -810,7 +826,7 @@ const s = StyleSheet.create({
         color: colors.stock_text_label,
     },
     ioValCols: {
-        flex: 1,
+        flex: 1.6,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
@@ -819,7 +835,7 @@ const s = StyleSheet.create({
         flex: 1,
     },
     ioValue: {
-        flex: 1,
+        flex: 1.1,
         alignItems: 'flex-end',
     },
     ioValText: {

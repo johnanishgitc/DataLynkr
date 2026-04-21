@@ -9,6 +9,7 @@ import {
     Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import DeletePopupIcon from '../assets/DeletePopupIcon';
 import { colors } from '../constants/colors';
 
@@ -63,6 +64,13 @@ export function PopupModal({
     const isSuccess = variant === 'success';
     const isCenter = placement === 'center' || isSuccess;
 
+    useEffect(() => {
+        if (visible) {
+            SystemNavigationBar.setNavigationColor('#ffffff');
+            SystemNavigationBar.setBarMode('dark');
+        }
+    }, [visible]);
+
     const effectiveTitle =
         title ??
         (variant === 'success' ? 'Request Sent' : 'Are you sure you want to delete this?');
@@ -83,9 +91,9 @@ export function PopupModal({
     return (
         <>
             <Modal
-                statusBarTranslucent
                 visible={visible}
                 transparent
+                statusBarTranslucent
                 animationType={isCenter ? 'fade' : 'slide'}
                 onRequestClose={onCancel}
             >
@@ -153,7 +161,10 @@ export function PopupModal({
                                                 )}
                                             </View>
                                         </View>
-                                        <Text style={styles.title}>{effectiveTitle}</Text>
+                                        <Text style={[styles.title, !subtitle && styles.titleWithNoSubtitle]}>{effectiveTitle}</Text>
+                                        {subtitle ? (
+                                            <Text style={styles.subtitle}>{subtitle}</Text>
+                                        ) : null}
 
                                         <View style={styles.buttonRow}>
                                             <TouchableOpacity
@@ -293,8 +304,20 @@ const styles = StyleSheet.create({
         fontSize: 24,
         color: '#131313',
         textAlign: 'center',
-        marginBottom: 32,
+        marginBottom: 8,
         lineHeight: 32,
+    },
+    titleWithNoSubtitle: {
+        marginBottom: 32,
+    },
+    subtitle: {
+        fontFamily: 'Roboto',
+        fontSize: 14,
+        fontWeight: '400',
+        color: colors.text_secondary,
+        textAlign: 'center',
+        marginBottom: 24,
+        lineHeight: 20,
     },
     successTitle: {
         fontFamily: 'Roboto',

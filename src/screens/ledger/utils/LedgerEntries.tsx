@@ -14,6 +14,7 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -95,10 +96,18 @@ function BankUpiDetailsModal({
   const upiCount = data?.upiCount ?? data?.upis?.length ?? 0;
   const summary = `${bankCount} Bank${bankCount !== 1 ? 's' : ''} • ${upiCount} UPI${upiCount !== 1 ? 's' : ''}`;
 
+  useEffect(() => {
+    if (visible) {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [visible]);
+
   return (
     <Modal
       visible={visible}
       transparent
+      statusBarTranslucent
       animationType="slide"
       onRequestClose={onClose}
     >
@@ -458,6 +467,10 @@ export default function LedgerEntries() {
     React.useCallback(() => {
       StatusBar.setBackgroundColor(colors.primary_blue);
       StatusBar.setBarStyle('light-content');
+      if (Platform.OS === 'android') {
+        SystemNavigationBar.setNavigationColor('#ffffff');
+        SystemNavigationBar.setBarMode('dark');
+      }
     }, [])
   );
 
@@ -820,6 +833,13 @@ export default function LedgerEntries() {
         return <LedgerVoucher {...sharedProps} />;
     }
   };
+
+  useEffect(() => {
+    if (shareExportLoading) {
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [shareExportLoading]);
 
   return (
     <View style={sharedStyles.root}>

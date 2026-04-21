@@ -211,6 +211,14 @@ export type ApprovalsStackParamList = {
     fromApprovals?: boolean;
     approvalsActiveTab?: string;
   };
+  BillAllocations: {
+    voucher: object;
+    ledger_name?: string;
+  };
+  MoreDetails: {
+    voucher?: object;
+    ledger_name?: string;
+  };
 };
 
 export type SummaryStackParamList = {
@@ -243,6 +251,12 @@ export type MainStackParamList = {
   AdminDashboard: undefined;
   MainTabs: undefined;
   DataManagement: undefined;
+  BCommerce: { selectedCategory?: string } | undefined;
+  BCommerceCategories: { selectedCategory?: string, selectedParent?: string } | undefined;
+  BCommerceItemDetail: { itemData: any };
+  BCommerceCart: undefined;
+  BCommerceCheckout: { ledgerValues?: Record<string, string> };
+  BCommerceOrderPlaced: undefined;
   Payments: undefined;
   ExpenseClaims: undefined;
   Collections: undefined;

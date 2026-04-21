@@ -74,7 +74,45 @@ def enableHermes = (project.findProperty("hermesEnabled") ?: "true").toString().
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'org.webkit:android-jsc:+'
-def uploadStorePath = project.findProperty('MYAPP_UPLOAD_STORE_FILE')
+def dotenvValues = [:]
+def dotenvFile = rootProject.file("../.env")
+if (dotenvFile.exists()) {
+    dotenvFile.eachLine { rawLine ->
+        def line = rawLine?.trim()
+        if (line && !line.startsWith("#")) {
+            if (line.startsWith("export ")) {
+                line = line.substring("export ".length()).trim()
+            }
+            def separatorIndex = line.indexOf("=")
+            if (separatorIndex > 0) {
+                def envKey = line.substring(0, separatorIndex).trim()
+                def envValue = line.substring(separatorIndex + 1).trim()
+                def hasDoubleQuotes = envValue.length() >= 2 && envValue.startsWith("\"") && envValue.endsWith("\"")
+                def hasSingleQuotes = envValue.length() >= 2 && envValue.startsWith("'") && envValue.endsWith("'")
+                if (hasDoubleQuotes || hasSingleQuotes) {
+                    envValue = envValue.substring(1, envValue.length() - 1)
+                }
+                dotenvValues[envKey] = envValue
+            }
+        }
+    }
+}
+
+def readSigningValue = { String key ->
+    def value = project.findProperty(key)
+    if (value == null || value.toString().trim().isEmpty()) {
+        value = System.getenv(key)
+    }
+    if (value == null || value.toString().trim().isEmpty()) {
+        value = dotenvValues[key]
+    }
+    return value?.toString()?.trim()
+}
+
+def uploadStorePath = readSigningValue('MYAPP_UPLOAD_STORE_FILE')
+def uploadStorePassword = readSigningValue('MYAPP_UPLOAD_STORE_PASSWORD')
+def uploadKeyAlias = readSigningValue('MYAPP_UPLOAD_KEY_ALIAS')
+def uploadKeyPassword = readSigningValue('MYAPP_UPLOAD_KEY_PASSWORD')
 def uploadStoreFile = null
 if (uploadStorePath) {
     // Resolve relative paths from app/, then from project root.
@@ -84,12 +122,26 @@ if (uploadStorePath) {
     }
 }
 def releaseKeystoreConfigured = uploadStoreFile != null && uploadStoreFile.exists()
+def releaseSigningConfigured = releaseKeystoreConfigured && uploadStorePassword && uploadKeyAlias && uploadKeyPassword
 def isReleaseLikeTask = gradle.startParameter.taskNames.any { taskName ->
     def normalized = taskName.toLowerCase()
     normalized.contains("release") || normalized.contains("bundle")
 }
-if (isReleaseLikeTask && !releaseKeystoreConfigured) {
-    throw new GradleException("Release signing keystore not found at MYAPP_UPLOAD_STORE_FILE='${uploadStorePath}'.")
+if (isReleaseLikeTask && !releaseSigningConfigured) {
+    def missingReleaseSigning = []
+    if (!releaseKeystoreConfigured) {
+        missingReleaseSigning << "MYAPP_UPLOAD_STORE_FILE (file not found at '${uploadStorePath}')"
+    }
+    if (!uploadStorePassword) {
+        missingReleaseSigning << "MYAPP_UPLOAD_STORE_PASSWORD"
+    }
+    if (!uploadKeyAlias) {
+        missingReleaseSigning << "MYAPP_UPLOAD_KEY_ALIAS"
+    }
+    if (!uploadKeyPassword) {
+        missingReleaseSigning << "MYAPP_UPLOAD_KEY_PASSWORD"
+    }
+    throw new GradleException("Missing release signing configuration: ${missingReleaseSigning.join(', ')}. Set values in ~/.gradle/gradle.properties, environment variables, .env, or CI secrets.")
 }
 
 android {
@@ -102,8 +154,8 @@ android {
         applicationId "com.datalynkr"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 32
-        versionName "1.4.0"
+        versionCode 34
+        versionName "1.4.1"
     }
     
     buildFeatures {
@@ -126,14 +178,14 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        // Release signing values come from MYAPP_UPLOAD_* in gradle.properties.
-        // Keep this config declared so Gradle tasks can evaluate even when the keystore is missing.
+        // Release signing values come from MYAPP_UPLOAD_* in gradle.properties, environment variables, or .env.
+        // Keep this config declared so Gradle tasks can evaluate even when signing values are missing.
         release {
-            if (releaseKeystoreConfigured) {
+            if (releaseSigningConfigured) {
                 storeFile uploadStoreFile
-                storePassword project.property('MYAPP_UPLOAD_STORE_PASSWORD')
-                keyAlias project.property('MYAPP_UPLOAD_KEY_ALIAS')
-                keyPassword project.property('MYAPP_UPLOAD_KEY_PASSWORD')
+                storePassword uploadStorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
             }
         }
     }

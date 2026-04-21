@@ -257,7 +257,14 @@ export function useS3Attachment(opts: UseS3AttachmentOptions) {
 
   /** Remove an attachment by index. */
   const removeAttachment = useCallback((index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    setAttachments((prev) => {
+      const removedAttachment = prev[index];
+      if (removedAttachment?.s3Key) {
+        apiService.deleteImage({ s3Key: removedAttachment.s3Key })
+          .catch((err) => console.warn('[useS3Attachment] deleteImage failed', err));
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   }, []);
 
   /** Set all attachments at once (for restoring from navigation params). */

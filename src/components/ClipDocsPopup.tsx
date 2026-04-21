@@ -2,11 +2,13 @@
  * Clip docs popup - exact implementation from PlaceOrder_FigmaScreens/ClipDocs (Figma 3067-40945).
  * No design modifications. Same assets as design.
  */
-import React from 'react';
-import { View, Text, Modal, TouchableOpacity, Pressable, StyleSheet, Dimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, Modal, TouchableOpacity, Pressable, StyleSheet, Dimensions, Platform } from 'react-native';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import FrameCameraSvg from '../assets/clipPopup/frame-2147225875.svg';
 import VectorGallerySvg from '../assets/clipPopup/vector.svg';
 import VectorFilesSvg from '../assets/clipPopup/vector-1.svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SvgProps } from 'react-native-svg';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -46,16 +48,26 @@ const UPLOAD_OPTIONS: Array<{
   ];
 
 export function ClipDocsPopup({ visible, onClose, onOptionClick }: ClipDocsPopupProps) {
+  const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (visible && Platform.OS === 'android') {
+      // White background, force dark/gray buttons
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    } else if (!visible && Platform.OS === 'android') {
+      // Restore when closed
+      SystemNavigationBar.setNavigationColor('#ffffff');
+      SystemNavigationBar.setBarMode('dark');
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
+    <View style={styles.viewOverlay}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <View style={styles.sheet} onStartShouldSetResponder={() => true} pointerEvents="box-none">
+        <View style={[styles.sheet, { paddingBottom: 5 + insets.bottom }]} onStartShouldSetResponder={() => true} pointerEvents="box-none">
           <View style={styles.content}>
             <View style={styles.nav}>
               {UPLOAD_OPTIONS.map((option) => {
@@ -93,11 +105,15 @@ export function ClipDocsPopup({ visible, onClose, onOptionClick }: ClipDocsPopup
           </View>
         </View>
       </Pressable>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  viewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -106,8 +122,8 @@ const styles = StyleSheet.create({
   sheet: {
     width: SCREEN_WIDTH,
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     paddingTop: 14,
     paddingBottom: 40,
     paddingHorizontal: 10,

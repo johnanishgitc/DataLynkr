@@ -31,3 +31,6 @@ This project enforces 16KB ELF segment alignment for all native (`.so`) librarie
 ### Kotlin and Compose
 - **Kotlin 1.9.24**: Do not upgrade to Kotlin 2.0 without extensive testing of all native modules.
 - **Compose Disabled**: Avoid adding Compose dependencies as they force Kotlin 2.0 compiler plugins.
+
+
+dont make any changes to the git nor pull any changes from it
