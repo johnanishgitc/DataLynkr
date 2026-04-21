@@ -336,16 +336,16 @@ export default function StockItemMonthly() {
 
     const renderInwardOutward = (label: string, type: 'inward' | 'outward', data: StockQtyValue) => (
         <View style={s.ioRow}>
-            <View style={s.openingLabel}>
+            <View style={s.ioLabelWrap}>
                 {type === 'inward' ? <InwardIcon /> : <OutwardIcon />}
                 <Text style={s.ioLabel}>{label}</Text>
             </View>
             <View style={s.ioValCols}>
                 <View style={s.ioQty}>
-                    <Text style={s.ioValText} numberOfLines={1}>{fmtQty(data.qty)}</Text>
+                    <Text style={s.ioValText} numberOfLines={1} adjustsFontSizeToFit>{fmtQty(data.qty)}</Text>
                 </View>
                 <View style={s.ioValue}>
-                    <Text style={s.ioValText} numberOfLines={1}>{fmtValue(data.value)}</Text>
+                    <Text style={s.ioValText} numberOfLines={1} adjustsFontSizeToFit>{fmtValue(data.value)}</Text>
                 </View>
             </View>
         </View>
@@ -366,10 +366,10 @@ export default function StockItemMonthly() {
                     </View>
                     <View style={s.ioValCols}>
                         <View style={s.ioQty}>
-                            <Text style={s.openingValText} numberOfLines={1}>{fmtQty(opening?.qty)}</Text>
+                            <Text style={s.openingValText} numberOfLines={1} adjustsFontSizeToFit>{fmtQty(opening?.qty)}</Text>
                         </View>
                         <View style={s.ioValue}>
-                            <Text style={s.openingValText} numberOfLines={1}>{fmtValue(opening?.value)}</Text>
+                            <Text style={s.openingValText} numberOfLines={1} adjustsFontSizeToFit>{fmtValue(opening?.value)}</Text>
                         </View>
                     </View>
                 </View>
@@ -495,7 +495,7 @@ export default function StockItemMonthly() {
                     },
                 ]}
             >
-                <View style={{ width: 186 }}>
+                <View style={{ flex: 1 }}>
                     <Text
                         style={{
                             fontFamily: 'Roboto',
@@ -509,30 +509,32 @@ export default function StockItemMonthly() {
                 </View>
                 <View style={s.ioValCols}>
                     <View style={s.ioQty}>
-                        <Text
-                            style={{
-                                fontFamily: 'Roboto',
-                                fontSize: 13,
-                                fontWeight: '700',
-                                color: colors.white,
-                            }}
-                            numberOfLines={1}
-                        >
-                            {closingBalance.qty}
-                        </Text>
+                            <Text
+                                style={{
+                                    fontFamily: 'Roboto',
+                                    fontSize: 13,
+                                    fontWeight: '700',
+                                    color: colors.white,
+                                }}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                            >
+                                {closingBalance.qty}
+                            </Text>
                     </View>
                     <View style={s.ioValue}>
-                        <Text
-                            style={{
-                                fontFamily: 'Roboto',
-                                fontSize: 13,
-                                fontWeight: '700',
-                                color: colors.white,
-                            }}
-                            numberOfLines={1}
-                        >
-                            {closingBalance.value}
-                        </Text>
+                            <Text
+                                style={{
+                                    fontFamily: 'Roboto',
+                                    fontSize: 13,
+                                    fontWeight: '700',
+                                    color: colors.white,
+                                }}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                            >
+                                {closingBalance.value}
+                            </Text>
                     </View>
                 </View>
             </Animated.View>
@@ -699,7 +701,7 @@ const s = StyleSheet.create({
         color: colors.stock_text_dark,
     },
     colParticulars: {
-        width: 186,
+        flex: 1,
     },
 
     // Opening Balance
@@ -711,7 +713,7 @@ const s = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.stock_border,
     },
-    openingLabel: { width: 186 },
+    openingLabel: { flex: 1 },
     openingText: {
         fontFamily: 'Roboto',
         fontSize: 13,
@@ -761,7 +763,7 @@ const s = StyleSheet.create({
         color: colors.stock_text_label,
     },
     ioValCols: {
-        flex: 1,
+        flex: 1.6,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
@@ -770,7 +772,7 @@ const s = StyleSheet.create({
         flex: 1,
     },
     ioValue: {
-        flex: 1,
+        flex: 1.1,
         alignItems: 'flex-end',
     },
     ioValText: {
