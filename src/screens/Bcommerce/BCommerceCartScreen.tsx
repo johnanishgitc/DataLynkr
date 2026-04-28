@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import Geolocation from 'react-native-geolocation-service';
 import axios from 'axios';
 import { getStatename, getTallylocId, getCompany, getGuid } from '../../store/storage';

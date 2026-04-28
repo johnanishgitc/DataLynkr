@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 import type { MainStackParamList } from './types';
 import AdminDashboard from '../screens/AdminDashboard';
 import MainTabs from './MainTabs';
@@ -17,6 +17,8 @@ import BCommerceOrderPlacedScreen from '../screens/Bcommerce/BCommerceOrderPlace
 import PaymentsScreen from '../screens/PayNExp/PaymentsScreen';
 import ExpenseClaimsScreen from '../screens/PayNExp/ExpenseClaimsScreen';
 import CollectionsScreen from '../screens/PayNExp/CollectionsScreen';
+import GeoTrackingOrdersScreen from '../screens/GeoTrackingOrdersScreen';
+import GeoTrackingAddFormScreen from '../screens/GeoTrackingAddFormScreen';
 import { GlobalSidebarProvider } from '../store/GlobalSidebarContext';
 import { ModuleAccessProvider } from '../store/ModuleAccessContext';
 import { BCommerceCartProvider } from '../store/BCommerceCartContext';
@@ -74,6 +76,8 @@ function MainStackInner() {
       <Stack.Screen name="Payments" component={PaymentsScreen} />
       <Stack.Screen name="ExpenseClaims" component={ExpenseClaimsScreen} />
       <Stack.Screen name="Collections" component={CollectionsScreen} />
+      <Stack.Screen name="GeoTrackingOrders" component={GeoTrackingOrdersScreen} />
+      <Stack.Screen name="GeoTrackingAddForm" component={GeoTrackingAddFormScreen} />
       <Stack.Screen
         name="VoucherDetailView"
         component={VoucherDetailView}

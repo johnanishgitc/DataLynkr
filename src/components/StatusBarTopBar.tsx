@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../constants/colors';
 import { ShareIcon } from '../assets/ShareIcon';
+import { RefreshIcon } from '../assets/connections';
 import LedgerIcon from './footer-icons/LedgerIcon';
 
 export interface StatusBarTopBarProps {
@@ -16,6 +17,8 @@ export interface StatusBarTopBarProps {
   onSharePress?: () => void;
   /** Called when bank icon is pressed (used when rightIcons='ledger-report'). */
   onBankPress?: () => void;
+  /** Called when refresh icon is pressed (used when rightIcons='ledger-report'). */
+  onRefreshPress?: () => void;
   /** Called when bell icon is pressed (used when rightIcons='ledger-report'). If omitted, uses onRightIconsPress. */
   onBellPress?: () => void;
   /** 'default' = tune+account, 'share-bell' = share+bell (Ledger Book), 'ledger-report' = bank+share+bell (Ledger Reports), 'kebab' = single kebab in white circle, 'share' = share only (e.g. Accounting Voucher Details), 'share-kebab' = share (VDInv vector-14) + kebab (Voucher Details), 'ledger' = LedgerIcon (same as footer, Order Entry), 'draft-switch' = Switch for Order Entry draft mode, 'none' = no right buttons */
@@ -39,6 +42,7 @@ export function StatusBarTopBar({
   onRightIconsPress,
   onSharePress,
   onBankPress,
+  onRefreshPress,
   onBellPress,
   rightIcons = 'default',
   leftIcon = 'menu',
@@ -180,16 +184,14 @@ export function StatusBarTopBar({
           >
             <Icon name="share-variant" size={22} color={colors.white} />
           </TouchableOpacity>
-          {/* Bell icon commented out – re-enable when requested
           <TouchableOpacity
-            onPress={onBellPress ?? (() => {})}
+            onPress={onRefreshPress}
             style={styles.shareBtn}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityLabel="Notifications"
+            accessibilityLabel="Refresh"
           >
-            <Icon name="bell" size={22} color={colors.white} />
+            <RefreshIcon width={24} height={24} color={colors.white} />
           </TouchableOpacity>
-          */}
         </View>
       );
     }

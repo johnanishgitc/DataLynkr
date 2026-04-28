@@ -288,8 +288,8 @@ export default function CollectionsScreen() {
   return (
     <KeyboardAvoidingView
       style={s.root}
-      behavior="padding"
-      keyboardVerticalOffset={insets.top + 55}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 55 : 0}
     >
     <View style={s.root}>
       <View style={[s.headerWrap, { paddingTop: insets.top }]}>

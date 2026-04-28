@@ -54,6 +54,8 @@ export type EcommercePlaceOrderAccess = {
     show_rateamt_Column: boolean;
     /** Show stock item images in B-Commerce UI only when explicitly granted. */
     show_image: boolean;
+    /** From `upload_images` when granted to allow uploading stock item images. */
+    upload_images: boolean;
     /** From `def_qty` when granted and value is a valid positive number. */
     defaultQty?: number;
     /** From `save_optional` when granted; B-Commerce checkout sends `isoptional: 'Yes'`. */
@@ -65,6 +67,7 @@ const ECOMMERCE_ACCESS_LEGACY_DEFAULT: EcommercePlaceOrderAccess = {
     show_itemdesc: false,
     show_rateamt_Column: true,
     show_image: false,
+    upload_images: false,
     defaultQty: undefined,
     saveOptionalForPlaceOrder: false,
 };
@@ -415,6 +418,7 @@ export function useUserAccess(): UseUserAccessReturn {
                             show_itemdesc: ePermMap.show_itemdesc ?? false,
                             show_rateamt_Column: ePermMap.show_rateamt_Column ?? false,
                             show_image: ePermMap.show_image ?? false,
+                            upload_images: ePermMap.upload_images ?? false,
                             defaultQty: eDefaultQty,
                             saveOptionalForPlaceOrder: eSaveOptional,
                         };

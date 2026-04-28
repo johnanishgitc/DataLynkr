@@ -61,6 +61,34 @@ export async function getStockItemsFromDataManagementCacheIfPresent(): Promise<{
 }
 
 /**
+ * Returns stock items cache creation time in epoch millis.
+ * Returns null when cache entry is missing or timestamp is invalid.
+ */
+export async function getStockItemsCacheCreatedAtMs(): Promise<number | null> {
+  const [email, tallylocId, guid] = await Promise.all([
+    getUserEmail(),
+    getTallylocId(),
+    getGuid(),
+  ]);
+  if (!email || !guid || tallylocId == null || tallylocId === 0) return null;
+
+  const cacheKey = getStockItemsCacheKey(email, guid, tallylocId);
+  const database = await getDatabase();
+  const [results] = await database.executeSql(
+    `SELECT created_at FROM ${STOCK_ITEMS_TABLE} WHERE cache_key = ? LIMIT 1`,
+    [cacheKey]
+  );
+  if (results.rows.length === 0) return null;
+
+  const row = results.rows.item(0) as { created_at?: string };
+  const createdAtStr = row?.created_at;
+  if (typeof createdAtStr !== 'string' || createdAtStr.length === 0) return null;
+
+  const createdAtMs = Date.parse(createdAtStr);
+  return Number.isFinite(createdAtMs) ? createdAtMs : null;
+}
+
+/**
  * Load stock items from Data Management cache for the current user.
  * Returns null if not logged in, no company, or no cached data.
  * If cache is empty, automatically fetches from API and saves to Data Management, then re-reads.

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Platform } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 import type { SummaryStackParamList } from './types';
 import StockSummary from '../screens/StockSummary/StockSummary';
 import StockItemMonthly from '../screens/StockSummary/StockItemMonthly';

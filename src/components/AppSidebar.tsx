@@ -40,7 +40,7 @@ import type { UserConnection } from '../api/models/connections';
 import FullYellowLogo from '../../assets/fullyellow.svg';
 import DataLynkrTextSvg from '../../assets/DataLynkrTextWhiteNoPadding.svg';
 import DataLynkrTextDarkBlueSvg from '../../assets/DataLynkrTextWhiteNoPaddingDarkBlue.svg';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 import { navigationRef } from '../navigation/navigationRef';
 import { REPORT_OPTIONS, REPORT_MODULE_ACCESS_MAP } from '../screens/ledger/utils';
 import { useModuleAccess } from '../store/ModuleAccessContext';
@@ -214,12 +214,6 @@ export function AppSidebar({
         setSelectedGuid(g ?? '');
       });
 
-      // Auto-expand sections when a child route is currently active,
-      // so the selected sub-item highlight is visible immediately.
-      if (activeLedgerReport) setLedgerExpanded(true);
-      if (activeTarget === 'ExpenseClaims' || activeTarget === 'Payments' || activeTarget === 'Collections') {
-        setPaymentExpanded(true);
-      }
     } else {
       setDropdownOpen(false);
       setDashboardExpanded(false);

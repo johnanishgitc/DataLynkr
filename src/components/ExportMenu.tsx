@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { strings } from '../constants/strings';
 import { colors } from '../constants/colors';
 
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 
 type Props = {
   visible: boolean;

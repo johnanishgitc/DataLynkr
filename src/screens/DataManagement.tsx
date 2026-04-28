@@ -15,7 +15,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
 import type { MainStackParamList } from '../navigation/types';
@@ -1195,6 +1195,14 @@ export default function DataManagement() {
     }
   }, []);
 
+  const loadDefaultDateRange = useCallback(async () => {
+    const [booksfrom, lastVoucher] = await Promise.all([getBooksfrom(), getLastVoucherDate()]);
+    const from = parseYyyyMmDdToDate(booksfrom);
+    const to = parseYyyyMmDdToDate(lastVoucher);
+    if (from) setFromDate(from);
+    if (to) setToDate(to);
+  }, []);
+
   useEffect(() => {
     return subscribeToDataManagementSync(setIsBackgroundSyncing);
   }, []);
@@ -1226,15 +1234,37 @@ export default function DataManagement() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [booksfrom, lastVoucher] = await Promise.all([getBooksfrom(), getLastVoucherDate()]);
+      await loadDefaultDateRange();
       if (cancelled) return;
-      const from = parseYyyyMmDdToDate(booksfrom);
-      const to = parseYyyyMmDdToDate(lastVoucher);
-      if (from) setFromDate(from);
-      if (to) setToDate(to);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadDefaultDateRange]);
+
+  // Treat Data Management as an isolated entry-point screen.
+  // Whenever this screen gains focus (including from sidebar), reset transient UI state
+  // and reload entries/date range so it does not depend on previously visited screens.
+  useFocusEffect(
+    useCallback(() => {
+      setErrorMessage('');
+      setStatusMessage('');
+      setPreviewVisible(false);
+      setPreviewLoading(false);
+      setPeriodSelectionVisible(false);
+      setConfirmationPopup((prev) => ({
+        ...prev,
+        visible: false,
+        onConfirm: null,
+        onCancelAction: null,
+      }));
+
+      refreshEntries();
+      loadDefaultDateRange().catch((e) => {
+        console.warn('[DataManagement] Failed to reload default date range on focus:', e);
+      });
+
+      return undefined;
+    }, [loadDefaultDateRange, refreshEntries])
+  );
 
 
   // Validate date range

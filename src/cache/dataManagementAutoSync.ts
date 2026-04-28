@@ -6,7 +6,11 @@
 import { apiService } from '../api/client';
 import { getUserEmail, getTallylocId, getCompany, getGuid } from '../store/storage';
 import { getLedgerListFromDataManagementCacheIfPresent, saveLedgerListToDataManagementCache } from './ledgerListCacheReader';
-import { getStockItemsFromDataManagementCacheIfPresent, saveStockItemsToDataManagementCache } from './stockItemsCacheReader';
+import {
+  getStockItemsCacheCreatedAtMs,
+  getStockItemsFromDataManagementCacheIfPresent,
+  saveStockItemsToDataManagementCache
+} from './stockItemsCacheReader';
 import {
   getStockGroupsFromDataManagementCache,
   saveStockGroupsToDataManagementCache,
@@ -167,14 +171,70 @@ function mergeItemsByMasterId(existing: unknown[], incoming: unknown[]): unknown
 }
 
 /**
+ * Fetch and merge only stock items from API.
+ * Uses incremental sync if possible.
+ */
+export async function refreshStockItemsOnly(): Promise<void> {
+  const STOCK_ITEMS_FULL_REFRESH_MAX_AGE_DAYS = 5;
+  const STOCK_ITEMS_FULL_REFRESH_MAX_AGE_MS =
+    STOCK_ITEMS_FULL_REFRESH_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+
+  notifySyncState(true);
+  try {
+    const [tallylocId, company, guid] = await Promise.all([
+      getTallylocId(),
+      getCompany(),
+      getGuid(),
+    ]);
+    if (!guid || tallylocId == null || tallylocId === 0 || !company) return;
+
+    const existingStock = await getStockItemsFromDataManagementCacheIfPresent();
+    const stockItemsCacheCreatedAtMs = await getStockItemsCacheCreatedAtMs();
+    const existingStockItems = existingStock?.data ?? [];
+    const isStockItemsCacheStale =
+      stockItemsCacheCreatedAtMs != null &&
+      Date.now() - stockItemsCacheCreatedAtMs > STOCK_ITEMS_FULL_REFRESH_MAX_AGE_MS;
+
+    const stockMaxAltId = existingStockItems.length > 0 ? getMaxAlterId(existingStockItems) : 0;
+    const stockPayload: { tallyloc_id: number; company: string; guid: string; lastaltid?: number } = {
+      tallyloc_id: Number(tallylocId), company, guid,
+    };
+    if (stockMaxAltId > 0 && !isStockItemsCacheStale) stockPayload.lastaltid = stockMaxAltId;
+
+    console.log(`[dataManagementAutoSync] Refreshing stock items only. lastaltid: ${stockPayload.lastaltid ?? 'none'}`);
+
+    const stockRes = await apiService.getStockItems(stockPayload);
+    const stockBody = (stockRes as { data?: unknown })?.data ?? stockRes;
+
+    if (stockBody != null && typeof stockBody === 'object') {
+      const sb = stockBody as Record<string, unknown>;
+      const incomingItems = (sb.stockItems as unknown[] | undefined) ?? (sb.data as unknown[] | undefined) ?? (Array.isArray(sb) ? sb : []);
+      if (Array.isArray(incomingItems) && incomingItems.length > 0) {
+        if (stockMaxAltId > 0 && existingStockItems.length > 0 && !isStockItemsCacheStale) {
+          const merged = mergeItemsByMasterId(existingStockItems, incomingItems);
+          await saveStockItemsToDataManagementCache({ stockItems: merged });
+        } else {
+          await saveStockItemsToDataManagementCache(stockBody);
+        }
+      }
+    }
+    console.log('[dataManagementAutoSync] refreshStockItemsOnly complete');
+  } catch (e) {
+    console.warn('[dataManagementAutoSync] refreshStockItemsOnly failed:', e);
+  } finally {
+    notifySyncState(false);
+  }
+}
+
+/**
  * Always fetch customers, stock items, and stock groups from API and save to Data Management.
  * Use after login or company selection to reload/update data in background.
- *
- * For stock items and customers: if data already exists in cache, uses incremental sync
- * by sending the highest ALTERID as `lastaltid` and merging the response.
- * For stock groups: always calls the normal full-fetch API.
  */
 export async function refreshAllDataManagementData(): Promise<void> {
+  const STOCK_ITEMS_FULL_REFRESH_MAX_AGE_DAYS = 5;
+  const STOCK_ITEMS_FULL_REFRESH_MAX_AGE_MS =
+    STOCK_ITEMS_FULL_REFRESH_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+
   notifySyncState(true);
   try {
     const [email, tallylocId, company, guid] = await Promise.all([
@@ -188,9 +248,13 @@ export async function refreshAllDataManagementData(): Promise<void> {
     // Check existing data to determine if incremental sync is possible
     const existingLedger = await getLedgerListFromDataManagementCacheIfPresent();
     const existingStock = await getStockItemsFromDataManagementCacheIfPresent();
+    const stockItemsCacheCreatedAtMs = await getStockItemsCacheCreatedAtMs();
 
     const existingLedgers = existingLedger?.ledgers ?? existingLedger?.data ?? [];
     const existingStockItems = existingStock?.data ?? [];
+    const isStockItemsCacheStale =
+      stockItemsCacheCreatedAtMs != null &&
+      Date.now() - stockItemsCacheCreatedAtMs > STOCK_ITEMS_FULL_REFRESH_MAX_AGE_MS;
 
     const ledgerMaxAltId = existingLedgers.length > 0 ? getMaxAlterId(existingLedgers) : 0;
     const stockMaxAltId = existingStockItems.length > 0 ? getMaxAlterId(existingStockItems) : 0;
@@ -204,9 +268,13 @@ export async function refreshAllDataManagementData(): Promise<void> {
     const stockPayload: { tallyloc_id: number; company: string; guid: string; lastaltid?: number } = {
       tallyloc_id: Number(tallylocId), company, guid,
     };
-    if (stockMaxAltId > 0) stockPayload.lastaltid = stockMaxAltId;
+    if (stockMaxAltId > 0 && !isStockItemsCacheStale) stockPayload.lastaltid = stockMaxAltId;
 
-    console.log(`[dataManagementAutoSync] Refreshing data. Stock items lastaltid: ${stockMaxAltId || 'none (full fetch)'}, Customers lastaltid: ${ledgerMaxAltId || 'none (full fetch)'}`);
+    console.log(
+      `[dataManagementAutoSync] Refreshing data. Stock items lastaltid: ${
+        stockPayload.lastaltid ?? 'none (full fetch)'
+      }, Customers lastaltid: ${ledgerMaxAltId || 'none (full fetch)'}, stock stale(>${STOCK_ITEMS_FULL_REFRESH_MAX_AGE_DAYS}d): ${isStockItemsCacheStale}`
+    );
 
     const [ledgerRes, stockRes, groupsRes] = await Promise.all([
       apiService.getLedgerList(ledgerPayload),
@@ -216,12 +284,6 @@ export async function refreshAllDataManagementData(): Promise<void> {
     const ledgerBody = (ledgerRes as { data?: LedgerListResponse })?.data ?? (ledgerRes as unknown as LedgerListResponse);
     const stockBody = (stockRes as { data?: unknown })?.data ?? stockRes;
     const groupsBody = (groupsRes as { data?: unknown })?.data ?? groupsRes;
-
-    // Debug: log what we got from APIs
-    const lbDebug = ledgerBody as Record<string, unknown>;
-    console.log(`[dataManagementAutoSync] Ledger response keys: ${Object.keys(lbDebug || {}).join(', ')}, ledgers count: ${Array.isArray(lbDebug?.ledgers) ? (lbDebug.ledgers as unknown[]).length : 'N/A'}, data count: ${Array.isArray(lbDebug?.data) ? (lbDebug.data as unknown[]).length : 'N/A'}`);
-    const sbDebug = stockBody as Record<string, unknown>;
-    console.log(`[dataManagementAutoSync] Stock response keys: ${Object.keys(sbDebug || {}).join(', ')}, stockItems count: ${Array.isArray(sbDebug?.stockItems) ? (sbDebug.stockItems as unknown[]).length : 'N/A'}, data count: ${Array.isArray(sbDebug?.data) ? (sbDebug.data as unknown[]).length : 'N/A'}`);
 
     // Save stock groups as-is (always full fetch)
     const saveGroupsPromise = groupsBody != null && typeof groupsBody === 'object'
@@ -235,18 +297,11 @@ export async function refreshAllDataManagementData(): Promise<void> {
       const incomingLedgers = lb.ledgers ?? lb.data ?? [];
       if (Array.isArray(incomingLedgers) && incomingLedgers.length > 0) {
         if (ledgerMaxAltId > 0 && existingLedgers.length > 0) {
-          // Incremental: merge incoming with existing by MASTERID
           const merged = mergeItemsByMasterId(existingLedgers, incomingLedgers);
-          console.log(`[dataManagementAutoSync] Customers incremental merge: ${existingLedgers.length} existing + ${incomingLedgers.length} incoming = ${merged.length} total`);
           saveLedgerPromise = saveLedgerListToDataManagementCache({ ledgers: merged as LedgerListResponse['ledgers'] });
         } else {
-          // Full fetch with actual data: save as-is
-          console.log(`[dataManagementAutoSync] Customers full fetch: saving ${incomingLedgers.length} items`);
           saveLedgerPromise = saveLedgerListToDataManagementCache(lb);
         }
-      } else {
-        // Response is empty – keep existing data untouched
-        console.log(`[dataManagementAutoSync] Customers response empty, keeping existing ${existingLedgers.length} items`);
       }
     }
 
@@ -256,19 +311,12 @@ export async function refreshAllDataManagementData(): Promise<void> {
       const sb = stockBody as Record<string, unknown>;
       const incomingItems = (sb.stockItems as unknown[] | undefined) ?? (sb.data as unknown[] | undefined) ?? (Array.isArray(sb) ? sb : []);
       if (Array.isArray(incomingItems) && incomingItems.length > 0) {
-        if (stockMaxAltId > 0 && existingStockItems.length > 0) {
-          // Incremental: merge incoming with existing by MASTERID
+        if (stockMaxAltId > 0 && existingStockItems.length > 0 && !isStockItemsCacheStale) {
           const merged = mergeItemsByMasterId(existingStockItems, incomingItems);
-          console.log(`[dataManagementAutoSync] Stock items incremental merge: ${existingStockItems.length} existing + ${incomingItems.length} incoming = ${merged.length} total`);
           saveStockPromise = saveStockItemsToDataManagementCache({ stockItems: merged });
         } else {
-          // Full fetch with actual data: save as-is
-          console.log(`[dataManagementAutoSync] Stock items full fetch: saving ${incomingItems.length} items`);
           saveStockPromise = saveStockItemsToDataManagementCache(stockBody);
         }
-      } else {
-        // Response is empty – keep existing data untouched
-        console.log(`[dataManagementAutoSync] Stock items response empty, keeping existing ${existingStockItems.length} items`);
       }
     }
 

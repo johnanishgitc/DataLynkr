@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, StyleSheet, StatusBar, Animated, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 import { useAuth } from '../store';
 import { navigationRef } from './navigationRef';
 import AuthStack from './AuthStack';

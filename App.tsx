@@ -4,7 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, ScrollProvider } from './src/store';
 import RootNavigator from './src/navigation/RootNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from './src/utils/systemNavBar';
 
 export default function App() {
   if (Text.defaultProps == null) {

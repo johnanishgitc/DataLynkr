@@ -18,19 +18,27 @@ import {
   StatusBar,
   PanResponder,
   InteractionManager,
+  LayoutAnimation,
+  Vibration,
+  SafeAreaView,
 } from 'react-native';
 import axios from 'axios';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import { getStockItemsFromDataManagementCache } from '../../cache/stockItemsCacheReader';
 import { getLedgerListFromDataManagementCache, subscribeToDataManagementSync, refreshAllDataManagementData } from '../../cache';
 import { computeRateForItem, computeDiscountForItem } from '../../utils/itemPriceUtils';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import { useGlobalSidebar } from '../../store/GlobalSidebarContext';
 import { useBCommerceCart } from '../../store/BCommerceCartContext';
 import { useModuleAccess } from '../../store/ModuleAccessContext';
 import { deobfuscatePrice } from '../../utils/priceUtils';
+import { useS3Attachment } from '../../hooks/useS3Attachment';
+import { apiService } from '../../api/client';
+import { getTallylocId, getCompany, getGuid } from '../../store/storage';
+import { ClipDocsPopup, ClipDocsOptionId } from '../../components/ClipDocsPopup';
 import ProfileCustomerIcon from '../../assets/bcomm_img/profile-svgrepo-com.svg';
 
 import CartIcon from '../../assets/bcomm_img/carticon.svg';
@@ -43,6 +51,9 @@ const FEATURE_IMAGES = [
 ];
 
 const { width } = Dimensions.get('window');
+/** Thumbnail tile width + `popupThumbList` gap for modal strip scroll alignment */
+const MODAL_THUMB_STRIDE = 64 + 10;
+type MediaItem = { url: string; isVideo: boolean; originalIndex?: number; id?: number; s3_key?: string };
 
 type StockItem = {
   NAME?: string;
@@ -114,6 +125,276 @@ export default function BCommerceScreen() {
   const setPriceSliderInteracting = useCallback((isInteracting: boolean) => {
     isPriceSliderInteractingRef.current = isInteracting;
   }, []);
+
+  // ── Cover Image / S3 Logic ──────────────────────────────────────────────
+  const { pickAndUpload, uploading: isS3Uploading } = useS3Attachment({ type: 'BCommerce' });
+  const [isLocalUploading, setIsLocalUploading] = useState(false);
+  const isUploading = isS3Uploading || isLocalUploading;
+  const canUploadImages = ecommercePlaceOrderAccess.upload_images;
+
+  const [activeCoverImages, setActiveCoverImages] = useState<MediaItem[]>([]);
+  const [originalCoverImages, setOriginalCoverImages] = useState<MediaItem[]>([]);
+  const [pendingDeletedUrls, setPendingDeletedUrls] = useState<string[]>([]);
+  const [uploadedSessionImages, setUploadedSessionImages] = useState<string[]>([]);
+  const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+  const [isUploadPopupVisible, setIsUploadPopupVisible] = useState(false);
+  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
+
+  const modalSliderRef = useRef<FlatList<MediaItem>>(null);
+  const modalThumbScrollRef = useRef<ScrollView>(null);
+  const mediaIndexRef = useRef(0);
+
+  // Drag-and-drop state for reordering
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const draggedIndexRef = useRef<number | null>(null);
+  const hoverIndexRef = useRef<number | null>(null);
+  const dragX = useRef(new Animated.Value(0)).current;
+  const dragTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const activeCoverImagesRef = useRef<MediaItem[]>(activeCoverImages);
+  useEffect(() => { activeCoverImagesRef.current = activeCoverImages; }, [activeCoverImages]);
+
+  const loadCoverImages = async () => {
+    try {
+      const [tId, comp, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+      if (!tId || !comp || !g) return;
+
+      const res = await apiService.listCoverImages({ tallyloc_id: Number(tId), company: comp, guid: g });
+      if (res.data?.success && res.data.data) {
+        const items: MediaItem[] = res.data.data.map((img, i) => ({
+          url: img.view_url,
+          isVideo: false,
+          originalIndex: i,
+          id: img.id,
+          s3_key: img.s3_key
+        }));
+        setActiveCoverImages(items);
+        setOriginalCoverImages(items);
+      }
+    } catch (err) {
+      console.warn('Failed to load cover images:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadCoverImages();
+  }, [selectedCustomer]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return JSON.stringify(activeCoverImages.map(m => m.url)) !== JSON.stringify(originalCoverImages.map(m => m.url));
+  }, [activeCoverImages, originalCoverImages]);
+
+  const sortedMediaItems = useMemo(() => {
+    if (draggedIndex === null || hoverIndex === null || draggedIndex === hoverIndex) return activeCoverImages;
+    const list = [...activeCoverImages];
+    const itemIdx = list.findIndex(m => m.originalIndex === draggedIndex);
+    if (itemIdx === -1) return list;
+    
+    const [moved] = list.splice(itemIdx, 1);
+    list.splice(hoverIndex, 0, moved);
+    return list;
+  }, [activeCoverImages, draggedIndex, hoverIndex]);
+
+  const extractS3Key = (url: string): string | null => {
+    const match = url.match(/uploads\/[^?]+/);
+    return match ? match[0] : null;
+  };
+
+  const handleUploadOptionClick = async (optionId: ClipDocsOptionId) => {
+    setIsUploadPopupVisible(false);
+    try {
+      const results = await pickAndUpload(optionId);
+      if (!results || results.length === 0) return;
+
+      setIsLocalUploading(true);
+      const newMedia: MediaItem[] = [];
+
+      for (const res of results) {
+        if (res.viewUrl) {
+          newMedia.push({
+            url: res.viewUrl,
+            isVideo: false,
+            originalIndex: activeCoverImages.length + newMedia.length,
+            s3_key: res.s3Key
+          });
+        }
+      }
+
+      if (newMedia.length > 0) {
+        const updatedList = [...activeCoverImages, ...newMedia];
+        setActiveCoverImages(updatedList);
+        setUploadedSessionImages(prev => [...prev, ...newMedia.map(m => m.url)]);
+      }
+    } catch (err) {
+      console.warn('Cover image upload error:', err);
+      Alert.alert('Error', 'An error occurred while uploading. Please try again.');
+    } finally {
+      setIsLocalUploading(false);
+    }
+  };
+
+  const handleDeleteImage = (url: string) => {
+    const s3Key = extractS3Key(url);
+    if (s3Key) {
+      setPendingDeletedUrls(prev => [...prev, s3Key]);
+    }
+    const updatedList = activeCoverImages.filter(u => u.url !== url).map((m, i) => ({ ...m, originalIndex: i }));
+    setActiveCoverImages(updatedList);
+    
+    if (currentMediaIndex >= updatedList.length && updatedList.length > 0) {
+      const newIdx = updatedList.length - 1;
+      setCurrentMediaIndex(newIdx);
+      mediaIndexRef.current = newIdx;
+    }
+  };
+
+  const handleUpdateChanges = async () => {
+    setIsLocalUploading(true);
+    try {
+      const [tId, comp, g] = await Promise.all([getTallylocId(), getCompany(), getGuid()]);
+      if (!tId || !comp || !g) throw new Error('Missing identity context');
+
+      // 1. Delete removed images from AWS and DB
+      for (const s3Key of pendingDeletedUrls) {
+        try {
+          await apiService.deleteImage({ s3Key }); // AWS
+          await apiService.deleteCoverImage({ tallyloc_id: Number(tId), company: comp, guid: g, s3_key: s3Key }); // DB
+        } catch (s3Err) {
+          console.warn('Deferred S3 deletion failed:', s3Err);
+        }
+      }
+      
+      // 2. Save new images to DB and reorder all
+      for (let i = 0; i < activeCoverImages.length; i++) {
+        const img = activeCoverImages[i];
+        await apiService.saveCoverImage({
+          tallyloc_id: Number(tId),
+          company: comp,
+          guid: g,
+          s3_key: img.s3_key || extractS3Key(img.url) || '',
+          view_url: img.url,
+          display_order: i
+        });
+      }
+
+      // 3. Commit locally
+      setOriginalCoverImages(activeCoverImages);
+      setPendingDeletedUrls([]);
+      setUploadedSessionImages([]);
+      Alert.alert('Success', 'Cover images updated successfully.');
+    } catch (err) {
+      console.warn('Update cover images error:', err);
+      Alert.alert('Error', 'Failed to commit updates. Please try again.');
+    } finally {
+      setIsLocalUploading(false);
+    }
+  };
+
+  const closeImageModal = () => {
+    setIsImageModalVisible(false);
+    setIsSliderPaused(false);
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor('transparent', true);
+      StatusBar.setBarStyle('dark-content', true);
+    }
+  };
+
+  const scrollModalToIndex = (index: number, animated: boolean = true) => {
+    if (activeCoverImages.length === 0) return;
+    const safeIndex = ((index % activeCoverImages.length) + activeCoverImages.length) % activeCoverImages.length;
+    modalSliderRef.current?.scrollToOffset({
+      offset: safeIndex * width,
+      animated,
+    });
+  };
+
+  const createDragResponder = (index: number) => {
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+        dragTimerRef.current = setTimeout(() => {
+          draggedIndexRef.current = index;
+          hoverIndexRef.current = index;
+          setDraggedIndex(index);
+          setHoverIndex(index);
+          dragX.setValue(0);
+          Vibration.vibrate(40);
+        }, 300);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (draggedIndexRef.current === null) {
+          if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
+            if (dragTimerRef.current) {
+              clearTimeout(dragTimerRef.current);
+              dragTimerRef.current = null;
+            }
+          }
+          return;
+        }
+        const totalItems = activeCoverImagesRef.current.length;
+        let newHover = index + Math.round(gestureState.dx / 74);
+        newHover = Math.max(0, Math.min(newHover, totalItems - 1));
+        if (newHover !== hoverIndexRef.current) {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          hoverIndexRef.current = newHover;
+          setHoverIndex(newHover);
+        }
+        const layoutOffset = (hoverIndexRef.current ?? index) - index;
+        dragX.setValue(gestureState.dx - layoutOffset * 74);
+      },
+      onPanResponderRelease: () => {
+        if (dragTimerRef.current) {
+          clearTimeout(dragTimerRef.current);
+          dragTimerRef.current = null;
+        }
+        const from = draggedIndexRef.current;
+        const to = hoverIndexRef.current;
+        if (from !== null && to !== null && from !== to) {
+          setActiveCoverImages(prevList => {
+            const updatedList = [...prevList];
+            const [movedItem] = updatedList.splice(from, 1);
+            updatedList.splice(to, 0, movedItem);
+            return updatedList.map((m, i) => ({ ...m, originalIndex: i }));
+          });
+        }
+        draggedIndexRef.current = null;
+        hoverIndexRef.current = null;
+        setDraggedIndex(null);
+        setHoverIndex(null);
+        dragX.setValue(0);
+      },
+      onPanResponderTerminate: () => {
+        if (dragTimerRef.current) {
+          clearTimeout(dragTimerRef.current);
+          dragTimerRef.current = null;
+        }
+        draggedIndexRef.current = null;
+        hoverIndexRef.current = null;
+        setDraggedIndex(null);
+        setHoverIndex(null);
+        dragX.setValue(0);
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!isImageModalVisible || activeCoverImages.length <= 1) return;
+    const offset = Math.max(
+      0,
+      currentMediaIndex * MODAL_THUMB_STRIDE - width / 2 + MODAL_THUMB_STRIDE / 2,
+    );
+    modalThumbScrollRef.current?.scrollTo({ x: offset, animated: true });
+  }, [currentMediaIndex, isImageModalVisible, activeCoverImages.length]);
+
+  const displaySliderImages = useMemo(() => {
+    if (activeCoverImages.length > 0) {
+      return activeCoverImages.map(img => ({ uri: img.url }));
+    }
+    return FEATURE_IMAGES;
+  }, [activeCoverImages]);
+
 
 
 
@@ -382,6 +663,7 @@ export default function BCommerceScreen() {
   const renderSlider = () => {
     const sliderWidth = width - 32;
     const sliderHeight = sliderWidth * (150 / 343);
+    const data = displaySliderImages;
 
     return (
       <View style={styles.sliderSection}>
@@ -396,7 +678,7 @@ export default function BCommerceScreen() {
         >
           <FlatList
             ref={sliderListRef}
-            data={FEATURE_IMAGES}
+            data={data}
             horizontal
             pagingEnabled
             nestedScrollEnabled
@@ -412,7 +694,7 @@ export default function BCommerceScreen() {
             keyExtractor={(_, idx) => `feature-${idx}`}
             onMomentumScrollEnd={(event) => {
               const index = Math.round(event.nativeEvent.contentOffset.x / sliderItemWidth);
-              const safeIndex = Math.max(0, Math.min(index, FEATURE_IMAGES.length - 1));
+              const safeIndex = Math.max(0, Math.min(index, data.length - 1));
               sliderIndexRef.current = safeIndex;
               setCurrentSliderIndex(safeIndex);
             }}
@@ -422,9 +704,25 @@ export default function BCommerceScreen() {
               </View>
             )}
           />
+
+          {canUploadImages && (
+            <TouchableOpacity
+              style={styles.floatingEditCoverBtn}
+              onPress={() => {
+                pauseAutoScroll();
+                setIsImageModalVisible(true);
+                if (Platform.OS === 'android') {
+                  StatusBar.setBackgroundColor('#0E172B', true);
+                  StatusBar.setBarStyle('light-content', true);
+                }
+              }}
+            >
+              <Icon name="pencil" size={20} color="#0E172B" />
+            </TouchableOpacity>
+          )}
         </View>
         <View style={styles.sliderIndicators}>
-          {FEATURE_IMAGES.map((_, index) => (
+          {data.map((_, index) => (
             <View
               key={index}
               style={[
@@ -835,6 +1133,186 @@ export default function BCommerceScreen() {
           style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 25, zIndex: 999 }}
         />
       )}
+
+      {/* Feature Image Edit Modal */}
+      <Modal
+        visible={isImageModalVisible}
+        transparent={true}
+        statusBarTranslucent={true}
+        animationType="fade"
+        onRequestClose={closeImageModal}
+      >
+        <SafeAreaView style={styles.popupSafeArea}>
+          <StatusBar barStyle="light-content" backgroundColor="#0E172B" />
+          <View style={styles.popupContainer}>
+            <TouchableOpacity
+              style={styles.popupCloseBtn}
+              onPress={closeImageModal}
+            >
+              <Icon name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+
+            <View style={styles.popupBody}>
+              <View style={styles.popupMediaWrap}>
+                <FlatList
+                  ref={modalSliderRef}
+                  style={styles.popupModalSlider}
+                  data={activeCoverImages}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  keyExtractor={(item, index) => `modal-${item.url}-${index}`}
+                  getItemLayout={(_, index) => ({
+                    length: width,
+                    offset: width * index,
+                    index,
+                  })}
+                  onMomentumScrollEnd={(event) => {
+                    const index = Math.round(event.nativeEvent.contentOffset.x / width);
+                    const safeIndex = Math.max(0, Math.min(index, activeCoverImages.length - 1));
+                    mediaIndexRef.current = safeIndex;
+                    setCurrentMediaIndex(safeIndex);
+                  }}
+                  renderItem={({ item }) => (
+                    <View style={{ width: width, height: '100%' }}>
+                      <ReactNativeZoomableView
+                        maxZoom={30}
+                        minZoom={1}
+                        zoomStep={0.5}
+                        initialZoom={1}
+                        bindToBorders={true}
+                        style={{ width: '100%', height: '100%' }}
+                      >
+                        <Image
+                          source={{ uri: item.url }}
+                          style={{ width: '100%', height: '100%' }}
+                          resizeMode="contain"
+                        />
+                      </ReactNativeZoomableView>
+                    </View>
+                  )}
+                />
+                {activeCoverImages.length > 1 ? (
+                  <View style={styles.popupModalDots}>
+                    {activeCoverImages.map((_, index) => (
+                      <View
+                        key={`modal-dot-${index}`}
+                        style={[styles.popupModalDot, currentMediaIndex === index && styles.popupModalDotActive]}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+
+              {activeCoverImages.length > 0 ? (
+                <ScrollView
+                  ref={modalThumbScrollRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.popupThumbRow}
+                  contentContainerStyle={styles.popupThumbList}
+                >
+                  {sortedMediaItems.map((item, sortedIndex) => {
+                    const active = currentMediaIndex === item.originalIndex;
+                    const isDragging = draggedIndex === item.originalIndex;
+                    const panResponder = createDragResponder(item.originalIndex ?? sortedIndex);
+                    
+                    return (
+                      <Animated.View
+                        key={`thumb-${item.url}-${item.originalIndex}`}
+                        {...panResponder.panHandlers}
+                        style={[
+                          styles.popupThumbItem,
+                          active && styles.popupThumbItemActive,
+                          isDragging && {
+                            zIndex: 999,
+                            transform: [{ translateX: dragX }, { scale: 1.12 }],
+                            opacity: 0.9,
+                            overflow: 'visible',
+                            elevation: 10,
+                          }
+                        ]}
+                      >
+                        <TouchableOpacity
+                          activeOpacity={0.9}
+                          style={{ flex: 1 }}
+                          onPress={() => {
+                            const origIdx = item.originalIndex ?? sortedIndex;
+                            mediaIndexRef.current = origIdx;
+                            setCurrentMediaIndex(origIdx);
+                            scrollModalToIndex(origIdx);
+                          }}
+                        >
+                          <Image source={{ uri: item.url }} style={styles.popupThumbImage} resizeMode="cover" />
+                          <TouchableOpacity 
+                            style={styles.thumbDeleteBtn}
+                            onPress={() => handleDeleteImage(item.url)}
+                          >
+                            <Icon name="close-circle" size={18} color="#ff4d4d" />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      </Animated.View>
+                    );
+                  })}
+                  
+                  <TouchableOpacity
+                    style={[styles.popupThumbItem, styles.popupThumbAddBtn]}
+                    onPress={() => setIsUploadPopupVisible(true)}
+                  >
+                    <Icon name="plus" size={24} color="#ffffff" />
+                  </TouchableOpacity>
+                </ScrollView>
+              ) : (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                   <TouchableOpacity
+                    style={[styles.popupThumbItem, styles.popupThumbAddBtn, { width: 120, height: 120 }]}
+                    onPress={() => setIsUploadPopupVisible(true)}
+                  >
+                    <Icon name="plus" size={48} color="#ffffff" />
+                    <Text style={{ color: '#fff', marginTop: 8 }}>Add Images</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            <View
+              style={[
+                styles.popupFooterBar,
+                { paddingBottom: Math.max(insets.bottom, 14) },
+              ]}
+            >
+              <Text style={styles.popupRateText} numberOfLines={1}>
+                Feature Images
+              </Text>
+
+              {hasUnsavedChanges && (
+                <TouchableOpacity
+                  style={[
+                    styles.popupAddBtn,
+                    { backgroundColor: '#F5A623' },
+                  ]}
+                  onPress={handleUpdateChanges}
+                >
+                  <Text style={styles.popupAddBtnText}>Update Changes</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+          
+          <ClipDocsPopup
+            visible={isUploadPopupVisible}
+            onClose={() => setIsUploadPopupVisible(false)}
+            onOptionClick={handleUploadOptionClick}
+          />
+
+          {isUploading ? (
+            <View style={styles.uploadOverlay}>
+              <ActivityIndicator size="large" color="#ffffff" />
+              <Text style={styles.uploadText}>Uploading Images...</Text>
+            </View>
+          ) : null}
+        </SafeAreaView>
+      </Modal>
 
       {/* Customer Selection Modal */}
       <Modal visible={customerModalVisible} animationType="slide" transparent={false}>
@@ -1591,5 +2069,171 @@ const styles = StyleSheet.create({
   customerModalItemTextActive: {
     color: '#1f3a89',
     fontWeight: '600',
+  },
+  floatingEditCoverBtn: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 10,
+  },
+  popupSafeArea: {
+    flex: 1,
+    backgroundColor: '#0E172B',
+  },
+  popupContainer: {
+    flex: 1,
+    backgroundColor: '#0E172B',
+  },
+  popupBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  popupCloseBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupMediaWrap: {
+    flex: 1,
+    minHeight: 0,
+    paddingTop: 52,
+  },
+  popupModalSlider: {
+    flex: 1,
+    minHeight: 0,
+  },
+  popupModalDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  popupModalDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  popupModalDotActive: {
+    backgroundColor: '#ffffff',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  popupThumbRow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 84,
+    maxHeight: 84,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  popupThumbList: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    alignItems: 'center',
+    minHeight: 84,
+  },
+  popupThumbItem: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  popupThumbItemActive: {
+    borderColor: '#ffffff',
+    borderWidth: 2,
+  },
+  popupThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  popupFooterBar: {
+    flexGrow: 0,
+    flexShrink: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  popupRateText: {
+    flex: 1,
+    flexShrink: 1,
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '700',
+    fontFamily: 'WorkSans-VariableFont_wght',
+  },
+  popupAddBtn: {
+    height: 48,
+    minWidth: 148,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    backgroundColor: '#48B63E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupAddBtnText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600',
+    fontFamily: 'WorkSans-VariableFont_wght',
+  },
+  popupThumbAddBtn: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderWidth: 1.5,
+  },
+  thumbDeleteBtn: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    zIndex: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 0,
+  },
+  uploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  uploadText: {
+    fontFamily: 'WorkSans-VariableFont_wght',
+    fontSize: 16,
+    color: '#ffffff',
+    marginTop: 12,
   },
 });

@@ -37,9 +37,11 @@ interface PastOrdersProps {
   onReportDropdownOpen: () => void;
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
+  onRefreshReport?: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
   setSalesExportData?: (data: any) => void;
+  refreshTick?: number;
 }
 
 export default function PastOrders({
@@ -52,9 +54,11 @@ export default function PastOrders({
   onReportDropdownOpen,
   onPeriodSelectionOpen,
   onExportOpen,
+  onRefreshReport,
   onNavigateHome,
   onBankPress,
   setSalesExportData,
+  refreshTick = 0,
 }: PastOrdersProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -170,7 +174,7 @@ export default function PastOrders({
       }
     })();
     return () => { cancel = true; };
-  }, [from_date, to_date, ledger_name]);
+  }, [from_date, to_date, ledger_name, refreshTick]);
 
   const onOrderCard = (order: SalesOrderReportItem) => {
     (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
@@ -225,6 +229,7 @@ export default function PastOrders({
           rightIcons="ledger-report"
           onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
+          onRefreshPress={onRefreshReport}
           compact
         />
 

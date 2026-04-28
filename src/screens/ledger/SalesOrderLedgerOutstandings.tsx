@@ -41,9 +41,11 @@ interface SalesOrderLedgerOutstandingsProps {
   onReportDropdownOpen: () => void;
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
+  onRefreshReport?: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
   setSalesExportData?: (data: any) => void;
+  refreshTick?: number;
 }
 
 /** Grouped stock item row - aggregates similar STOCKITEM entries with average rate */
@@ -73,9 +75,11 @@ export default function SalesOrderLedgerOutstandings({
   onReportDropdownOpen,
   onPeriodSelectionOpen,
   onExportOpen,
+  onRefreshReport,
   onNavigateHome,
   onBankPress,
   setSalesExportData,
+  refreshTick = 0,
 }: SalesOrderLedgerOutstandingsProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -193,7 +197,7 @@ export default function SalesOrderLedgerOutstandings({
       }
     })();
     return () => { cancel = true; };
-  }, [ledger_name, from_date, to_date]);
+  }, [ledger_name, from_date, to_date, refreshTick]);
 
   const onSalesOrderRow = (grouped: GroupedStockItemRow) => {
     // If single row, navigate with that row; otherwise pass first row (screen will aggregate vouchers)
@@ -343,6 +347,7 @@ export default function SalesOrderLedgerOutstandings({
           rightIcons="ledger-report"
           onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
+          onRefreshPress={onRefreshReport}
           compact
         />
 

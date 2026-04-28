@@ -41,9 +41,11 @@ interface ClearedOrdersProps {
   onReportDropdownOpen: () => void;
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
+  onRefreshReport?: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
   setSalesExportData?: (data: any) => void;
+  refreshTick?: number;
 }
 
 interface ClearedOrderGroup {
@@ -68,9 +70,11 @@ export default function ClearedOrders({
   onReportDropdownOpen,
   onPeriodSelectionOpen,
   onExportOpen,
+  onRefreshReport,
   onNavigateHome,
   onBankPress,
   setSalesExportData,
+  refreshTick = 0,
 }: ClearedOrdersProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -188,7 +192,7 @@ export default function ClearedOrders({
       }
     })();
     return () => { cancel = true; };
-  }, [ledger_name, from_date, to_date]);
+  }, [ledger_name, from_date, to_date, refreshTick]);
 
   /** Cleared Orders: group API DATA by order (NAME) for display */
   const clearedOrderGroups = useMemo(() => {
@@ -290,6 +294,7 @@ export default function ClearedOrders({
           rightIcons="ledger-report"
           onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
+          onRefreshPress={onRefreshReport}
           compact
         />
 

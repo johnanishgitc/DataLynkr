@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../../utils/systemNavBar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Platform } from 'react-native';
 import { CommonActions } from '@react-navigation/native';

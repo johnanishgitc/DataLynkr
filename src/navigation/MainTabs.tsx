@@ -198,6 +198,15 @@ function MainTabsInner() {
           tabBarIcon: ({ focused }) => <TabIcon name="approvals" focused={focused} />,
           tabBarStyle: approvalsTabBarStyle({ route }),
         })}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            // Always force Approvals list refresh when opened from footer tab.
+            (navigation as any).navigate('ApprovalsTab', {
+              screen: 'ApprovalsScreen',
+              params: { refreshToken: Date.now() },
+            });
+          },
+        })}
       />
       <Tab.Screen
         name="SummaryTab"

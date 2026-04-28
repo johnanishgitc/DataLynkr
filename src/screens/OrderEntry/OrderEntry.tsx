@@ -25,7 +25,7 @@ import {
   Linking,
   useWindowDimensions,
 } from 'react-native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 
 // Enable LayoutAnimation on Android for smooth expand/collapse (match voucher details)
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -1079,14 +1079,14 @@ export default function OrderEntry() {
           SystemNavigationBar.setBarMode('dark');
         }
         if (isDraftMode) {
-          StatusBar.setBackgroundColor('#0e172b');
+          if (Platform.OS === 'android') StatusBar.setBackgroundColor('#0e172b');
           StatusBar.setBarStyle('light-content');
         }
       }, 50);
       return () => {
         clearTimeout(timer);
         // Screen blurred: always reset to normal color
-        StatusBar.setBackgroundColor(colors.primary_blue);
+        if (Platform.OS === 'android') StatusBar.setBackgroundColor(colors.primary_blue);
         StatusBar.setBarStyle('light-content');
       };
     }, [isDraftMode])

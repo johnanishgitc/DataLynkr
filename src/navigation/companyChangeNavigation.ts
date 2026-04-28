@@ -2,7 +2,7 @@ import { CommonActions } from '@react-navigation/native';
 import { Platform } from 'react-native';
 import { navigationRef } from './navigationRef';
 import { refreshAllDataManagementData } from '../cache';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 
 /**
  * Resets the navigation stack to MainTabs > HomeTab > SalesDashboard when the user

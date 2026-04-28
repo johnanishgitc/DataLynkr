@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import { getStockItemsFromDataManagementCache } from '../../cache/stockItemsCacheReader';
 
 const { width } = Dimensions.get('window');
