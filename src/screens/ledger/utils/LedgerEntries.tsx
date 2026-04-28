@@ -14,7 +14,7 @@ import {
   ScrollView,
   StyleSheet,
 } from 'react-native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../../utils/systemNavBar';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -368,6 +368,7 @@ export default function LedgerEntries() {
   const [shareExportLoading, setShareExportLoading] = useState(false);
   const [shareExportType, setShareExportType] = useState<'pdf' | 'excel' | null>(null);
   const [sharingFileInfo, setSharingFileInfo] = useState<{ path: string; type: string; title: string } | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
   const customerInputRef = useRef<TextInput>(null);
   const reportInputRef = useRef<TextInput>(null);
   const hasShownReportDropdownRef = useRef(false);
@@ -465,7 +466,7 @@ export default function LedgerEntries() {
   // Set status bar to blue when Ledger Reports screen is focused (e.g. after navigating from Order Success)
   useFocusEffect(
     React.useCallback(() => {
-      StatusBar.setBackgroundColor(colors.primary_blue);
+      if (Platform.OS === 'android') StatusBar.setBackgroundColor(colors.primary_blue);
       StatusBar.setBarStyle('light-content');
       if (Platform.OS === 'android') {
         SystemNavigationBar.setNavigationColor('#ffffff');
@@ -540,6 +541,7 @@ export default function LedgerEntries() {
   };
   const onPeriodSelectionOpen = () => setPeriodSelectionOpen(true);
   const onExportOpen = () => setExportVisible(true);
+  const onRefreshReport = () => setRefreshTick((x) => x + 1);
 
   /** Ensures DataLynkr export directory exists in standard app-accessible public directories (Downloads/Documents) */
   const getExportDir = useCallback(async (): Promise<string> => {
@@ -809,11 +811,13 @@ export default function LedgerEntries() {
     onReportDropdownOpen,
     onPeriodSelectionOpen,
     onExportOpen,
+    onRefreshReport,
     onNavigateHome,
     onBankPress: openBankUpi,
     onMenuPress: openSidebar,
     setExportData,
     setSalesExportData,
+    refreshTick,
   };
 
   // Render the appropriate component based on report_name

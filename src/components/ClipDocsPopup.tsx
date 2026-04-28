@@ -4,7 +4,7 @@
  */
 import React, { useEffect } from 'react';
 import { View, Text, Modal, TouchableOpacity, Pressable, StyleSheet, Dimensions, Platform } from 'react-native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 import FrameCameraSvg from '../assets/clipPopup/frame-2147225875.svg';
 import VectorGallerySvg from '../assets/clipPopup/vector.svg';
 import VectorFilesSvg from '../assets/clipPopup/vector-1.svg';

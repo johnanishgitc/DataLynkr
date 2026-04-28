@@ -260,6 +260,18 @@ export type MainStackParamList = {
   Payments: undefined;
   ExpenseClaims: undefined;
   Collections: undefined;
+  GeoTrackingOrders: undefined;
+  GeoTrackingAddForm: {
+    editData?: {
+      masterid: number;
+      id: number;
+      name: string;
+      email: string;
+      customers: string[];
+      days: string[];
+      dates?: string[];
+    };
+  } | undefined;
   /** Root-stack voucher detail (rare); ledger flows use LedgerStack.VoucherDetailView */
   VoucherDetailView: {
     voucher: object;

@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { ReactNativeZoomableView } from '@openspacelabs/react-native-zoomable-view';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import { useBCommerceCart } from '../../store/BCommerceCartContext';
 import { useModuleAccess } from '../../store/ModuleAccessContext';
 
@@ -91,13 +91,17 @@ export default function BCommerceItemDetailScreen() {
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [urlToDelete, setUrlToDelete] = useState<string | null>(null);
+  // Drag state — stored in refs so closures always see fresh values
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const draggedIndexRef = useRef<number | null>(null);
+  const hoverIndexRef = useRef<number | null>(null);
   const dragX = useRef(new Animated.Value(0)).current;
   const dragTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const activeImageUrlsRef = useRef<string[]>(activeImageUrls);
+  // Keep ref in sync with state
+  useEffect(() => { activeImageUrlsRef.current = activeImageUrls; }, [activeImageUrls]);
   const currentHoverIndexRef = useRef<number | null>(null);
-  const currentDragIndexRef = useRef<number | null>(null);
-  const dragOffsetRef = useRef<number>(0);
 
   // Enable LayoutAnimation on Android
   useEffect(() => {
@@ -332,16 +336,18 @@ export default function BCommerceItemDetailScreen() {
       onPanResponderGrant: () => {
         if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
         dragTimerRef.current = setTimeout(() => {
+          draggedIndexRef.current = index;
+          hoverIndexRef.current = index;
           setDraggedIndex(index);
-          currentHoverIndexRef.current = index;
           setHoverIndex(index);
           dragX.setValue(0);
-          Vibration.vibrate(50); // Haptic feedback for "picked up"
-        }, 500);
+          Vibration.vibrate(40);
+        }, 300); // 300ms long-press to activate
       },
       onPanResponderMove: (_, gestureState) => {
-        if (draggedIndex === null) {
-          if (Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10) {
+        // Cancel if long-press hasn't fired yet and they moved too much
+        if (draggedIndexRef.current === null) {
+          if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
             if (dragTimerRef.current) {
               clearTimeout(dragTimerRef.current);
               dragTimerRef.current = null;
@@ -349,43 +355,46 @@ export default function BCommerceItemDetailScreen() {
           }
           return;
         }
-        
-        let newHoverIndex = index + Math.round(gestureState.dx / 74);
-        newHoverIndex = Math.max(0, Math.min(newHoverIndex, activeImageUrls.length - 1));
 
-        if (newHoverIndex !== currentHoverIndexRef.current) {
+        // Compute which slot the dragged item is hovering over
+        const totalItems = activeImageUrlsRef.current.length;
+        let newHover = index + Math.round(gestureState.dx / 74);
+        newHover = Math.max(0, Math.min(newHover, totalItems - 1));
+
+        if (newHover !== hoverIndexRef.current) {
           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          currentHoverIndexRef.current = newHoverIndex;
-          setHoverIndex(newHoverIndex);
+          hoverIndexRef.current = newHover;
+          setHoverIndex(newHover);
         }
 
-        const layoutOffset = (currentHoverIndexRef.current ?? index) - index;
-        dragX.setValue(gestureState.dx - (layoutOffset * 74));
+        // Offset the visual position so the thumbnail snaps back toward finger
+        const layoutOffset = (hoverIndexRef.current ?? index) - index;
+        dragX.setValue(gestureState.dx - layoutOffset * 74);
       },
       onPanResponderRelease: () => {
         if (dragTimerRef.current) {
           clearTimeout(dragTimerRef.current);
           dragTimerRef.current = null;
         }
-
-        if (draggedIndex !== null) {
-          const finalHover = currentHoverIndexRef.current;
-          if (finalHover !== null && finalHover !== index) {
-            handleMoveImage(index, finalHover);
-          }
-          setDraggedIndex(null);
-          currentHoverIndexRef.current = null;
-          setHoverIndex(null);
-          dragX.setValue(0);
+        const from = draggedIndexRef.current;
+        const to = hoverIndexRef.current;
+        if (from !== null && to !== null && from !== to) {
+          handleMoveImage(from, to);
         }
+        draggedIndexRef.current = null;
+        hoverIndexRef.current = null;
+        setDraggedIndex(null);
+        setHoverIndex(null);
+        dragX.setValue(0);
       },
       onPanResponderTerminate: () => {
         if (dragTimerRef.current) {
           clearTimeout(dragTimerRef.current);
           dragTimerRef.current = null;
         }
+        draggedIndexRef.current = null;
+        hoverIndexRef.current = null;
         setDraggedIndex(null);
-        currentHoverIndexRef.current = null;
         setHoverIndex(null);
         dragX.setValue(0);
       },
@@ -472,12 +481,22 @@ export default function BCommerceItemDetailScreen() {
     }
     setCurrentMediaIndex(index);
     mediaIndexRef.current = index;
+    StatusBar.setBarStyle('light-content', true);
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor('#0E172B', true);
+      SystemNavigationBar.setNavigationColor('#0E172B', false);
+    }
     setIsImageModalVisible(true);
   };
 
   const closeImageModal = () => {
     // Sync main slider to whichever media user stopped on in popup.
     goToMediaIndex(currentMediaIndex, false);
+    StatusBar.setBarStyle('dark-content', true);
+    if (Platform.OS === 'android') {
+      StatusBar.setBackgroundColor('#ffffff', true);
+      SystemNavigationBar.setNavigationColor('#ffffff', true);
+    }
     setIsImageModalVisible(false);
     // Restore auto-slide behavior after dismissing popup.
     setAutoSlidePaused(false);
@@ -565,7 +584,10 @@ export default function BCommerceItemDetailScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <StatusBar
+        barStyle={isImageModalVisible ? 'light-content' : 'dark-content'}
+        backgroundColor={isImageModalVisible ? '#0E172B' : '#ffffff'}
+      />
 
       {/* Header */}
       <View style={styles.header}>
@@ -770,10 +792,12 @@ export default function BCommerceItemDetailScreen() {
         <Modal
           visible={isImageModalVisible}
           transparent={true}
+          statusBarTranslucent={true}
           animationType="fade"
           onRequestClose={closeImageModalWithCheck}
         >
           <SafeAreaView style={styles.popupSafeArea}>
+            <StatusBar barStyle="light-content" backgroundColor="#0E172B" />
             <View style={styles.popupContainer}>
               <TouchableOpacity
                 style={styles.popupCloseBtn}
@@ -866,8 +890,10 @@ export default function BCommerceItemDetailScreen() {
                             active && styles.popupThumbItemActive,
                             isDragging && {
                               zIndex: 999,
-                              transform: [{ translateX: dragX }, { scale: 1.1 }],
-                              opacity: 0.8,
+                              transform: [{ translateX: dragX }, { scale: 1.12 }],
+                              opacity: 0.9,
+                              overflow: 'visible',
+                              elevation: 10,
                             }
                           ]}
                         >
@@ -875,10 +901,11 @@ export default function BCommerceItemDetailScreen() {
                             activeOpacity={0.9}
                             style={{ flex: 1 }}
                             onPress={() => {
+                              const origIdx = item.originalIndex ?? sortedIndex;
                               setAutoSlidePaused(true);
-                              mediaIndexRef.current = index;
-                              setCurrentMediaIndex(index);
-                              scrollModalToIndex(index);
+                              mediaIndexRef.current = origIdx;
+                              setCurrentMediaIndex(origIdx);
+                              scrollModalToIndex(origIdx);
                             }}
                           >
                           {item.isVideo ? (
@@ -1139,7 +1166,7 @@ const styles = StyleSheet.create({
   },
   popupCloseBtn: {
     position: 'absolute',
-    top: 16,
+    top: 40,
     right: 16,
     zIndex: 10,
     width: 40,

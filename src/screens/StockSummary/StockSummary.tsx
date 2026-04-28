@@ -17,7 +17,7 @@ import { useNavigation, useRoute, CommonActions, useFocusEffect } from '@react-n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { getStockSummaryFromDataManagementCache } from '../../cache';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import RNHTMLtoPDF from 'react-native-html-to-pdf';
 import RNPrint from 'react-native-print';
 import * as XLSX from 'xlsx';

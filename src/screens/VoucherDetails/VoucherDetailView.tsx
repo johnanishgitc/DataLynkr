@@ -16,6 +16,7 @@ import {
   Animated,
   LayoutAnimation,
   Platform,
+  StatusBar,
   UIManager,
   BackHandler,
   Linking,
@@ -28,7 +29,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 import WebView from 'react-native-webview';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { PhoneIcon, MailIcon, WhatsappIcon } from '../../assets/contactdetails';
@@ -333,6 +334,23 @@ export default function VoucherDetailView() {
     ''
   ).trim();
   const [rejectionReasonModalVisible, setRejectionReasonModalVisible] = useState(false);
+
+  // ── System Bar Shadow for Rejection Reason Modal ──
+  useEffect(() => {
+    if (rejectionReasonModalVisible) {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor('#00000080', true);
+        StatusBar.setBarStyle('light-content');
+        SystemNavigationBar.setNavigationColor('#00000080', false);
+      }
+    } else {
+      if (Platform.OS === 'android') {
+        StatusBar.setBackgroundColor(colors.primary_blue, true);
+        StatusBar.setBarStyle('light-content');
+        SystemNavigationBar.setNavigationColor('#ffffff', true);
+      }
+    }
+  }, [rejectionReasonModalVisible]);
 
   useEffect(() => {
     if (!showRejectionReasonBtn) setModifyOrderDockMeasured(0);
@@ -1452,6 +1470,7 @@ export default function VoucherDetailView() {
       <Modal
         visible={rejectionReasonModalVisible}
         transparent
+        statusBarTranslucent
         animationType="fade"
         onRequestClose={() => setRejectionReasonModalVisible(false)}
       >

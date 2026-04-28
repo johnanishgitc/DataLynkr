@@ -9,7 +9,7 @@ import {
     Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../utils/systemNavBar';
 import DeletePopupIcon from '../assets/DeletePopupIcon';
 import { colors } from '../constants/colors';
 

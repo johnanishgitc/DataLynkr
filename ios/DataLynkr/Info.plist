@@ -32,11 +32,15 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string/>
+	<string>DataLynkr needs your location to tag orders and verify delivery addresses.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is used to scan QR codes and attach photos to orders.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Photo library access is used to attach images to orders.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>DataLynkr needs permission to save exported files to your photo library.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access may be required by the camera for video capture.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
@@ -83,6 +87,9 @@
 		<string>WorkSans-ThinItalic.ttf</string>
 		<string>WorkSans-Italic-VariableFont_wght.ttf</string>
 		<string>WorkSans-VariableFont_wght.ttf</string>
+		<string>MaterialCommunityIcons.ttf</string>
+		<string>MaterialIcons.ttf</string>
+		<string>FontAwesome.ttf</string>
 	</array>
 </dict>
 </plist>

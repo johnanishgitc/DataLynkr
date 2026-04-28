@@ -45,9 +45,11 @@ interface BillWiseOutstandingProps {
   onReportDropdownOpen: () => void;
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
+  onRefreshReport?: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
   setExportData?: (data: LedgerReportData | null) => void;
+  refreshTick?: number;
 }
 
 export default function BillWiseOutstanding({
@@ -60,9 +62,11 @@ export default function BillWiseOutstanding({
   onReportDropdownOpen,
   onPeriodSelectionOpen,
   onExportOpen,
+  onRefreshReport,
   onNavigateHome,
   onBankPress,
   setExportData,
+  refreshTick = 0,
 }: BillWiseOutstandingProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -188,7 +192,7 @@ export default function BillWiseOutstanding({
       }
     })();
     return () => { cancel = true; };
-  }, [ledger_name, report_name, from_date, to_date]);
+  }, [ledger_name, report_name, from_date, to_date, refreshTick]);
 
   const onRow = (v: VoucherEntry) => {
     // Navigate to Bill Details (VoucherDetails) - Figma 3062-22885
@@ -370,6 +374,7 @@ export default function BillWiseOutstanding({
           rightIcons="ledger-report"
           onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
+          onRefreshPress={onRefreshReport}
           compact
         />
 

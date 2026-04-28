@@ -9,7 +9,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Geolocation from 'react-native-geolocation-service';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 import { StatusBarTopBar } from '../../components/StatusBarTopBar';
 import { ClipDocsPopup, type ClipDocsOptionId } from '../../components/ClipDocsPopup';
 import AttachmentPreviewModal from '../../components/AttachmentPreviewModal';

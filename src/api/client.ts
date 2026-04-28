@@ -72,6 +72,7 @@ import type {
 } from './models';
 
 const BASE_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API/';
+const TEST_URL = 'http://localhost:5000/';
 
 export type GetToken = () => Promise<string | null>;
 export type OnUnauthorized = () => void;
@@ -93,9 +94,9 @@ export function setAuthHandlers(tokenFn: GetToken, unauthFn: OnUnauthorized) {
   onUnauthorized = unauthFn;
 }
 
-function createClient(timeoutMs = 60000): AxiosInstance {
+function createClient(timeoutMs = 60000, baseUrl = BASE_URL): AxiosInstance {
   const client = axios.create({
-    baseURL: BASE_URL,
+    baseURL: baseUrl,
     headers: { 'Content-Type': 'application/json' },
     timeout: timeoutMs,
   });
@@ -182,6 +183,13 @@ let api: AxiosInstance | null = null;
 function getApi(): AxiosInstance {
   if (!api) api = createClient();
   return api;
+}
+
+// Separate client for test URL endpoints (geo-tracking etc.)
+let testApi: AxiosInstance | null = null;
+function getTestApi(): AxiosInstance {
+  if (!testApi) testApi = createClient(60000, TEST_URL);
+  return testApi;
 }
 
 // Separate client for long-running download requests with extended timeout
@@ -494,6 +502,218 @@ export const apiService = {
   /** S3 attachment: delete image */
   deleteImage: (body: { s3Key: string }) =>
     getApi().post<{ success?: boolean; message?: string }>('api/images/delete', body),
+
+  /** Internal users list for Geo-Tracking Sales Person dropdown */
+  getInternalUsers: () =>
+    getApi().get<{
+      message?: string;
+      totalUsers?: number;
+      users?: Array<{
+        userId: number;
+        name: string;
+        email: string;
+        mobileno: string | null;
+        userActive: boolean;
+        companies: Array<{
+          accessId: number;
+          tallylocId: number;
+          tallyLocationName: string;
+          companyName: string;
+          companyGuid: string;
+          userType: string;
+          roleId: number;
+          isExternalUser: boolean;
+          accessActive: boolean;
+          accessCreatedAt: string;
+        }>;
+        totalCompanies: number;
+      }>;
+    }>('api/tally/internal-users'),
+
+  /** User groups for Geo-Tracking customer filtering */
+  getUserGroups: (body: {
+    userid: string;
+    tallyloc_id: number;
+    company_name: string;
+    guid: string;
+  }) =>
+    getApi().post<{
+      success?: boolean;
+      message?: string;
+      data?: {
+        admin_user_id?: number;
+        target_user_id?: number;
+        groups?: {
+          ledger_groups?: Array<{ name: string; masterid: string }>;
+          stock_groups?: Array<{ name: string; masterid: string }>;
+          stock_categories?: Array<{ name: string; masterid: string }>;
+          voucher_types?: Array<{ name: string; masterid: string }>;
+        };
+      };
+    }>('api/tally/user-groups/get', body),
+
+  // ── Geo-Tracking CRUD (uses TEST_URL) ───────────────────────────────
+
+  /** Create geo-tracking order */
+  createGeoTracking: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    id: number;
+    name: string;
+    email: string;
+    customers: string[];
+    days: string[];
+    dates?: string[];
+  }) =>
+    getTestApi().post<{
+      success?: boolean;
+      message?: string;
+      data?: {
+        masterid: number;
+        id: number;
+        name: string;
+        email: string;
+        customers: string[];
+        days: string[];
+        dates?: string[];
+        is_active: boolean;
+        created_at: string;
+      };
+    }>('api/geo-tracking/create', body),
+
+  /** List geo-tracking orders */
+  listGeoTracking: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    email?: string;
+  }) =>
+    getTestApi().post<{
+      success?: boolean;
+      message?: string;
+      total?: number;
+      data?: Array<{
+        masterid: number;
+        id: number;
+        name: string;
+        email: string;
+        customers: string[];
+        days: string[];
+        dates?: string[];
+        is_active: boolean;
+        created_at: string;
+        updated_at?: string;
+      }>;
+    }>('api/geo-tracking/list', body),
+
+  /** Update geo-tracking order */
+  updateGeoTracking: (body: {
+    masterid: number;
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    id: number;
+    name: string;
+    email: string;
+    customers: string[];
+    days: string[];
+    dates?: string[];
+  }) =>
+    getTestApi().put<{
+      success?: boolean;
+      message?: string;
+      data?: {
+        masterid: number;
+        id: number;
+        name: string;
+        email: string;
+        customers: string[];
+        days: string[];
+        dates?: string[];
+        is_active: boolean;
+        updated_at: string;
+      };
+    }>('api/geo-tracking/update', body),
+
+  /** Delete geo-tracking order */
+  deleteGeoTracking: (body: {
+    masterid: number;
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+  }) =>
+    getTestApi().delete<{
+      success?: boolean;
+      message?: string;
+    }>('api/geo-tracking/delete', { data: body }),
+
+  // ── BCommerce Cover Images (uses TEST_URL) ──────────────────────────
+
+  /** Save (create/upsert) a BCommerce cover image S3 key */
+  saveCoverImage: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    s3_key: string;
+    view_url: string;
+    file_name?: string;
+    display_order?: number;
+  }) =>
+    getTestApi().post<{
+      success?: boolean;
+      message?: string;
+      data?: { id: number; s3_key: string; view_url: string; display_order?: number };
+    }>('api/bcommerce/cover-image', body),
+
+  /** List BCommerce cover images for a company */
+  listCoverImages: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+  }) =>
+    getTestApi().post<{
+      success?: boolean;
+      message?: string;
+      total?: number;
+      data?: Array<{
+        id: number;
+        tallyloc_id: number;
+        company: string;
+        guid: string;
+        s3_key: string;
+        view_url: string;
+        file_name?: string;
+        display_order: number;
+        created_at?: string;
+        updated_at?: string;
+      }>;
+    }>('api/bcommerce/cover-images', body),
+
+  /** Delete a BCommerce cover image by id or s3_key */
+  deleteCoverImage: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    id?: number;
+    s3_key?: string;
+  }) =>
+    getTestApi().delete<{
+      success?: boolean;
+      message?: string;
+    }>('api/bcommerce/cover-image', { data: body }),
+
+  /** Reorder BCommerce cover images */
+  reorderCoverImages: (body: {
+    tallyloc_id: number;
+    company: string;
+    guid: string;
+    order: number[];
+  }) =>
+    getTestApi().put<{
+      success?: boolean;
+      message?: string;
+    }>('api/bcommerce/cover-images/reorder', body),
 };
 
 export default apiService;

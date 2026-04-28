@@ -34,3 +34,5 @@ This project enforces 16KB ELF segment alignment for all native (`.so`) librarie
 
 
 dont make any changes to the git nor pull any changes from it
+
+Always while updating, it should be updated such that it should support both android and ios.

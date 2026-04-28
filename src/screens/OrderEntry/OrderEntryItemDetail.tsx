@@ -21,7 +21,7 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
-import SystemNavigationBar from 'react-native-system-navigation-bar';
+import SystemNavigationBar from '../../utils/systemNavBar';
 
 // Enable LayoutAnimation on Android for smooth expand/selection (match voucher details)
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {

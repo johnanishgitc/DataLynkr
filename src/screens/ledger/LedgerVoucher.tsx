@@ -49,9 +49,11 @@ interface LedgerVoucherProps {
   onReportDropdownOpen: () => void;
   onPeriodSelectionOpen: () => void;
   onExportOpen: () => void;
+  onRefreshReport?: () => void;
   onNavigateHome: () => void;
   onBankPress?: () => void;
   setExportData?: (data: LedgerReportData | null) => void;
+  refreshTick?: number;
 }
 
 export default function LedgerVoucher({
@@ -64,9 +66,11 @@ export default function LedgerVoucher({
   onReportDropdownOpen,
   onPeriodSelectionOpen,
   onExportOpen,
+  onRefreshReport,
   onNavigateHome,
   onBankPress,
   setExportData,
+  refreshTick = 0,
 }: LedgerVoucherProps) {
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -187,7 +191,7 @@ export default function LedgerVoucher({
       }
     })();
     return () => { cancel = true; };
-  }, [ledger_name, report_name, from_date, to_date]);
+  }, [ledger_name, report_name, from_date, to_date, refreshTick]);
 
   const onRow = (v: VoucherEntry) => {
     (nav.navigate as (a: string, b: object) => void)('VoucherDetailView', {
@@ -254,6 +258,7 @@ export default function LedgerVoucher({
           rightIcons="ledger-report"
           onBankPress={onBankPress}
           onRightIconsPress={onExportOpen}
+          onRefreshPress={onRefreshReport}
           compact
         />
 

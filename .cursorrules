@@ -95,3 +95,5 @@ libraries with 4KB alignment are acceptable (emulator-only architecture).
 
 
 dont make any changes to the git nor pull any changes from git
+
+Always while updating, it should be updated such that it should support both android and ios.

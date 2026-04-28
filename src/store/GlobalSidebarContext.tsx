@@ -63,6 +63,7 @@ function mapRouteNameToSidebarTarget(routeName?: string): string | undefined {
   if (routeName === 'Payments') return 'Payments';
   if (routeName === 'Collections') return 'Collections';
   if (routeName === 'ExpenseClaims') return 'ExpenseClaims';
+  if (routeName === 'GeoTrackingOrders') return 'GeoTrackingOrders';
   if (routeName === 'DataManagement') return 'DataManagement';
   if (routeName.startsWith('BCommerce')) return 'BCommerce';
 
@@ -239,7 +240,7 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
     return;
   }
 
-  if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims') {
+  if (item.target === 'Payments' || item.target === 'Collections' || item.target === 'ExpenseClaims' || item.target === 'GeoTrackingOrders') {
     if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     (navigationRef as any).navigate(item.target);
     return;
@@ -259,7 +260,13 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
         navigationRef.navigate('MainTabs' as never, { screen: 'LedgerTab' } as never);
       }
     } else if (item.target === 'ApprovalsTab') {
-      navigationRef.navigate('MainTabs' as never, { screen: 'ApprovalsTab' } as never);
+      navigationRef.navigate(
+        'MainTabs' as never,
+        {
+          screen: 'ApprovalsTab',
+          params: { screen: 'ApprovalsScreen', params: { refreshToken: Date.now() } },
+        } as never,
+      );
     } else if (item.target === 'SummaryTab') {
       navigationRef.navigate('MainTabs' as never, { screen: 'SummaryTab' } as never);
     } else if (item.target === 'SalesDashboard' || item.target === 'HomeTab') {
@@ -281,7 +288,13 @@ function handleSidebarItemPress(item: AppSidebarMenuItem): void {
     }
   } else if (item.target === 'ApprovalsTab') {
     if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
-    navigationRef.navigate('MainTabs' as never, { screen: 'ApprovalsTab' } as never);
+    navigationRef.navigate(
+      'MainTabs' as never,
+      {
+        screen: 'ApprovalsTab',
+        params: { screen: 'ApprovalsScreen', params: { refreshToken: Date.now() } },
+      } as never,
+    );
   } else if (item.target === 'SummaryTab' || item.target === 'StockSummary') {
     if (isOnOrderSuccess) resetOrdersTabToCleanOrderEntry();
     navigationRef.navigate('MainTabs' as never, { screen: 'SummaryTab' } as never);
@@ -342,8 +355,15 @@ export function GlobalSidebarProvider({ children }: { children: React.ReactNode 
 
   const onItemPress = useCallback((item: AppSidebarMenuItem) => {
     const activeTarget = getActiveTargetFromNavigation();
+    const activeLedgerReport = getActiveLedgerReportFromNavigation();
+    const nextLedgerReport = (item.params as { report_name?: string } | undefined)?.report_name;
+    const isLedgerReportSwitch =
+      item.target === 'LedgerTab' &&
+      typeof nextLedgerReport === 'string' &&
+      nextLedgerReport.length > 0 &&
+      nextLedgerReport !== activeLedgerReport;
     // If already on target, just close — except Orders, which must always open a fresh cleared screen.
-    if (item.target === activeTarget && item.target !== 'OrderEntry') {
+    if (item.target === activeTarget && item.target !== 'OrderEntry' && !isLedgerReportSwitch) {
       setSidebarOpen(false);
       return;
     }

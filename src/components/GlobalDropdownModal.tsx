@@ -36,6 +36,7 @@ export interface GlobalDropdownModalProps<T> {
   searchRightAction?: React.ReactElement;
   /** Defaults to primary_blue to match Order Entry; use #0e172b for Quick Order to match StatusBarTopBar draft header. */
   headerBackgroundColor?: string;
+  footer?: React.ReactNode;
 }
 
 export default function GlobalDropdownModal<T>({
@@ -56,6 +57,7 @@ export default function GlobalDropdownModal<T>({
   emptyText = 'No data found',
   searchRightAction,
   headerBackgroundColor = colors.primary_blue,
+  footer,
 }: GlobalDropdownModalProps<T>): React.ReactElement {
   const inputRef = useRef<TextInput>(null);
 
@@ -123,6 +125,7 @@ export default function GlobalDropdownModal<T>({
               );
             }}
           />
+          {footer && <View>{footer}</View>}
         </View>
       </TouchableOpacity>
     </Modal>
